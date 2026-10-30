@@ -88,6 +88,13 @@ function gauge(used, total, cells) {
   ];
 }
 
+// 검색어가 세션 이름·폴더·모델 중 하나에 들어 있으면 남긴다 (대소문자 무시).
+export function filterSessions(sessions, query) {
+  const q = (query ?? '').trim().toLowerCase();
+  if (!q) return sessions;
+  return sessions.filter((s) => [s.name, s.project, s.cwd, s.model, s.tool].some((v) => String(v ?? '').toLowerCase().includes(q)));
+}
+
 const dollars = (usd) => (usd >= 1000 ? `$${Math.round(usd).toLocaleString('en-US')}` : usd >= 100 ? `$${usd.toFixed(0)}` : `$${usd.toFixed(2)}`);
 // 비용을 모르는 도구는 '-'. 가격표에 없는 모델이 섞이면 아는 몫 뒤에 '?' 를 붙이고, 아는 몫이 없으면 '?' 만 보인다.
 export function money(usd, unknown = false) {
@@ -301,10 +308,14 @@ function detail(s, W, H, frame) {
   return box(title, W, H, L, R, leftW, tc);
 }
 
-function footer(view, W) {
+function footer(view, W, matched) {
   const key = (k) => ({ t: ` ${k} `, fg: '#0b0e14', bg: PALETTE.muted, bold: true });
   const lab = (t) => ({ t: ` ${t}   `, fg: PALETTE.muted });
-  const segs = [{ t: ' ' }, key('↑↓'), lab('선택'), key('n'), lab('다음 볼 세션'), key('d'), lab(view.showDetail ? '상세 닫기' : '상세 열기'), key('e'), lab(view.showEnded ? '종료 숨기기' : '종료 포함'), key('q'), lab('나가기')];
+  if (view.searching) {
+    return line([{ t: ' / ', fg: '#0b0e14', bg: PALETTE.brand, bold: true }, { t: ` ${view.filter ?? ''}`, fg: PALETTE.text, bold: true }, { t: '▏', fg: PALETTE.brand }, { t: `  ${matched}개   `, fg: PALETTE.muted }, key('⏎'), lab('적용'), key('Esc'), lab('지우기')], W);
+  }
+  const search = view.filter ? [{ t: ` /${view.filter} `, fg: '#0b0e14', bg: PALETTE.brand, bold: true }, { t: ` ${matched}개 `, fg: PALETTE.muted }, key('Esc'), lab('검색 지우기')] : [key('/'), lab('검색')];
+  const segs = [{ t: ' ' }, ...search, key('↑↓'), lab('선택'), key('n'), lab('다음 볼 세션'), key('d'), lab(view.showDetail ? '상세 닫기' : '상세 열기'), key('e'), lab(view.showEnded ? '종료 숨기기' : '종료 포함'), key('q'), lab('나가기')];
   const right = '읽기 전용 · 네트워크 없음 ';
   const used = segs.reduce((a, s) => a + width(s.t), 0);
   segs.push({ t: ' '.repeat(Math.max(1, W - used - width(right))) }, { t: right, fg: PALETTE.faint });
@@ -319,7 +330,8 @@ export function render(view, W, H) {
     for (let i = 0; i < H; i++) lines.push(i === Math.floor(H / 2) ? line([{ t: ' '.repeat(Math.max(0, Math.floor((W - width(msg)) / 2))) }, { t: msg, fg: PALETTE.brand }], W) : line([], W));
     return lines;
   }
-  const { sessions, errors } = view.data;
+  const { errors } = view.data;
+  const sessions = filterSessions(view.data.sessions, view.filter);
   const c = columns(W);
   lines.push(header(view, W), toolStrip(view, W), line([], W), tableHeader(c, W));
 
@@ -339,7 +351,7 @@ export function render(view, W, H) {
   const lastOfSel = selRow + (sel?.members.length ?? 0);
   const start = Math.min(Math.max(0, lastOfSel - shown + 1), Math.max(0, rows.length - shown), selRow);
   const visible = rows.slice(start, start + shown);
-  if (!sessions.length) lines.push(line([{ t: '   실행 중인 AI 세션이 없습니다.', fg: PALETTE.muted, italic: true }], W));
+  if (!sessions.length) lines.push(line([{ t: view.filter ? `   '${view.filter}' 에 맞는 세션이 없습니다.` : '   실행 중인 AI 세션이 없습니다.', fg: PALETTE.muted, italic: true }], W));
   for (const r of visible) lines.push(r.m ? memberRow(r.m, r.last, c, W, view.frame) : sessionRow(r.s, c, W, r.s === sel, view.frame));
   if (clipped) {
     const onScreen = new Set(visible.filter((r) => !r.m).map((r) => r.s));
@@ -354,6 +366,6 @@ export function render(view, W, H) {
   if (errors?.length) lines[lines.length - 1] = line([{ t: ' ! ' + errors.join(' / '), fg: PALETTE.alert }], W);
   while (lines.length < H - 1) lines.push(line([], W));
   lines.length = H - 1;
-  lines.push(footer(view, W));
+  lines.push(footer(view, W, sessions.length));
   return lines;
 }
