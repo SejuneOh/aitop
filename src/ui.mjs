@@ -193,9 +193,9 @@ function sessionRow(s, c, W, selected, frame) {
   if (c.showProject) segs.push({ t: pad(s.project ?? '', c.project) + ' ', fg: PALETTE.muted });
   segs.push(
     { t: pad(s.phase?.text ?? '', c.status) + ' ', fg: pc, bold: s.status === 'waiting' },
-    { t: pad(fmtTokens(s.tokens?.total ?? 0), c.tokens, 'right') + ' ', fg: ended ? PALETTE.ended : PALETTE.text },
+    { t: pad(s.lazy ? '' : fmtTokens(s.tokens?.total ?? 0), c.tokens, 'right') + ' ', fg: ended ? PALETTE.ended : PALETTE.text },
   );
-  if (c.showCost) segs.push({ t: pad(money(s.cost, s.costUnknown), c.cost, 'right') + ' ', fg: s.cost == null || ended ? PALETTE.faint : PALETTE.money });
+  if (c.showCost) segs.push({ t: pad(s.lazy ? '' : money(s.cost, s.costUnknown), c.cost, 'right') + ' ', fg: s.cost == null || ended ? PALETTE.faint : PALETTE.money });
   segs.push(...gauge(s.context?.used ?? 0, s.context?.window ?? 0, 11), { t: ' ' }, { t: pad(fmtAgo(NOW - (s.updatedAt ?? 0)), c.age, 'right'), fg: PALETTE.faint });
   return line(segs, W, bg);
 }

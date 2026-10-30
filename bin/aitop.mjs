@@ -22,7 +22,7 @@ const once = args.has('--once') || !process.stdout.isTTY;
 const TICK_BUDGET = 24 * 1024 * 1024;
 
 function refresh() {
-  view.data = collect({ showEnded: view.showEnded, budgetBytes: once ? Infinity : TICK_BUDGET });
+  view.data = collect({ showEnded: view.showEnded, selectedId: view.selectedId, budgetBytes: once ? Infinity : TICK_BUDGET });
   if (!view.data.sessions.some((s) => s.id === view.selectedId)) view.selectedId = view.data.sessions[0]?.id ?? null;
 }
 
@@ -109,7 +109,10 @@ function move(delta) {
   const list = view.data?.sessions ?? [];
   if (!list.length) return;
   const i = Math.max(0, list.findIndex((s) => s.id === view.selectedId));
-  view.selectedId = list[Math.min(list.length - 1, Math.max(0, i + delta))].id;
+  const next = list[Math.min(list.length - 1, Math.max(0, i + delta))];
+  view.selectedId = next.id;
+  // 아직 본문을 읽지 않은 종료 세션을 고르면 다음 갱신을 기다리지 않고 바로 읽는다.
+  if (next.lazy) refresh();
 }
 
 stdin.setEncoding('utf8');
