@@ -2,6 +2,7 @@
 // ~/.claude/projects/*/<sessionId>.jsonl 대화 기록에서 진행 단계·토큰·비용을 읽는다.
 import { readdirSync, readFileSync, existsSync, statSync, openSync, readSync, closeSync } from 'node:fs';
 import { loadCache } from '../cache.mjs';
+import { contextWindow } from '../pricing.mjs';
 import { join, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { isAlive } from '../procs.mjs';
@@ -85,7 +86,7 @@ function sessionTotals(t, sub) {
     cost: t ? t.cost + sub.cost : null,
     costNoCache: t ? t.costNoCache + sub.costNoCache : null,
     costUnknown: Boolean(t?.costUnknown || sub.costUnknown),
-    context: { used, window: used > 200_000 ? 1_000_000 : 200_000 },
+    context: { used, window: contextWindow(t?.model, used) },
   };
 }
 
@@ -242,7 +243,6 @@ function endedFromTranscripts(known, selectedId, budget) {
     out.push({
       tool: 'claude',
       id: f.sessionId,
-      attachId: null,
       pid: null,
       kind: '-',
       name: t?.title ?? head.title ?? `${basename(head.cwd ?? '')} · ${f.sessionId.slice(0, 8)}`,
@@ -300,7 +300,6 @@ export function collectClaude({ showEnded, budget, selectedId }) {
     out.push({
       tool: 'claude',
       id: e.sessionId,
-      attachId: e.kind === 'bg' && e.alive ? e.sessionId.slice(0, 8) : null,
       pid: e.pid,
       kind: e.kind === 'bg' ? 'background' : e.kind ?? 'interactive',
       name: (autoName ? t?.title : e.name) ?? `${basename(e.cwd ?? '')} · ${e.sessionId.slice(0, 8)}`,
