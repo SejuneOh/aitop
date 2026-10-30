@@ -25,10 +25,14 @@ export function fixFocus(view) {
     return;
   }
   const files = filesOf(view);
-  if (!files.some((f) => f.path === view.filePath)) {
-    view.filePath = files[0]?.path ?? null;
-    view.focus = 'files';
+  if (files.some((f) => f.path === view.filePath)) return;
+  // 보던 diff 의 파일이 탭에서만 빠졌으면(새 지시가 들어와 이번 지시가 바뀜) 닫지 않고 전체 탭으로 옮긴다.
+  if (view.focus === 'diff' && selectedSession(view).files.some((f) => f.path === view.filePath)) {
+    view.tab = 'all';
+    return;
   }
+  view.filePath = files[0]?.path ?? null;
+  view.focus = 'files';
 }
 
 // 이번 지시에 고친 파일이 없어도 목록에는 들어간다. ←/→ 로 다른 지시를 볼 수 있다.
@@ -44,7 +48,8 @@ function stepTab(view, delta) {
   const tabs = turnTabs(selectedSession(view));
   const i = Math.max(0, tabs.findIndex((t) => t.key === (view.tab ?? 'now')));
   view.tab = tabs[Math.min(tabs.length - 1, Math.max(0, i + delta))].key;
-  view.filePath = filesOf(view)[0]?.path ?? null;
+  const files = filesOf(view);
+  if (!files.some((f) => f.path === view.filePath)) view.filePath = files[0]?.path ?? null;
 }
 
 function stepFile(view, delta) {

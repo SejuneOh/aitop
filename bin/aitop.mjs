@@ -31,6 +31,7 @@ function refresh() {
   if (!data.sessions.some((s) => s.id === view.selectedId)) {
     view.selectedId = data.sessions[0]?.id ?? null;
     view.focus = null;
+    view.tab = 'now';
   }
   updateAttention(attention, data.sessions, view.selectedId);
   data.sessions = data.sessions.map((s) => (attention.unseen.has(s.id) ? { ...s, unseen: true, phase: { kind: 'unseen', text: '완료 · 확인 전' }, plain: s } : s));

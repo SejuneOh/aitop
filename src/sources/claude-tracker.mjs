@@ -2,9 +2,8 @@
 import { JsonlTail } from '../tail.mjs';
 import { loadCache, markDirty } from '../cache.mjs';
 import { claudeCost } from '../pricing.mjs';
-import { emptyTokens, pushEvent, describeTool, isNoisePrompt } from './common.mjs';
+import { emptyTokens, pushEvent, describeTool, isNoisePrompt, parseTs } from './common.mjs';
 import { addChange } from './files.mjs';
-import { mask, oneLine } from '../text.mjs';
 
 const MAX_TURNS = 50;
 
@@ -22,7 +21,7 @@ export class ClaudeTracker {
     const c = loadCache(path);
     if (c) {
       this.tail.offset = c.offset;
-      Object.assign(this, { tokens: c.tokens, cost: c.cost, costNoCache: c.costNoCache, costUnknown: c.costUnknown, context: c.context, model: c.model, title: c.title, branch: c.branch, events: c.events, lastTool: c.lastTool, lastKind: c.lastKind, files: c.files ?? [], turns: c.turns ?? [], turnCount: c.turnCount ?? 0 });
+      Object.assign(this, { tokens: c.tokens, cost: c.cost, costNoCache: c.costNoCache, costUnknown: c.costUnknown, context: c.context, model: c.model, title: c.title, branch: c.branch, events: c.events, lastTool: c.lastTool, lastKind: c.lastKind, files: c.files ?? [], turns: c.turns ?? [], turnCount: c.turnCount ?? 0, firstAt: c.firstAt ?? null });
       this.recent = new Map(c.recent);
       this.pending = new Map(c.pending);
     }
@@ -47,6 +46,8 @@ export class ClaudeTracker {
     // 사용자 지시: { n: 몇 번째 지시, at, text }. 변경 파일을 지시 단위로 나눌 때 쓴다.
     this.turns = [];
     this.turnCount = 0;
+    // 기록의 첫 시각. 서브에이전트 편집을 지시에 나눌 때 쓴다.
+    this.firstAt = null;
   }
 
   get path() {
@@ -88,6 +89,7 @@ export class ClaudeTracker {
       files: this.files,
       turns: this.turns,
       turnCount: this.turnCount,
+      firstAt: this.firstAt,
     };
   }
 
@@ -114,6 +116,7 @@ export class ClaudeTracker {
   apply(x) {
     if (x.type === 'ai-title' && x.aiTitle) this.title = x.aiTitle;
     if (x.gitBranch) this.branch = x.gitBranch;
+    if (this.firstAt == null && x.timestamp) this.firstAt = parseTs(x.timestamp);
     if (x.isMeta) return;
 
     if (x.type === 'assistant' && x.message) {
@@ -142,9 +145,11 @@ export class ClaudeTracker {
       if (Array.isArray(c)) for (const p of c) if (p.type === 'tool_result') this.pending.delete(p.tool_use_id);
       const text = typeof c === 'string' ? c : Array.isArray(c) ? c.filter((p) => p.type === 'text').map((p) => p.text).join(' ') : '';
       if (text && !isNoisePrompt(text)) {
-        pushEvent(this, x.timestamp, 'prompt', text);
-        this.turns.push({ n: ++this.turnCount, at: (x.timestamp && Date.parse(x.timestamp)) || Date.now(), text: mask(oneLine(text)).slice(0, 120) });
-        if (this.turns.length > MAX_TURNS) this.turns.shift();
+        const e = pushEvent(this, x.timestamp, 'prompt', text);
+        if (e) {
+          this.turns.push({ n: ++this.turnCount, at: e.at, text: e.text.slice(0, 120) });
+          if (this.turns.length > MAX_TURNS) this.turns.shift();
+        }
         this.lastKind = 'prompt';
         this.pending.clear();
       } else if (Array.isArray(c) && c.some((p) => p.type === 'tool_result')) this.lastKind = 'result';

@@ -108,7 +108,7 @@ function readMembers(transcript, parent, budget) {
     sub.cost += t.cost;
     sub.costNoCache += t.costNoCache;
     sub.costUnknown ||= t.costUnknown;
-    if (t.files.length) sub.files.push({ agent: meta.agentType ?? 'agent', files: t.files });
+    if (t.files.length) sub.files.push({ agent: meta.agentType ?? 'agent', files: t.files, startedAt: t.firstAt ?? undefined });
     const age = Date.now() - t.mtimeMs;
     const awaited = Boolean(meta.toolUseId && parent?.pending.has(meta.toolUseId));
     const running = !meta.finished && !meta.stoppedByUser && (awaited || age < MEMBER_STALE_MS);
