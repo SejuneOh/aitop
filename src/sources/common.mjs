@@ -17,7 +17,12 @@ export function pushEvent(state, at, kind, text) {
 const short = (p) => (p ? basename(String(p)) : '');
 
 // 도구 호출을 "무엇을 하는지" 한 줄로 줄인다. Claude·Codex 도구 이름을 모두 다룬다.
+// 도구 설명은 화면·--json 어디로 나가든 비밀값을 가린 뒤 한 줄로 만든다.
 export function describeTool(name, input = {}) {
+  return mask(oneLine(rawDescribeTool(name, input)));
+}
+
+function rawDescribeTool(name, input) {
   if (typeof input === 'string') {
     const file = input.match(/\*\*\* (?:Update|Add|Delete) File: (.+)/);
     return file ? `${name} ${short(file[1])}` : name;
