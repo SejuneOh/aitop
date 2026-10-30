@@ -9,16 +9,19 @@ const file = (name, m) => ({ path: `/work/demo/${name}`, created: false, edits: 
 const events = Array.from({ length: 30 }, (_, i) => ({ at: at + i * 1000, kind: 'tool', text: `작업 ${i}` }));
 const session = (n) => ({ tool: 'claude', id: 's', name: 'demo', cwd: '/work/demo', status: 'busy', live: true, phase: { kind: 'tool', text: '도구' }, updatedAt: at, tokens: { total: 1 }, context: {}, members: [], events, files: Array.from({ length: n }, (_, i) => file(`f${i}.mjs`, i + 1)), turns: [{ n: 1, at, text: 'footer 정리해줘' }] });
 
-// 상세 패널 오른쪽 칸만 잘라 낸다. 왼쪽 칸 폭은 render 와 같은 식으로 구한다.
+// 상세 패널 오른쪽 칸만 잘라 낸다. 칸의 시작은 최근 활동 가로줄(▌ 막대가 붙지 않는 줄)이 시작하는 화면 열이다.
+// diff 화면처럼 그 가로줄이 없으면 첫 줄의 가로줄로 찾는다.
 function right(H, extra = {}, n = 3, W = 120) {
   const lines = render({ data: { sessions: [session(n)], usage: null, errors: [], at }, selectedId: 's', showDetail: true, frame: 0, tab: 'now', ...extra }, W, H).map(strip);
   const top = lines.findIndex((l) => l.startsWith('╭'));
-  const leftW = Math.min(46, Math.max(30, Math.floor((W - 4) * 0.38)));
-  return lines.slice(top + 1, lines.findIndex((l) => l.startsWith('╰'))).map((l) => {
+  const body = lines.slice(top + 1, lines.findIndex((l) => l.startsWith('╰')));
+  const ruled = body.find((l) => l.includes('── 최근 활동')) ?? body[0];
+  const col = width(ruled.slice(0, ruled.indexOf('──', 2)));
+  return body.map((l) => {
     let w = 0;
     let i = 0;
     const chars = [...l];
-    while (i < chars.length && w < leftW + 5) w += width(chars[i++]);
+    while (i < chars.length && w < col) w += width(chars[i++]);
     return chars.slice(i, -2).join('').trimEnd();
   });
 }
@@ -46,6 +49,14 @@ test('파일이 많아도 최근 활동은 3줄 이상 남는다', () => {
     const act = R.findIndex((l) => l.startsWith('── 최근 활동'));
     assert.ok(R.length - act - 1 >= 3, `H=${H}`);
   }
+});
+
+test('목록에 들어가 있으면 빈 줄 두 곳에도 ▌ 막대가 이어진다', () => {
+  const R = right(34, { focus: 'files', filePath: '/work/demo/f2.mjs' });
+  const note = R.findIndex((l) => l.includes('"footer 정리해줘"'));
+  const act = R.findIndex((l) => l.startsWith('── 최근 활동'));
+  assert.equal(R[note + 1], '▌');
+  assert.equal(R[act - 1], '▌');
 });
 
 test('diff 는 16줄 이상에서 머리 아래 빈 줄 하나를 둔다', () => {
