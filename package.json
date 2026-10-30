@@ -1,0 +1,13 @@
+{
+  "name": "aitop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "터미널에서 Claude Code · Codex · Gemini 세션과 토큰을 실시간으로 보는 읽기 전용 모니터",
+  "type": "module",
+  "bin": { "aitop": "bin/aitop.mjs" },
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node bin/aitop.mjs",
+    "test": "node --test test/*.test.mjs"
+  }
+}
