@@ -114,7 +114,6 @@ function header(view, W) {
   const working = count((s) => ['busy', 'shell'].includes(s.status));
   const waiting = count((s) => s.status === 'waiting');
   const idle = count((s) => s.status === 'idle' || s.status === 'live');
-  const members = live.reduce((a, s) => a + s.members.filter((m) => m.status === 'busy').length, 0);
   const total = sessions.reduce((a, s) => a + (s.tokens?.total ?? 0), 0);
   const cost = sessions.reduce((a, s) => a + (s.cost ?? 0), 0);
   const B = PALETTE.bar;
@@ -124,7 +123,6 @@ function header(view, W) {
     { t: `${live.length} live`, fg: PALETTE.text, bg: B, bold: true },
     { t: '   ⠿ ', fg: PALETTE.busy, bg: B },
     { t: `${working} 작업 중`, fg: PALETTE.text, bg: B },
-    ...(members ? [{ t: `  ↳ 팀원 ${members}`, fg: PALETTE.team, bg: B }] : []),
     { t: '   ◆ ', fg: PALETTE.waiting, bg: B },
     { t: `${waiting} 응답 대기`, fg: waiting ? PALETTE.waiting : PALETTE.text, bg: B, bold: waiting > 0 },
     { t: '   ○ ', fg: PALETTE.idle, bg: B },
@@ -251,7 +249,6 @@ function detail(s, W, H, frame) {
     ['캐시 읽기', t.cacheRead, '#5eead4'],
     ['캐시 쓰기', t.cacheWrite, '#fcd34d'],
   ];
-  if (t.sub) parts.push(['팀원 합계', t.sub, PALETTE.team]);
   const barW = Math.max(6, leftW - 20);
   const max = Math.max(1, ...parts.map((p) => p[1] ?? 0));
   for (const [k, v, color] of parts) {
