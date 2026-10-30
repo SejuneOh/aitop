@@ -24,7 +24,7 @@ test('고친 파일이 있으면 위쪽에 목록, 아래쪽에 최근 활동을
   const lines = render(view(session(files)), 120, 22).map(strip);
   const all = lines.join('\n');
   // 두 구획은 라벨 가로줄로 나뉘고, 변경 파일 가로줄 끝에 git diff 가 아님을 알리는 '편집 기록' 이 붙는다.
-  assert.match(all, /── 변경 파일 ─+ 편집 기록 · 9개 · f ─/);
+  assert.match(all, /── 변경 파일 ─+ 편집 기록 · Bash 제외 · 9개 · f ─/);
   assert.match(all, /‹이번 지시›  전체/);
   assert.match(all, /src\/deep\/folder\/file0\.mjs\s+편집 ×1  새 파일  \d\d:\d\d/);
   assert.match(all, /src\/deep\/folder\/file1\.mjs\s+편집 ×2  \d\d:\d\d/);
@@ -55,7 +55,7 @@ test('목록에서 고른 파일은 표시되고, 아래쪽 파일을 고르면 
   const lines = render(view(session(files), { focus: 'files', filePath: files[8].path }), 120, 30).map(strip);
   // 목록에 들어가면 구획 왼쪽에 ▌, 고른 행에 ▸. 색이 없어도 글자로 구분된다.
   assert.ok(lines.some((l) => /▌▸ src\/deep\/folder\/file8\.mjs/.test(l)));
-  assert.ok(lines.some((l) => /▌── 변경 파일 ─+ 편집 기록 · 9개 ─/.test(l)));
+  assert.ok(lines.some((l) => /▌── 변경 파일 ─+ 편집 기록 · Bash 제외 · 9개 ─/.test(l)));
   assert.match(lines.at(-1), /파일 선택.*diff 보기.*세션으로/);
 });
 
