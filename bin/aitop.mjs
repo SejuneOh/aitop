@@ -2,6 +2,7 @@
 import { collect } from '../src/collect.mjs';
 import { render } from '../src/ui.mjs';
 import { flushCache } from '../src/cache.mjs';
+import { createAttention, updateAttention, markSeen, nextAttention } from '../src/attention.mjs';
 
 const args = new Set(process.argv.slice(2));
 if (args.has('-h') || args.has('--help')) {
@@ -11,7 +12,7 @@ if (args.has('-h') || args.has('--help')) {
   aitop --once     현재 상태를 한 번 출력하고 끝낸다
   aitop --all      종료된 세션(24시간 이내)도 함께 본다
 
-  키: ↑↓/jk 선택 · d 상세 · e 종료 세션 토글 · q 나가기`);
+  키: ↑↓/jk 선택 · n 다음 볼 세션 · d 상세 · e 종료 세션 토글 · q 나가기`);
   process.exit(0);
 }
 
@@ -20,9 +21,19 @@ const once = args.has('--once') || !process.stdout.isTTY;
 // 실시간 화면에서 한 번 갱신할 때 읽는 기록 양. 큰 기록은 여러 번에 나눠 읽어서 키 입력이 막히지 않게 한다.
 const TICK_BUDGET = 24 * 1024 * 1024;
 
+const attention = createAttention();
+
 function refresh() {
-  view.data = collect({ showEnded: view.showEnded, selectedId: view.selectedId, budgetBytes: once ? Infinity : TICK_BUDGET });
-  if (!view.data.sessions.some((s) => s.id === view.selectedId)) view.selectedId = view.data.sessions[0]?.id ?? null;
+  const data = collect({ showEnded: view.showEnded, selectedId: view.selectedId, budgetBytes: once ? Infinity : TICK_BUDGET });
+  if (!data.sessions.some((s) => s.id === view.selectedId)) view.selectedId = data.sessions[0]?.id ?? null;
+  updateAttention(attention, data.sessions, view.selectedId);
+  data.sessions = data.sessions.map((s) => (attention.unseen.has(s.id) ? { ...s, unseen: true, phase: { kind: 'unseen', text: '완료 · 확인 전' } } : s));
+  view.data = data;
+}
+
+function select(id) {
+  view.selectedId = id;
+  markSeen(attention, id);
 }
 
 if (once) {
@@ -86,10 +97,14 @@ function move(delta) {
   const list = view.data?.sessions ?? [];
   if (!list.length) return;
   const i = Math.max(0, list.findIndex((s) => s.id === view.selectedId));
-  const next = list[Math.min(list.length - 1, Math.max(0, i + delta))];
-  view.selectedId = next.id;
-  // 아직 본문을 읽지 않은 종료 세션을 고르면 다음 갱신을 기다리지 않고 바로 읽는다.
-  if (next.lazy) refresh();
+  goTo(list[Math.min(list.length - 1, Math.max(0, i + delta))]);
+}
+
+function goTo(next) {
+  if (!next) return;
+  select(next.id);
+  // 아직 본문을 읽지 않은 종료 세션이나 확인 전 세션을 고르면 다음 갱신을 기다리지 않고 바로 반영한다.
+  refresh();
 }
 
 stdin.setEncoding('utf8');
@@ -97,6 +112,7 @@ stdin.on('data', (key) => {
   if (key === 'q' || key === '\x03' || key === '\x1b') return quit();
   if (key === '\x1b[A' || key === 'k') move(-1);
   else if (key === '\x1b[B' || key === 'j') move(1);
+  else if (key === 'n') goTo(nextAttention(attention, view.data?.sessions ?? [], view.selectedId));
   else if (key === 'd') view.showDetail = !view.showDetail;
   else if (key === 'e') {
     view.showEnded = !view.showEnded;

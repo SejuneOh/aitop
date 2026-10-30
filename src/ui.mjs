@@ -64,13 +64,14 @@ function clip(segs, max) {
 }
 
 const SPIN = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏';
-const PHASE_COLOR = { tool: PALETTE.tool, team: PALETTE.team, think: PALETTE.busy, write: PALETTE.busy, waiting: PALETTE.waiting, idle: PALETTE.idle, ended: PALETTE.ended, done: PALETTE.faint };
+const PHASE_COLOR = { tool: PALETTE.tool, team: PALETTE.team, think: PALETTE.busy, write: PALETTE.busy, waiting: PALETTE.waiting, idle: PALETTE.idle, ended: PALETTE.ended, done: PALETTE.faint, unseen: PALETTE.busy };
 
 function glyph(s, frame) {
   const k = s.phase?.kind;
   if (s.status === 'waiting') return { t: frame % 8 < 5 ? '◆' : '◇', fg: PALETTE.waiting, bold: true };
   if (k === 'ended') return { t: '·', fg: PALETTE.ended };
   if (k === 'done') return { t: '✓', fg: PALETTE.faint };
+  if (k === 'unseen') return { t: '●', fg: PALETTE.busy, bold: true };
   if (k === 'idle') return s.status === 'live' ? { t: '●', fg: PALETTE.tools[s.tool] } : { t: '○', fg: PALETTE.idle };
   return { t: SPIN[frame % SPIN.length], fg: PHASE_COLOR[k] ?? PALETTE.busy, bold: true };
 }
@@ -123,7 +124,8 @@ function header(view, W) {
   const count = (pred) => live.filter(pred).length;
   const working = count((s) => ['busy', 'shell'].includes(s.status));
   const waiting = count((s) => s.status === 'waiting');
-  const idle = count((s) => s.status === 'idle' || s.status === 'live');
+  const unseen = count((s) => s.unseen);
+  const idle = count((s) => (s.status === 'idle' || s.status === 'live') && !s.unseen);
   const B = PALETTE.bar;
   const left = [
     { t: ' ◆ aitop ', fg: '#0b0e14', bg: PALETTE.brand, bold: true },
@@ -133,6 +135,8 @@ function header(view, W) {
     { t: `${working} 작업 중`, fg: working ? PALETTE.text : PALETTE.faint, bg: B },
     { t: '   ◆ ', fg: waiting ? PALETTE.waiting : PALETTE.faint, bg: B },
     { t: `${waiting} 응답 대기`, fg: waiting ? PALETTE.waiting : PALETTE.faint, bg: B, bold: waiting > 0 },
+    { t: '   ● ', fg: unseen ? PALETTE.busy : PALETTE.faint, bg: B },
+    { t: `${unseen} 확인 전`, fg: unseen ? PALETTE.busy : PALETTE.faint, bg: B, bold: unseen > 0 },
     { t: '   ○ ', fg: idle ? PALETTE.idle : PALETTE.faint, bg: B },
     { t: `${idle} 대기`, fg: idle ? PALETTE.text : PALETTE.faint, bg: B },
   ];
@@ -300,7 +304,7 @@ function detail(s, W, H, frame) {
 function footer(view, W) {
   const key = (k) => ({ t: ` ${k} `, fg: '#0b0e14', bg: PALETTE.muted, bold: true });
   const lab = (t) => ({ t: ` ${t}   `, fg: PALETTE.muted });
-  const segs = [{ t: ' ' }, key('↑↓'), lab('선택'), key('d'), lab(view.showDetail ? '상세 닫기' : '상세 열기'), key('e'), lab(view.showEnded ? '종료 숨기기' : '종료 포함'), key('q'), lab('나가기')];
+  const segs = [{ t: ' ' }, key('↑↓'), lab('선택'), key('n'), lab('다음 볼 세션'), key('d'), lab(view.showDetail ? '상세 닫기' : '상세 열기'), key('e'), lab(view.showEnded ? '종료 숨기기' : '종료 포함'), key('q'), lab('나가기')];
   const right = '읽기 전용 · 네트워크 없음 ';
   const used = segs.reduce((a, s) => a + width(s.t), 0);
   segs.push({ t: ' '.repeat(Math.max(1, W - used - width(right))) }, { t: right, fg: PALETTE.faint });
