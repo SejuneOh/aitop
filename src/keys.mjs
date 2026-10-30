@@ -1,37 +1,50 @@
 // 키 입력 처리. 화면 상태(view)를 바꾸고, 종료·갱신·세션 이동처럼 밖에서 해야 할 일은 act 로 부른다.
 // view.focus: null(세션 선택) → 'files'(변경 파일 목록) → 'diff'(고른 파일의 변경 내용). Esc 는 한 단계씩 뒤로 가고 종료하지 않는다.
+// view.tab: 변경 파일을 보는 지시 탭 ('now' 이번 지시, 지시 번호, 'all' 전체). turns.mjs 참고.
+import { turnTabs, visibleFiles } from './turns.mjs';
+
 export const KEY = { up: '\x1b[A', down: '\x1b[B', right: '\x1b[C', left: '\x1b[D', pageUp: '\x1b[5~', pageDown: '\x1b[6~', esc: '\x1b', enter: '\r', tab: '\t', ctrlC: '\x03', backspace: '\x7f' };
 
 const isUp = (k) => k === KEY.up || k === 'k';
 const isDown = (k) => k === KEY.down || k === 'j';
-const isBack = (k) => k === KEY.esc || k === KEY.left || k === 'h';
+const isBack = (k) => k === KEY.esc || k === 'h';
 
 export function selectedSession(view) {
   return view.data?.sessions.find((s) => s.id === view.selectedId) ?? null;
 }
 
-const filesOf = (view) => selectedSession(view)?.files ?? [];
+const hasFiles = (view) => Boolean(selectedSession(view)?.files?.length);
+// 지금 탭에 보이는 파일
+const filesOf = (view) => visibleFiles(selectedSession(view), view.tab);
 
-// 갱신 뒤에 고른 파일이 목록에서 빠졌거나 세션에 고친 파일이 없어졌으면 포커스를 맞춘다.
+// 갱신 뒤에 고른 파일이 탭에서 빠졌거나 세션에 고친 파일이 없어졌으면 포커스를 맞춘다.
 export function fixFocus(view) {
   if (!view.focus) return;
-  const files = filesOf(view);
-  if (!files.length || !view.showDetail) {
+  if (!hasFiles(view) || !view.showDetail) {
     view.focus = null;
     return;
   }
+  const files = filesOf(view);
   if (!files.some((f) => f.path === view.filePath)) {
-    view.filePath = files[0].path;
+    view.filePath = files[0]?.path ?? null;
     view.focus = 'files';
   }
 }
 
+// 이번 지시에 고친 파일이 없어도 목록에는 들어간다. ←/→ 로 다른 지시를 볼 수 있다.
 function enterFiles(view) {
-  const files = filesOf(view);
-  if (!files.length) return;
+  if (!hasFiles(view)) return;
   view.showDetail = true;
   view.focus = 'files';
-  if (!files.some((f) => f.path === view.filePath)) view.filePath = files[0].path;
+  const files = filesOf(view);
+  if (!files.some((f) => f.path === view.filePath)) view.filePath = files[0]?.path ?? null;
+}
+
+function stepTab(view, delta) {
+  const tabs = turnTabs(selectedSession(view));
+  const i = Math.max(0, tabs.findIndex((t) => t.key === (view.tab ?? 'now')));
+  view.tab = tabs[Math.min(tabs.length - 1, Math.max(0, i + delta))].key;
+  view.filePath = filesOf(view)[0]?.path ?? null;
 }
 
 function stepFile(view, delta) {
@@ -43,7 +56,9 @@ function stepFile(view, delta) {
 function filesKey(view, key) {
   if (isUp(key)) stepFile(view, -1);
   else if (isDown(key)) stepFile(view, 1);
-  else if (key === KEY.enter || key === KEY.right || key === 'l') {
+  else if (key === KEY.left || key === KEY.right) stepTab(view, key === KEY.left ? -1 : 1);
+  else if (key === KEY.enter || key === 'l') {
+    if (!view.filePath) return true;
     view.focus = 'diff';
     view.diffScroll = 0;
   } else if (isBack(key) || key === 'f' || key === KEY.tab) view.focus = null;
@@ -60,7 +75,7 @@ function diffKey(view, key) {
   else if (key === '[' || key === ']') {
     stepFile(view, key === '[' ? -1 : 1);
     view.diffScroll = 0;
-  } else if (isBack(key)) view.focus = 'files';
+  } else if (isBack(key) || key === KEY.left) view.focus = 'files';
   else return false;
   return true;
 }

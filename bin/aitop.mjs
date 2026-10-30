@@ -19,7 +19,7 @@ if (args.has('-h') || args.has('--help')) {
   process.exit(0);
 }
 
-const view = { data: null, selectedId: null, showDetail: true, showEnded: args.has('--all'), frame: 0, filter: '', searching: false, help: false, focus: null, filePath: null, diffScroll: 0 };
+const view = { data: null, selectedId: null, showDetail: true, showEnded: args.has('--all'), frame: 0, filter: '', searching: false, help: false, focus: null, filePath: null, diffScroll: 0, tab: 'now' };
 const once = args.has('--once') || args.has('--json') || !process.stdout.isTTY;
 // 실시간 화면에서 한 번 갱신할 때 읽는 기록 양. 큰 기록은 여러 번에 나눠 읽어서 키 입력이 막히지 않게 한다.
 const TICK_BUDGET = 24 * 1024 * 1024;
@@ -40,7 +40,10 @@ function refresh() {
 }
 
 function select(id) {
-  if (id !== view.selectedId) view.focus = null;
+  if (id !== view.selectedId) {
+    view.focus = null;
+    view.tab = 'now';
+  }
   view.selectedId = id;
   markSeen(attention, id);
 }

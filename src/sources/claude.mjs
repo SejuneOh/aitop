@@ -89,6 +89,7 @@ function sessionTotals(t, sub) {
     costUnknown: Boolean(t?.costUnknown || sub.costUnknown),
     context: { used, window: contextWindow(t?.model, used) },
     files: t ? mergeFiles([{ agent: '메인', files: t.files }, ...sub.files]) : [],
+    turns: t?.turns ?? [],
   };
 }
 

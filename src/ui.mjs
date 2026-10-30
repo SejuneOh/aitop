@@ -2,6 +2,7 @@
 import { homedir } from 'node:os';
 import { relative, isAbsolute } from 'node:path';
 import { width, truncate, truncateLeft, pad, fmtTokens, fmtAgo, stripControl } from './text.mjs';
+import { turnTabs, currentTab, filesForTab } from './turns.mjs';
 
 const NO_COLOR = Boolean(process.env.NO_COLOR);
 
@@ -293,7 +294,7 @@ function fileRow(f, cwd, w, selected) {
   const bg = selected ? PALETTE.rowSel : undefined;
   return [
     { t: selected ? '▸' : ' ', fg: PALETTE.brand, bold: true },
-    { t: pad(truncateLeft(relPath(cwd, f.path), pathW), pathW), fg: f.hidden ? PALETTE.muted : PALETTE.text, bold: selected },
+    { t: pad(truncateLeft(relPath(cwd, f.path), pathW), pathW), fg: f.hidden || f.noise ? PALETTE.muted : PALETTE.text, bold: selected },
     ...tail,
   ].map((x) => ({ ...x, bg }));
 }
@@ -323,15 +324,15 @@ function diffBody(f, w) {
 }
 
 // diff 는 오른쪽 칸 전체를 쓴다. 스크롤 위치는 여기서 내용 길이에 맞춰 다시 맞춘다.
-function diffView(s, f, w, rows, view) {
+function diffView(s, files, f, w, rows, view) {
   const body = diffBody(f, w);
   const page = rows - 1;
   view.diffPage = Math.max(1, page - 1);
   const top = Math.min(Math.max(0, view.diffScroll ?? 0), Math.max(0, body.length - page));
   view.diffScroll = top;
-  const i = s.files.indexOf(f);
+  const i = files.indexOf(f);
   const pct = body.length > page ? `${Math.round(((top + page) / body.length) * 100)}%` : '';
-  const stats = [{ t: `  편집 ×${f.edits} · 쓴 줄 ${f.add} · 지운 줄 ${f.del}`, fg: PALETTE.faint }, { t: `  ${i + 1}/${s.files.length}`, fg: PALETTE.faint }];
+  const stats = [{ t: `  편집 ×${f.edits} · 쓴 줄 ${f.add} · 지운 줄 ${f.del}`, fg: PALETTE.faint }, { t: `  ${i + 1}/${files.length}`, fg: PALETTE.faint }];
   const statsW = stats.reduce((a, x) => a + width(x.t), 0);
   const name = truncateLeft(relPath(s.cwd, f.path), Math.max(8, w - 2 - statsW - width(pct) - 1));
   const gap = Math.max(1, w - 2 - width(name) - statsW - width(pct));
@@ -349,23 +350,48 @@ function activity(s, n) {
   return events.map((e) => [{ t: clock(e.at) + '  ', fg: PALETTE.faint }, icon[e.kind], { t: e.text, fg: textColor[e.kind], bold: e.kind === 'prompt' }]);
 }
 
-// 오른쪽 칸: 고친 파일이 없으면 최근 활동만, 있으면 위쪽 절반까지 변경 파일 목록, 파일을 열면 diff.
+// [이번 지시] T5 T3 전체. 폭이 모자라면 가운데 지시 탭부터 줄이고, 고른 탭은 남긴다.
+function tabBar(tabs, tab, w) {
+  const seg = (t) => (t.key === tab.key ? { t: `[${t.label}]`, fg: PALETTE.brand, bold: true } : { t: ` ${t.label} `, fg: PALETTE.faint });
+  const keep = [...tabs];
+  const barW = () => keep.reduce((a, t) => a + width(seg(t).t), 0);
+  for (let i = keep.length - 2; i > 0 && barW() > w; i--) if (keep[i].key !== tab.key) keep.splice(i, 1);
+  return keep.map(seg);
+}
+
+function tabInfo(s, tab, files) {
+  const edits = files.reduce((a, f) => a + f.edits, 0);
+  const counts = `파일 ${files.length} · 편집 ${edits}회`;
+  if (tab.key === 'all') return [{ t: `세션 전체 · ${counts}`, fg: PALETTE.muted }];
+  const p = tab.turn;
+  return [{ t: p ? `${hhmm(p.at)} ` : '', fg: PALETTE.faint }, { t: p ? `"${p.text}"` : '지시 기록 없음', fg: PALETTE.text }, { t: `  ${counts}`, fg: PALETTE.muted }];
+}
+
+// 오른쪽 칸: 고친 파일이 없으면 최근 활동만, 있으면 위쪽 절반까지 지시 탭과 변경 파일 목록, 파일을 열면 diff.
 function rightColumn(s, w, rows, view) {
-  const files = s.files ?? [];
+  const all = s.files ?? [];
   const title = [{ t: '최근 활동', fg: PALETTE.muted, bold: true }];
+  if (!all.length) return [title, ...activity(s, rows - 1)];
+  const tab = currentTab(s, view?.tab);
+  const files = filesForTab(s, tab);
   const open = view?.focus === 'diff' && files.find((f) => f.path === view.filePath);
-  if (open) return diffView(s, open, w, rows, view);
-  if (!files.length) return [title, ...activity(s, rows - 1)];
-  if (rows < 6) return [[...title, { t: `   변경 파일 ${files.length} · f`, fg: PALETTE.faint }], ...activity(s, rows - 1)];
+  if (open) return diffView(s, files, open, w, rows, view);
+  if (rows < 7) return [[...title, { t: `   변경 파일 ${all.length} · f`, fg: PALETTE.faint }], ...activity(s, rows - 1)];
 
   const focused = view?.focus === 'files';
-  const selIdx = focused ? Math.max(0, files.findIndex((f) => f.path === view.filePath)) : -1;
-  const listRows = Math.ceil(rows / 2) - 1;
+  const selIdx = focused ? files.findIndex((f) => f.path === view.filePath) : -1;
+  const listRows = Math.max(1, Math.ceil(rows / 2) - 2);
   const overflow = files.length > listRows;
   const slots = overflow ? listRows - 1 : listRows;
   const start = selIdx >= slots ? selIdx - slots + 1 : 0;
   const shown = files.slice(start, start + slots);
-  const R = [[{ t: '변경 파일 ', fg: PALETTE.muted, bold: true }, { t: String(files.length), fg: PALETTE.text, bold: true }, { t: '  Edit/Write 기록 기준 · Bash 변경 제외', fg: PALETTE.faint }, ...(focused ? [] : [{ t: '  · f 로 이동', fg: PALETTE.faint }])]];
+  const head = [{ t: '변경 파일 ', fg: PALETTE.muted, bold: true }];
+  const hint = focused ? [] : [{ t: '  f', fg: PALETTE.faint }];
+  const R = [
+    [...head, ...tabBar(turnTabs(s), tab, w - 10 - (focused ? 0 : 3)), ...hint],
+    [...tabInfo(s, tab, files), { t: '  · Edit/Write 기록 기준 · Bash 변경 제외', fg: PALETTE.faint }],
+  ];
+  if (!files.length) R.push([{ t: `  이 지시에서 고친 파일이 없습니다 · ${focused ? '←/→' : 'f 다음 ←/→'} 로 다른 지시`, fg: PALETTE.faint, italic: true }]);
   shown.forEach((f, k) => R.push(fileRow(f, s.cwd, w, start + k === selIdx)));
   if (overflow) R.push([{ t: `  … 외 ${files.length - shown.length}개`, fg: PALETTE.muted }]);
   R.push(title, ...activity(s, rows - R.length - 1));
@@ -411,7 +437,7 @@ const HELP = [
   ['/', '세션 검색 (이름·폴더·모델). Enter 적용, Esc 지우기'],
   ['↑↓ j k', '세션 선택'],
   ['n', '다음 볼 세션으로 이동 (응답 대기 → 완료 · 확인 전)'],
-  ['f Tab', '변경 파일 목록으로. ↑↓ 고르기, Enter diff, [ ] 이전·다음 파일, space 페이지'],
+  ['f Tab', '변경 파일 목록으로. ←→ 지시 탭, ↑↓ 고르기, Enter diff, [ ] 이전·다음 파일, space 페이지'],
   ['d', '상세 패널 열기·닫기'],
   ['e', '종료된 세션(24시간) 보이기·숨기기'],
   ['?', '이 도움말 열기·닫기'],
@@ -434,6 +460,7 @@ const HELP = [
   ['오늘 / 7일', '헤더 오른쪽. 최근 7일 Claude 기록의 날짜별 합계'],
   ['변경 파일', 'Edit/Write 도구로 고친 파일과 편집 횟수. git diff 가 아니다. Bash 로 고친 파일은 빠진다'],
   ['', 'diff 머리의 쓴 줄 · 지운 줄은 편집마다 더한 누적값 (최종 변경량 아님)'],
+  ['지시 탭', '이번 지시(마지막 지시 뒤), 편집이 있던 이전 지시 T번호, 전체. lock·생성 파일은 끝에 흐리게'],
 ];
 
 function help(W, H) {
@@ -448,7 +475,7 @@ function footer(view, W, matched, sel) {
     return line([{ t: ' / ', fg: '#0b0e14', bg: PALETTE.brand, bold: true }, { t: ` ${view.filter ?? ''}`, fg: PALETTE.text, bold: true }, { t: '▏', fg: PALETTE.brand }, { t: `  ${matched}개   `, fg: PALETTE.muted }, key('⏎'), lab('적용'), key('Esc'), lab('지우기')], W);
   }
   if (view.focus) {
-    const keys = view.focus === 'diff' ? [key('↑↓'), lab('스크롤'), key('space'), lab('페이지'), key('[ ]'), lab('이전·다음 파일'), key('Esc'), lab('파일 목록으로')] : [key('↑↓'), lab('파일 선택'), key('⏎'), lab('diff 보기'), key('Esc'), lab('세션으로')];
+    const keys = view.focus === 'diff' ? [key('↑↓'), lab('스크롤'), key('space'), lab('페이지'), key('[ ]'), lab('이전·다음 파일'), key('Esc'), lab('파일 목록으로')] : [key('←→'), lab('지시'), key('↑↓'), lab('파일 선택'), key('⏎'), lab('diff 보기'), key('Esc'), lab('세션으로')];
     return line([{ t: ' ' }, ...keys, key('?'), lab('도움말'), key('q'), lab('나가기')], W);
   }
   const search = view.filter ? [{ t: ` /${view.filter} `, fg: '#0b0e14', bg: PALETTE.brand, bold: true }, { t: ` ${matched}개 `, fg: PALETTE.muted }, key('Esc'), lab('검색 지우기')] : [key('/'), lab('검색')];

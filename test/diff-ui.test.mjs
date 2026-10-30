@@ -23,13 +23,14 @@ test('고친 파일이 없으면 오른쪽 칸은 최근 활동만 보인다', (
 test('고친 파일이 있으면 위쪽에 목록, 아래쪽에 최근 활동을 보이고 넘치면 외 N개', () => {
   const lines = render(view(session(files)), 120, 22).map(strip);
   const all = lines.join('\n');
-  assert.match(all, /변경 파일 9  Edit\/Write 기록 기준 · Bash 변경 제외/);
+  assert.match(all, /변경 파일 \[이번 지시\] 전체 /);
+  assert.match(all, /파일 9 · 편집 45회  · Edit\/Write 기록 기준/);
   assert.match(all, /src\/deep\/folder\/file0\.mjs\s+편집 ×1  새 파일  \d\d:\d\d/);
   assert.match(all, /src\/deep\/folder\/file1\.mjs\s+편집 ×2  \d\d:\d\d/);
   // +N -M 은 기준 대비 순변경으로 읽히므로 누적 줄 수에는 쓰지 않는다.
   assert.doesNotMatch(all, /[+-]\d+ [+-]\d+/);
   assert.match(all, /… 외 \d+개/);
-  const fileLine = lines.findIndex((l) => l.includes('변경 파일 9'));
+  const fileLine = lines.findIndex((l) => l.includes('변경 파일 ['));
   const actLine = lines.findIndex((l) => l.includes('최근 활동'));
   assert.ok(actLine > fileLine);
   assert.match(lines.at(-1), /f\s+변경 파일/);

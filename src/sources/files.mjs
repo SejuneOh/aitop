@@ -3,7 +3,8 @@
 import { basename } from 'node:path';
 import { mask, cleanLine } from '../text.mjs';
 
-export const FILE_LIMITS = { files: 60, hunksPerFile: 8, lineChars: 200, hunkLines: 300, lines: 1500 };
+// times: 편집 시각 목록. 지시 단위로 나눌 때 쓴다 (turns.mjs).
+export const FILE_LIMITS = { files: 60, hunksPerFile: 8, lineChars: 200, hunkLines: 300, lines: 1500, times: 200 };
 
 // 비밀값이 들어 있을 만한 파일은 목록에는 보이되 변경 내용은 저장하지 않는다.
 const SECRET_FILE = /^\.env(\.|$)|\.(pem|key|p12|pfx|jks|keystore)$|^id_(rsa|dsa|ecdsa|ed25519)|^\.(npmrc|netrc|pgpass)$|secret|credential|api[._-]?key|private[._-]?key/i;
@@ -50,11 +51,13 @@ export function addChange(files, r, timestamp) {
   const c = readChange(r, at);
   if (!c) return;
   let f = files.find((x) => x.path === c.path);
-  if (!f) files.push((f = { path: c.path, created: c.created, edits: 0, add: 0, del: 0, at, hidden: isSecretFile(c.path), dropped: 0, hunks: [] }));
+  if (!f) files.push((f = { path: c.path, created: c.created, edits: 0, add: 0, del: 0, at, hidden: isSecretFile(c.path), dropped: 0, hunks: [], times: [] }));
   f.edits++;
   f.add += c.add;
   f.del += c.del;
   f.at = Math.max(f.at, at);
+  f.times.push(at);
+  if (f.times.length > FILE_LIMITS.times) f.times.shift();
   if (f.hidden) return;
   f.hunks.push(...c.hunks);
   while (f.hunks.length > FILE_LIMITS.hunksPerFile) dropOldest(f);
@@ -86,13 +89,14 @@ export function mergeFiles(sources) {
   for (const { agent, files } of sources) {
     for (const f of files ?? []) {
       let m = byPath.get(f.path);
-      if (!m) byPath.set(f.path, (m = { path: f.path, created: f.created, edits: 0, add: 0, del: 0, at: 0, hidden: f.hidden, dropped: 0, hunks: [], agents: [] }));
+      if (!m) byPath.set(f.path, (m = { path: f.path, created: f.created, edits: 0, add: 0, del: 0, at: 0, hidden: f.hidden, dropped: 0, hunks: [], times: [], agents: [] }));
       m.created ||= f.created;
       m.edits += f.edits;
       m.add += f.add;
       m.del += f.del;
       m.at = Math.max(m.at, f.at);
       m.dropped += f.dropped;
+      m.times.push(...(f.times ?? []));
       if (!m.agents.includes(agent)) m.agents.push(agent);
       for (const h of f.hunks) m.hunks.push({ ...h, agent });
     }

@@ -4,6 +4,9 @@ import { loadCache, markDirty } from '../cache.mjs';
 import { claudeCost } from '../pricing.mjs';
 import { emptyTokens, pushEvent, describeTool, isNoisePrompt } from './common.mjs';
 import { addChange } from './files.mjs';
+import { mask, oneLine } from '../text.mjs';
+
+const MAX_TURNS = 50;
 
 const RECENT_IDS = 64;
 const LOADING_MIN_BYTES = 4 * 1024 * 1024;
@@ -19,7 +22,7 @@ export class ClaudeTracker {
     const c = loadCache(path);
     if (c) {
       this.tail.offset = c.offset;
-      Object.assign(this, { tokens: c.tokens, cost: c.cost, costNoCache: c.costNoCache, costUnknown: c.costUnknown, context: c.context, model: c.model, title: c.title, branch: c.branch, events: c.events, lastTool: c.lastTool, lastKind: c.lastKind, files: c.files ?? [] });
+      Object.assign(this, { tokens: c.tokens, cost: c.cost, costNoCache: c.costNoCache, costUnknown: c.costUnknown, context: c.context, model: c.model, title: c.title, branch: c.branch, events: c.events, lastTool: c.lastTool, lastKind: c.lastKind, files: c.files ?? [], turns: c.turns ?? [], turnCount: c.turnCount ?? 0 });
       this.recent = new Map(c.recent);
       this.pending = new Map(c.pending);
     }
@@ -41,6 +44,9 @@ export class ClaudeTracker {
     this.lastKind = null;
     // Edit/Write 로 고친 파일 (files.mjs)
     this.files = [];
+    // 사용자 지시: { n: 몇 번째 지시, at, text }. 변경 파일을 지시 단위로 나눌 때 쓴다.
+    this.turns = [];
+    this.turnCount = 0;
   }
 
   get path() {
@@ -80,6 +86,8 @@ export class ClaudeTracker {
       recent: [...this.recent],
       pending: [...this.pending],
       files: this.files,
+      turns: this.turns,
+      turnCount: this.turnCount,
     };
   }
 
@@ -135,6 +143,8 @@ export class ClaudeTracker {
       const text = typeof c === 'string' ? c : Array.isArray(c) ? c.filter((p) => p.type === 'text').map((p) => p.text).join(' ') : '';
       if (text && !isNoisePrompt(text)) {
         pushEvent(this, x.timestamp, 'prompt', text);
+        this.turns.push({ n: ++this.turnCount, at: (x.timestamp && Date.parse(x.timestamp)) || Date.now(), text: mask(oneLine(text)).slice(0, 120) });
+        if (this.turns.length > MAX_TURNS) this.turns.shift();
         this.lastKind = 'prompt';
         this.pending.clear();
       } else if (Array.isArray(c) && c.some((p) => p.type === 'tool_result')) this.lastKind = 'result';
