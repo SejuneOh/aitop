@@ -124,9 +124,6 @@ function header(view, W) {
   const working = count((s) => ['busy', 'shell'].includes(s.status));
   const waiting = count((s) => s.status === 'waiting');
   const idle = count((s) => s.status === 'idle' || s.status === 'live');
-  const total = sessions.reduce((a, s) => a + (s.tokens?.total ?? 0), 0);
-  const cost = sessions.reduce((a, s) => a + (s.cost ?? 0), 0);
-  const costUnknown = sessions.some((s) => s.costUnknown);
   const B = PALETTE.bar;
   const left = [
     { t: ' ◆ aitop ', fg: '#0b0e14', bg: PALETTE.brand, bold: true },
@@ -139,11 +136,16 @@ function header(view, W) {
     { t: '   ○ ', fg: idle ? PALETTE.idle : PALETTE.faint, bg: B },
     { t: `${idle} 대기`, fg: idle ? PALETTE.text : PALETTE.faint, bg: B },
   ];
+  // 오늘·최근 7일 사용량 (Claude, API 환산). 처음 집계 중에는 진행률을 보인다.
+  const u = view.data.usage;
+  const period = (label, p) => [
+    { t: `${label} `, fg: PALETTE.muted, bg: B },
+    { t: money(p.cost, p.unknown), fg: PALETTE.money, bg: B, bold: true },
+    { t: ` ${fmtTokens(p.tokens)}`, fg: PALETTE.muted, bg: B },
+  ];
   const right = [
-    { t: `Σ ${fmtTokens(total)} tok`, fg: PALETTE.muted, bg: B },
-    { t: '  ', bg: B },
-    { t: money(cost, costUnknown), fg: PALETTE.money, bg: B, bold: true },
-    { t: ` API 환산   ${clock(view.data.at)} `, fg: PALETTE.muted, bg: B },
+    ...(u ? [...period('오늘', u.today), { t: '   ', bg: B }, ...(u.loading != null ? [{ t: `7일 집계 중 ${Math.floor(u.loading * 100)}%`, fg: PALETTE.faint, bg: B }] : period('7일', u.week))] : []),
+    { t: `   ${clock(view.data.at)} `, fg: PALETTE.muted, bg: B },
   ];
   const lw = left.reduce((a, s) => a + width(s.t), 0);
   const rw = right.reduce((a, s) => a + width(s.t), 0);
