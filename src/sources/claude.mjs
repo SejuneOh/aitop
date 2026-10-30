@@ -44,14 +44,30 @@ function findTranscript(sessionId) {
   return path;
 }
 
-function tracker(map, path) {
+// 이번 갱신에서 쓴 tracker 경로. 갱신이 끝나면 여기 없는 tracker 는 지운다.
+let seen = new Set();
+
+function tracker(map, path, budget) {
   let t = map.get(path);
   if (!t) map.set(path, (t = new ClaudeTracker(path)));
-  t.update();
+  t.update(budget);
+  seen.add(path);
   return t;
 }
 
-function readMembers(transcript, parent) {
+function prune() {
+  for (const map of [trackers, subTrackers]) for (const path of map.keys()) if (!seen.has(path)) map.delete(path);
+}
+
+export function _stats() {
+  return { trackers: trackers.size, subTrackers: subTrackers.size };
+}
+
+function loadingPhase(t) {
+  return t?.loading != null ? { kind: 'think', text: `기록 읽는 중 ${Math.floor(t.loading * 100)}%` } : null;
+}
+
+function readMembers(transcript, parent, budget) {
   const dir = join(transcript.replace(/\.jsonl$/, ''), 'subagents');
   if (!existsSync(dir)) return { members: [], subTokens: 0, subCost: 0 };
   const members = [];
@@ -61,7 +77,7 @@ function readMembers(transcript, parent) {
     if (!f.endsWith('.meta.json')) continue;
     const id = f.slice('agent-'.length, -'.meta.json'.length);
     const meta = readJson(join(dir, f)) ?? {};
-    const t = tracker(subTrackers, join(dir, `agent-${id}.jsonl`));
+    const t = tracker(subTrackers, join(dir, `agent-${id}.jsonl`), budget);
     subTokens += t.tokens.total;
     subCost += t.cost;
     const age = Date.now() - t.mtimeMs;
@@ -75,7 +91,7 @@ function readMembers(transcript, parent) {
       model: t.model,
       task: meta.description ?? '',
       status: finished ? 'done' : 'busy',
-      phase: finished ? { kind: 'done', text: '완료' } : t.phase(),
+      phase: finished ? { kind: 'done', text: '완료' } : loadingPhase(t) ?? t.phase(),
       now: t.lastTool,
       tokens: t.tokens.total,
       cost: t.cost,
@@ -104,17 +120,18 @@ function phaseOf(status, entry, t) {
     case 'idle':
       return { kind: 'idle', text: '다음 지시 대기' };
     default:
-      return t ? t.phase() : { kind: 'think', text: '작업 중' };
+      return loadingPhase(t) ?? (t ? t.phase() : { kind: 'think', text: '작업 중' });
   }
 }
 
-export function collectClaude({ showEnded }) {
+export function collectClaude({ showEnded, budget }) {
   let files;
   try {
     files = readdirSync(SESSIONS).filter((n) => n.endsWith('.json'));
   } catch {
     return [];
   }
+  seen = new Set();
   const latest = new Map();
   for (const f of files) {
     const e = readJson(join(SESSIONS, f));
@@ -130,8 +147,8 @@ export function collectClaude({ showEnded }) {
     if (!e.alive && !(showEnded && Date.now() - touched < ENDED_WINDOW_MS)) continue;
 
     const transcript = findTranscript(e.sessionId);
-    const t = transcript ? tracker(trackers, transcript) : null;
-    const { members, subTokens, subCost } = transcript ? readMembers(transcript, t) : { members: [], subTokens: 0, subCost: 0 };
+    const t = transcript ? tracker(trackers, transcript, budget) : null;
+    const { members, subTokens, subCost } = transcript ? readMembers(transcript, t, budget) : { members: [], subTokens: 0, subCost: 0 };
     const mtime = Math.max(t?.mtimeMs ?? 0, touched);
     const status = statusOf(e, e.alive, mtime);
     const autoName = !e.name || e.name === e.sessionId.slice(0, 8);
@@ -162,5 +179,6 @@ export function collectClaude({ showEnded }) {
       members: status === 'ended' ? [] : members,
     });
   }
+  prune();
   return out;
 }

@@ -17,13 +17,16 @@ if (args.has('-h') || args.has('--help')) {
 }
 
 const view = { data: null, selectedId: null, showDetail: true, showEnded: args.has('--all'), frame: 0, toast: null };
+const once = args.has('--once') || !process.stdout.isTTY;
+// 실시간 화면에서 한 번 갱신할 때 읽는 기록 양. 큰 기록은 여러 번에 나눠 읽어서 키 입력이 막히지 않게 한다.
+const TICK_BUDGET = 24 * 1024 * 1024;
 
 function refresh() {
-  view.data = collect({ showEnded: view.showEnded });
+  view.data = collect({ showEnded: view.showEnded, budgetBytes: once ? Infinity : TICK_BUDGET });
   if (!view.data.sessions.some((s) => s.id === view.selectedId)) view.selectedId = view.data.sessions[0]?.id ?? null;
 }
 
-if (args.has('--once') || !process.stdout.isTTY) {
+if (once) {
   refresh();
   flushCache();
   const W = process.stdout.columns || 140;

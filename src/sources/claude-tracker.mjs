@@ -38,16 +38,20 @@ export class ClaudeTracker {
     return this.tail.mtimeMs;
   }
 
-  update() {
-    const lines = this.tail.read();
-    for (const x of lines) this.apply(x);
-    if (lines.length) markDirty(this.path, () => this.snapshot());
-    return lines.length;
+  // 아직 기록을 끝까지 읽지 못했으면 0~1 사이 진행률, 다 읽었으면 null.
+  get loading() {
+    return this.tail.done ? null : this.tail.progress;
+  }
+
+  update(budget) {
+    const n = this.tail.read((x) => this.apply(x), budget);
+    if (n) markDirty(this.path, () => this.snapshot());
+    return n;
   }
 
   snapshot() {
     return {
-      offset: this.tail.offset - Buffer.byteLength(this.tail.rest),
+      offset: this.tail.lineOffset,
       tokens: this.tokens,
       cost: this.cost,
       context: this.context,
