@@ -93,7 +93,7 @@ test('서브에이전트가 고친 파일도 합치고, 누가 고쳤는지 붙�
   assert.equal(s.files[0].path, '/work/demo/new.mjs');
 
   const j = toJson({ sessions: [s], usage: null, at: now }).sessions[0].files;
-  assert.deepEqual(Object.keys(j[0]).sort(), ['added', 'agents', 'created', 'edits', 'path', 'removed', 'updatedAt']);
+  assert.deepEqual(Object.keys(j[0]).sort(), ['agents', 'created', 'deletedLines', 'edits', 'path', 'updatedAt', 'writtenLines']);
 });
 
 test('캐시에 저장했다 다시 읽어도 같다', () => {

@@ -283,16 +283,16 @@ function relPath(cwd, p) {
   return tilde(p);
 }
 
-// M …/src/ui.mjs  +42 -7  ×3  14:02. 좁으면 시각, 횟수 순으로 뺀다.
+// …/src/ui.mjs  새 파일  편집 ×3  14:02. 줄 수는 편집마다 더한 값이라 git diff 처럼 읽히지 않게 목록에는 넣지 않는다.
+// 좁으면 시각, 새 파일 표시 순으로 뺀다.
 function fileRow(f, cwd, w, selected) {
-  const tail = [{ t: ` +${f.add}`, fg: PALETTE.busy }, { t: ` -${f.del}`, fg: PALETTE.alert }, { t: `  ×${f.edits}`, fg: PALETTE.faint }, { t: `  ${hhmm(f.at)}`, fg: PALETTE.faint }];
+  const tail = [{ t: `  편집 ×${f.edits}`, fg: PALETTE.muted }, ...(f.created ? [{ t: '  새 파일', fg: PALETTE.busy }] : []), { t: `  ${hhmm(f.at)}`, fg: PALETTE.faint }];
   const tailW = () => tail.reduce((a, x) => a + width(x.t), 0);
-  while (tail.length > 2 && w - 3 - tailW() < 12) tail.pop();
-  const pathW = Math.max(1, w - 3 - tailW());
+  while (tail.length > 1 && w - 1 - tailW() < 12) tail.pop();
+  const pathW = Math.max(1, w - 1 - tailW());
   const bg = selected ? PALETTE.rowSel : undefined;
   return [
     { t: selected ? '▸' : ' ', fg: PALETTE.brand, bold: true },
-    { t: f.created ? 'A ' : 'M ', fg: f.created ? PALETTE.busy : PALETTE.waiting, bold: true },
     { t: pad(truncateLeft(relPath(cwd, f.path), pathW), pathW), fg: f.hidden ? PALETTE.muted : PALETTE.text, bold: selected },
     ...tail,
   ].map((x) => ({ ...x, bg }));
@@ -331,7 +331,7 @@ function diffView(s, f, w, rows, view) {
   view.diffScroll = top;
   const i = s.files.indexOf(f);
   const pct = body.length > page ? `${Math.round(((top + page) / body.length) * 100)}%` : '';
-  const stats = [{ t: ` +${f.add}`, fg: PALETTE.busy }, { t: ` -${f.del}`, fg: PALETTE.alert }, { t: `  ${i + 1}/${s.files.length}`, fg: PALETTE.faint }];
+  const stats = [{ t: `  편집 ×${f.edits} · 쓴 줄 ${f.add} · 지운 줄 ${f.del}`, fg: PALETTE.faint }, { t: `  ${i + 1}/${s.files.length}`, fg: PALETTE.faint }];
   const statsW = stats.reduce((a, x) => a + width(x.t), 0);
   const name = truncateLeft(relPath(s.cwd, f.path), Math.max(8, w - 2 - statsW - width(pct) - 1));
   const gap = Math.max(1, w - 2 - width(name) - statsW - width(pct));
@@ -365,7 +365,7 @@ function rightColumn(s, w, rows, view) {
   const slots = overflow ? listRows - 1 : listRows;
   const start = selIdx >= slots ? selIdx - slots + 1 : 0;
   const shown = files.slice(start, start + slots);
-  const R = [[{ t: '변경 파일 ', fg: PALETTE.muted, bold: true }, { t: String(files.length), fg: PALETTE.text, bold: true }, { t: '  Edit/Write 기준', fg: PALETTE.faint }, ...(focused ? [] : [{ t: '  · f 로 이동', fg: PALETTE.faint }])]];
+  const R = [[{ t: '변경 파일 ', fg: PALETTE.muted, bold: true }, { t: String(files.length), fg: PALETTE.text, bold: true }, { t: '  Edit/Write 기록 기준 · Bash 변경 제외', fg: PALETTE.faint }, ...(focused ? [] : [{ t: '  · f 로 이동', fg: PALETTE.faint }])]];
   shown.forEach((f, k) => R.push(fileRow(f, s.cwd, w, start + k === selIdx)));
   if (overflow) R.push([{ t: `  … 외 ${files.length - shown.length}개`, fg: PALETTE.muted }]);
   R.push(title, ...activity(s, rows - R.length - 1));
@@ -432,7 +432,8 @@ const HELP = [
   ['CONTEXT', '마지막 요청의 컨텍스트 사용률 (모델별 창 크기 기준)'],
   ['IDLE', '마지막 활동 후 지난 시간. 작업 중이면 now'],
   ['오늘 / 7일', '헤더 오른쪽. 최근 7일 Claude 기록의 날짜별 합계'],
-  ['변경 파일', 'Edit/Write 도구로 고친 파일만. Bash 로 고친 파일은 빠진다. M 수정, A 새 파일'],
+  ['변경 파일', 'Edit/Write 도구로 고친 파일과 편집 횟수. git diff 가 아니다. Bash 로 고친 파일은 빠진다'],
+  ['', 'diff 머리의 쓴 줄 · 지운 줄은 편집마다 더한 누적값 (최종 변경량 아님)'],
 ];
 
 function help(W, H) {
