@@ -18,9 +18,10 @@ export function collect({ budgetBytes = Infinity, ...opts } = {}) {
       errors.push(`${tool}: ${err.message}`);
     }
   }
+  // 장부는 세션 화면보다 덜 급하니 한 번 갱신에 세션 한도의 1/3 만 읽는다 (처음 한 번 다 읽은 뒤에는 캐시와 새 줄만 읽는다).
   let usage = null;
   try {
-    usage = collectLedger({ budget: createBudget(budgetBytes) });
+    usage = collectLedger({ budget: createBudget(budgetBytes / 3) });
   } catch (err) {
     errors.push(`usage: ${err.message}`);
   }

@@ -45,10 +45,12 @@ export class JsonlTail {
     }
     this.mtimeMs = st.mtimeMs;
     this.size = st.size;
+    // 파일이 줄었으면(새로 쓰임) 처음부터 다시 읽는다. 누적값을 들고 있는 쪽은 onReset 에서 비워야 두 번 더하지 않는다.
     if (st.size < this.offset) {
       this.offset = 0;
       this.rest = [];
       this.restLength = 0;
+      this.onReset?.();
     }
     if (st.size === this.offset || budget.left <= 0) return 0;
 

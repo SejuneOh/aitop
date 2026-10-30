@@ -309,6 +309,8 @@ export function collectClaude({ showEnded, budget, selectedId }) {
       model: t?.model,
       live: e.alive,
       status,
+      // Claude Code 가 상태를 남기지 않아 기록 수정 시각으로 추측한 경우
+      statusGuessed: e.alive && !e.waitingFor && !['busy', 'shell', 'idle'].includes(e.status),
       phase: phaseOf(status, e, t),
       waitingFor: e.waitingFor ?? null,
       now: t?.lastTool ?? t?.events.at(-1)?.text ?? '',

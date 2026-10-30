@@ -29,7 +29,7 @@ function refresh() {
   const data = collect({ showEnded: view.showEnded, selectedId: view.selectedId, budgetBytes: once ? Infinity : TICK_BUDGET });
   if (!data.sessions.some((s) => s.id === view.selectedId)) view.selectedId = data.sessions[0]?.id ?? null;
   updateAttention(attention, data.sessions, view.selectedId);
-  data.sessions = data.sessions.map((s) => (attention.unseen.has(s.id) ? { ...s, unseen: true, phase: { kind: 'unseen', text: '완료 · 확인 전' } } : s));
+  data.sessions = data.sessions.map((s) => (attention.unseen.has(s.id) ? { ...s, unseen: true, phase: { kind: 'unseen', text: '완료 · 확인 전' }, plain: s } : s));
   view.data = data;
   if (view.filter) keepSelectionVisible();
 }
@@ -112,8 +112,9 @@ function move(delta) {
 function goTo(next) {
   if (!next) return;
   select(next.id);
-  // 아직 본문을 읽지 않은 종료 세션이나 확인 전 세션을 고르면 다음 갱신을 기다리지 않고 바로 반영한다.
-  refresh();
+  // 아직 본문을 읽지 않은 종료 세션을 고르면 다음 갱신을 기다리지 않고 바로 읽는다. 그 밖에는 전체 갱신 없이 화면만 바꾼다.
+  if (next.lazy) return refresh();
+  if (next.unseen) view.data.sessions = view.data.sessions.map((s) => (s.id === next.id ? s.plain : s));
 }
 
 // 검색 중에는 글자를 검색어로 받는다. Enter 는 검색어를 남기고 목록으로, Esc 는 검색을 지운다.

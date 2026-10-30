@@ -10,20 +10,10 @@ const LOADING_MIN_BYTES = 4 * 1024 * 1024;
 export class ClaudeTracker {
   constructor(path) {
     this.tail = new JsonlTail(path);
-    this.recent = new Map();
-    this.tokens = emptyTokens();
-    this.cost = 0;
-    this.costNoCache = 0;
-    // 가격표에 없는 모델의 사용량이 섞였는지. 그 몫은 비용에 넣지 않고 화면에 '?' 로 알린다.
-    this.costUnknown = false;
-    this.context = 0;
-    this.model = null;
+    this.tail.onReset = () => this.reset();
+    this.reset();
     this.title = null;
     this.branch = null;
-    this.events = [];
-    this.lastTool = null;
-    this.pending = new Map();
-    this.lastKind = null;
 
     const c = loadCache(path);
     if (c) {
@@ -32,6 +22,22 @@ export class ClaudeTracker {
       this.recent = new Map(c.recent);
       this.pending = new Map(c.pending);
     }
+  }
+
+  // 누적값 초기화. 기록 파일이 줄어 처음부터 다시 읽을 때도 쓴다.
+  reset() {
+    this.recent = new Map();
+    this.tokens = emptyTokens();
+    this.cost = 0;
+    this.costNoCache = 0;
+    // 가격표에 없는 모델의 사용량이 섞였는지. 그 몫은 비용에 넣지 않고 화면에 '?' 로 알린다.
+    this.costUnknown = false;
+    this.context = 0;
+    this.model = null;
+    this.events = [];
+    this.lastTool = null;
+    this.pending = new Map();
+    this.lastKind = null;
   }
 
   get path() {

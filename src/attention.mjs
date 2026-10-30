@@ -10,8 +10,9 @@ export function updateAttention(state, sessions, selectedId) {
   for (const s of sessions) {
     ids.add(s.id);
     const before = state.prev.get(s.id);
+    // 상태를 기록 수정 시각으로 추측한 세션(statusGuessed)은, 작업이 아닌 줄이 붙어도 잠깐 작업 중으로 보이므로 확인 전으로 치지 않는다.
     if (s.id === selectedId || s.status === 'busy' || s.status === 'shell' || !s.live) state.unseen.delete(s.id);
-    else if ((before === 'busy' || before === 'shell') && s.status === 'idle') state.unseen.add(s.id);
+    else if ((before === 'busy' || before === 'shell') && s.status === 'idle' && !s.statusGuessed) state.unseen.add(s.id);
     state.prev.set(s.id, s.status);
   }
   for (const id of state.prev.keys()) if (!ids.has(id)) state.prev.delete(id);
@@ -22,9 +23,10 @@ export function markSeen(state, id) {
   state.unseen.delete(id);
 }
 
-// 다음에 봐야 할 세션: 응답 대기 → 확인 전 순서로, 지금 선택 다음 것부터 한 바퀴 돈다.
+// 다음에 봐야 할 세션: 지금 선택한 세션은 빼고, 그 다음 것부터 한 바퀴 돌며 응답 대기 → 확인 전 순서로 찾는다.
+// 선택이 목록에 없으면(검색으로 가려짐 등) 맨 위부터 찾는다.
 export function nextAttention(state, sessions, selectedId) {
-  const start = Math.max(0, sessions.findIndex((s) => s.id === selectedId));
-  const ordered = [...sessions.slice(start + 1), ...sessions.slice(0, start + 1)];
+  const at = sessions.findIndex((s) => s.id === selectedId);
+  const ordered = at < 0 ? sessions : [...sessions.slice(at + 1), ...sessions.slice(0, at)];
   return ordered.find((s) => s.status === 'waiting') ?? ordered.find((s) => state.unseen.has(s.id)) ?? null;
 }

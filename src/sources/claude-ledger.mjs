@@ -36,6 +36,10 @@ function lastDays(n, now = Date.now()) {
 export class UsageTracker {
   constructor(path) {
     this.tail = new JsonlTail(path);
+    this.tail.onReset = () => {
+      this.recent = new Map();
+      this.days = {};
+    };
     this.recent = new Map();
     this.days = {};
     const c = loadCache(path, KIND);
@@ -108,7 +112,9 @@ function recentFiles() {
       const p = join(PROJECTS, dir, n);
       if (n.endsWith('.jsonl')) add(p);
       else if (existsSync(join(p, 'subagents'))) {
-        for (const s of readdirSync(join(p, 'subagents'))) if (s.endsWith('.jsonl')) add(join(p, 'subagents', s));
+        try {
+          for (const s of readdirSync(join(p, 'subagents'))) if (s.endsWith('.jsonl')) add(join(p, 'subagents', s));
+        } catch {}
       }
     }
   }

@@ -154,8 +154,10 @@ function header(view, W) {
     { t: money(p.cost, p.unknown), fg: PALETTE.money, bg: B, bold: true },
     { t: ` ${fmtTokens(p.tokens)}`, fg: PALETTE.muted, bg: B },
   ];
+  // 장부를 못 읽었으면 화면에 있는 세션(모든 도구)의 누적 토큰이라도 보인다.
+  const fallback = [{ t: `Σ ${fmtTokens(view.data.sessions.reduce((a, s) => a + (s.tokens?.total ?? 0), 0))} tok`, fg: PALETTE.muted, bg: B }];
   const right = [
-    ...(u ? [...period('오늘', u.today), { t: '   ', bg: B }, ...(u.loading != null ? [{ t: `7일 집계 중 ${Math.floor(u.loading * 100)}%`, fg: PALETTE.faint, bg: B }] : period('7일', u.week))] : []),
+    ...(u ? [...period('오늘', u.today), { t: '   ', bg: B }, ...(u.loading != null ? [{ t: `7일 집계 중 ${Math.floor(u.loading * 100)}%`, fg: PALETTE.faint, bg: B }] : period('7일', u.week))] : fallback),
     { t: `   ${clock(view.data.at)} `, fg: PALETTE.muted, bg: B },
   ];
   const lw = left.reduce((a, s) => a + width(s.t), 0);
