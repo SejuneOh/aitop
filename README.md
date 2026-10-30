@@ -13,7 +13,8 @@
 
 ```bash
 # 1회: 패키지 읽기 권한을 토큰에 추가하고 npm 에 등록
-gh auth refresh -h github.com -u SejuneOh -s read:packages
+gh auth switch -u SejuneOh            # refresh 는 활성 계정에만 적용된다
+gh auth refresh -h github.com -s read:packages
 npm config set @sejuneoh:registry https://npm.pkg.github.com
 npm config set //npm.pkg.github.com/:_authToken "$(gh auth token -u SejuneOh)"
 
