@@ -17,13 +17,16 @@ if (args.has('-h') || args.has('--help')) {
 }
 
 const view = { data: null, selectedId: null, showDetail: true, showEnded: args.has('--all'), frame: 0, toast: null };
+const once = args.has('--once') || !process.stdout.isTTY;
+// 실시간 화면에서 한 번 갱신할 때 읽는 기록 양. 큰 기록은 여러 번에 나눠 읽어서 키 입력이 막히지 않게 한다.
+const TICK_BUDGET = 24 * 1024 * 1024;
 
 function refresh() {
-  view.data = collect({ showEnded: view.showEnded });
+  view.data = collect({ showEnded: view.showEnded, selectedId: view.selectedId, budgetBytes: once ? Infinity : TICK_BUDGET });
   if (!view.data.sessions.some((s) => s.id === view.selectedId)) view.selectedId = view.data.sessions[0]?.id ?? null;
 }
 
-if (args.has('--once') || !process.stdout.isTTY) {
+if (once) {
   refresh();
   flushCache();
   const W = process.stdout.columns || 140;
@@ -79,6 +82,8 @@ function openSession() {
   const r = spawnSync('claude', ['attach', s.attachId], { stdio: 'inherit' });
   enterScreen();
   if (r.error) toast(`열기 실패: ${r.error.message}`, true);
+  else if (r.status) toast(`열기 실패: claude attach 가 종료 코드 ${r.status} 로 끝났습니다`, true);
+  else if (r.signal) toast(`열기 중단: ${r.signal}`, true);
   refresh();
   draw();
 }
@@ -106,7 +111,10 @@ function move(delta) {
   const list = view.data?.sessions ?? [];
   if (!list.length) return;
   const i = Math.max(0, list.findIndex((s) => s.id === view.selectedId));
-  view.selectedId = list[Math.min(list.length - 1, Math.max(0, i + delta))].id;
+  const next = list[Math.min(list.length - 1, Math.max(0, i + delta))];
+  view.selectedId = next.id;
+  // 아직 본문을 읽지 않은 종료 세션을 고르면 다음 갱신을 기다리지 않고 바로 읽는다.
+  if (next.lazy) refresh();
 }
 
 stdin.setEncoding('utf8');

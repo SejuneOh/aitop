@@ -1,13 +1,33 @@
 // 큰 세션 기록을 매번 처음부터 다시 읽지 않도록, 파일별로 "어디까지 읽었고 그때 합계가 얼마였는지"를
 // ~/.cache/aitop 에 저장한다. 이 프로그램이 디스크에 쓰는 곳은 여기뿐이다.
-import { readFileSync, writeFileSync, mkdirSync, renameSync, statSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, renameSync, statSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
+import { PRICE_TAG } from './pricing.mjs';
 
-const VERSION = 2;
-const DIR = join(process.env.XDG_CACHE_HOME ?? join(homedir(), '.cache'), 'aitop', `v${VERSION}`);
+// 캐시 형식이 바뀌면 VERSION 을, 가격표가 바뀌면 PRICE_TAG 가 폴더 이름을 바꿔서 예전 캐시를 버린다.
+const VERSION = 3;
+const ROOT = join(process.env.XDG_CACHE_HOME ?? join(homedir(), '.cache'), 'aitop');
+const NAME = `v${VERSION}-${PRICE_TAG}`;
+const DIR = join(ROOT, NAME);
+export const CACHE_DIR = DIR;
 const dirty = new Map();
+let cleaned = false;
+
+// 다른 버전의 aitop 이 같이 쓰고 있을 수 있으니, 일주일 넘게 손대지 않은 예전 캐시 폴더만 지운다.
+const STALE_DIR_MS = 7 * 24 * 3600 * 1000;
+
+function removeOldDirs() {
+  cleaned = true;
+  try {
+    for (const d of readdirSync(ROOT)) {
+      if (d === NAME) continue;
+      const p = join(ROOT, d);
+      if (Date.now() - statSync(p).mtimeMs > STALE_DIR_MS) rmSync(p, { recursive: true, force: true });
+    }
+  } catch {}
+}
 
 const keyOf = (path) => createHash('sha1').update(path).digest('hex');
 
@@ -34,6 +54,7 @@ export function flushCache() {
   } catch {
     return;
   }
+  if (!cleaned) removeOldDirs();
   for (const [path, build] of dirty) {
     try {
       const data = build();

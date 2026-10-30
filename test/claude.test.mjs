@@ -8,9 +8,9 @@ import { ClaudeTracker } from '../src/sources/claude-tracker.mjs';
 
 test('Opus 5.5 환산 비용: 입력 4, 출력 20, 캐시 읽기 0.2, 1시간 캐시 쓰기 2배', () => {
   const u = { input_tokens: 1_000_000, output_tokens: 1_000_000, cache_read_input_tokens: 1_000_000, cache_creation_input_tokens: 1_000_000, cache_creation: { ephemeral_1h_input_tokens: 1_000_000, ephemeral_5m_input_tokens: 0 } };
-  assert.equal(claudeCost('claude-opus-5-5', u), 4 + 20 + 0.2 + 8);
-  assert.equal(claudeCost('claude-opus-5-5', { output_tokens: 1_000_000, speed: 'fast' }), 40);
-  assert.equal(claudeCost('unknown-model', u), 0);
+  assert.deepEqual(claudeCost('claude-opus-5-5', u), { total: 4 + 20 + 0.2 + 8, noCache: 4 + 20 });
+  assert.equal(claudeCost('claude-opus-5-5', { output_tokens: 1_000_000, speed: 'fast' }).total, 40);
+  assert.equal(claudeCost('unknown-model', u), null);
 });
 
 const asst = (id, content, usage) => ({ type: 'assistant', timestamp: '2026-10-30T00:00:00Z', message: { id, model: 'claude-opus-5-5', content, usage } });

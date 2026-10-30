@@ -10,6 +10,7 @@ export const PALETTE = {
   faint: '#4b5060',
   line: '#2b2f3a',
   rowSel: '#1d2433',
+  rowWaiting: '#2e2610',
   bar: '#141821',
   brand: '#7dd3fc',
   busy: '#4ade80',
@@ -86,7 +87,13 @@ function gauge(used, total, cells) {
   ];
 }
 
-const money = (usd) => (usd == null ? '-' : usd >= 1000 ? `$${Math.round(usd).toLocaleString('en-US')}` : usd >= 100 ? `$${usd.toFixed(0)}` : `$${usd.toFixed(2)}`);
+const dollars = (usd) => (usd >= 1000 ? `$${Math.round(usd).toLocaleString('en-US')}` : usd >= 100 ? `$${usd.toFixed(0)}` : `$${usd.toFixed(2)}`);
+// 비용을 모르는 도구는 '-'. 가격표에 없는 모델이 섞이면 아는 몫 뒤에 '?' 를 붙이고, 아는 몫이 없으면 '?' 만 보인다.
+export function money(usd, unknown = false) {
+  if (usd == null) return '-';
+  if (unknown) return usd > 0 ? `${dollars(usd)}?` : '?';
+  return dollars(usd);
+}
 const tilde = (p) => (p ?? '').replace(homedir(), '~');
 const two = (n) => String(n).padStart(2, '0');
 const clock = (ms) => {
@@ -119,22 +126,23 @@ function header(view, W) {
   const idle = count((s) => s.status === 'idle' || s.status === 'live');
   const total = sessions.reduce((a, s) => a + (s.tokens?.total ?? 0), 0);
   const cost = sessions.reduce((a, s) => a + (s.cost ?? 0), 0);
+  const costUnknown = sessions.some((s) => s.costUnknown);
   const B = PALETTE.bar;
   const left = [
     { t: ' ◆ aitop ', fg: '#0b0e14', bg: PALETTE.brand, bold: true },
     { t: '  ', bg: B },
     { t: `${live.length} live`, fg: PALETTE.text, bg: B, bold: true },
-    { t: '   ⠿ ', fg: PALETTE.busy, bg: B },
-    { t: `${working} 작업 중`, fg: PALETTE.text, bg: B },
-    { t: '   ◆ ', fg: PALETTE.waiting, bg: B },
-    { t: `${waiting} 응답 대기`, fg: waiting ? PALETTE.waiting : PALETTE.text, bg: B, bold: waiting > 0 },
-    { t: '   ○ ', fg: PALETTE.idle, bg: B },
-    { t: `${idle} 대기`, fg: PALETTE.text, bg: B },
+    { t: '   ⠿ ', fg: working ? PALETTE.busy : PALETTE.faint, bg: B },
+    { t: `${working} 작업 중`, fg: working ? PALETTE.text : PALETTE.faint, bg: B },
+    { t: '   ◆ ', fg: waiting ? PALETTE.waiting : PALETTE.faint, bg: B },
+    { t: `${waiting} 응답 대기`, fg: waiting ? PALETTE.waiting : PALETTE.faint, bg: B, bold: waiting > 0 },
+    { t: '   ○ ', fg: idle ? PALETTE.idle : PALETTE.faint, bg: B },
+    { t: `${idle} 대기`, fg: idle ? PALETTE.text : PALETTE.faint, bg: B },
   ];
   const right = [
     { t: `Σ ${fmtTokens(total)} tok`, fg: PALETTE.muted, bg: B },
     { t: '  ', bg: B },
-    { t: money(cost), fg: PALETTE.money, bg: B, bold: true },
+    { t: money(cost, costUnknown), fg: PALETTE.money, bg: B, bold: true },
     { t: ` API 환산   ${clock(view.data.at)} `, fg: PALETTE.muted, bg: B },
   ];
   const lw = left.reduce((a, s) => a + width(s.t), 0);
@@ -166,12 +174,16 @@ function tableHeader(c, W) {
   if (c.showProject) segs.push(h('PROJECT', c.project));
   segs.push(h('STATUS', c.status), h('TOKENS', c.tokens, 'right'));
   if (c.showCost) segs.push(h('COST', c.cost, 'right'));
-  segs.push(h('CONTEXT', c.ctx), h('AGE', c.age, 'right'));
+  segs.push(h('CONTEXT', c.ctx), h('IDLE', c.age, 'right'));
   return line(segs, W);
 }
 
 function sessionRow(s, c, W, selected, frame) {
-  const bg = selected ? PALETTE.rowSel : undefined;
+  const waiting = s.status === 'waiting';
+  const bg = selected ? PALETTE.rowSel : waiting ? PALETTE.rowWaiting : undefined;
+  // IDLE: 마지막 활동 후 지난 시간. 지금 일하고 있는 세션은 'now'.
+  const working = s.status === 'busy' || s.status === 'shell';
+  const idle = working ? 'now' : fmtAgo(NOW - (s.updatedAt ?? 0));
   const ended = s.status === 'ended';
   const tc = PALETTE.tools[s.tool];
   const g = glyph(s, frame);
@@ -186,10 +198,10 @@ function sessionRow(s, c, W, selected, frame) {
   if (c.showProject) segs.push({ t: pad(s.project ?? '', c.project) + ' ', fg: PALETTE.muted });
   segs.push(
     { t: pad(s.phase?.text ?? '', c.status) + ' ', fg: pc, bold: s.status === 'waiting' },
-    { t: pad(fmtTokens(s.tokens?.total ?? 0), c.tokens, 'right') + ' ', fg: ended ? PALETTE.ended : PALETTE.text },
+    { t: pad(s.lazy ? '' : fmtTokens(s.tokens?.total ?? 0), c.tokens, 'right') + ' ', fg: ended ? PALETTE.ended : PALETTE.text },
   );
-  if (c.showCost) segs.push({ t: pad(money(s.cost), c.cost, 'right') + ' ', fg: s.cost == null || ended ? PALETTE.faint : PALETTE.money });
-  segs.push(...gauge(s.context?.used ?? 0, s.context?.window ?? 0, 11), { t: ' ' }, { t: pad(fmtAgo(NOW - (s.updatedAt ?? 0)), c.age, 'right'), fg: PALETTE.faint });
+  if (c.showCost) segs.push({ t: pad(s.lazy ? '' : money(s.cost, s.costUnknown), c.cost, 'right') + ' ', fg: s.cost == null || ended ? PALETTE.faint : PALETTE.money });
+  segs.push(...gauge(s.context?.used ?? 0, s.context?.window ?? 0, 11), { t: ' ' }, { t: pad(idle, c.age, 'right'), fg: waiting ? PALETTE.waiting : PALETTE.faint });
   return line(segs, W, bg);
 }
 
@@ -202,14 +214,24 @@ function memberRow(m, last, c, W, frame) {
     { t: ' '.repeat(c.mark + c.glyph) },
     { t: pad('  ' + branch, c.tool) + ' ', fg: PALETTE.line },
   ];
-  if (c.showModel) segs.push({ t: pad(shortModel(m.model), c.model) + ' ', fg: PALETTE.faint });
-  segs.push({ ...g, t: g.t + ' ' }, { t: pad(m.name, c.name - 2) + ' ', fg: done ? PALETTE.faint : PALETTE.team });
-  if (c.showProject) segs.push({ t: pad(m.task ?? '', c.project) + ' ', fg: PALETTE.faint, italic: true });
+  // 같은 타입의 팀원이 여럿이어도 구분되도록, 하는 일(description)을 앞에 두고 타입은 흐리게 붙인다.
+  const nameW = c.name - 2;
+  const suffix = m.task ? ` · ${m.name}` : '';
+  const label = truncate(m.task || m.name, suffix ? nameW - 6 : nameW);
+  const showSuffix = suffix && nameW - width(label) >= 6;
+  const started = m.started !== false;
+  if (c.showModel) segs.push({ t: pad(started ? shortModel(m.model) : '', c.model) + ' ', fg: PALETTE.faint });
+  segs.push(
+    { ...g, t: g.t + ' ' },
+    { t: label, fg: done ? PALETTE.faint : PALETTE.team },
+    { t: pad(showSuffix ? suffix : '', nameW - width(label)) + ' ', fg: PALETTE.faint },
+  );
+  if (c.showProject) segs.push({ t: ' '.repeat(c.project + 1) });
   segs.push(
     { t: pad(m.phase?.text ?? '', c.status) + ' ', fg: done ? PALETTE.faint : PHASE_COLOR[m.phase?.kind] ?? PALETTE.muted },
-    { t: pad(fmtTokens(m.tokens ?? 0), c.tokens, 'right') + ' ', fg: PALETTE.faint },
+    { t: pad(started ? fmtTokens(m.tokens ?? 0) : '', c.tokens, 'right') + ' ', fg: PALETTE.faint },
   );
-  if (c.showCost) segs.push({ t: pad(money(m.cost), c.cost, 'right') + ' ', fg: PALETTE.faint });
+  if (c.showCost) segs.push({ t: pad(started ? money(m.cost, m.costUnknown) : '', c.cost, 'right') + ' ', fg: PALETTE.faint });
   return line(segs, W);
 }
 let NOW = Date.now();
@@ -246,19 +268,15 @@ function detail(s, W, H, frame) {
   if (s.startedAt) kv('시작', `${clock(s.startedAt)}  (${fmtAgo(NOW - s.startedAt)} 전)`);
   L.push([]);
 
+  // 합계 = 메인 + 서브 = 입력 + 출력 + 캐시 읽기 + 캐시 쓰기 가 화면에서 그대로 맞아떨어지게 보인다.
   const t = s.tokens ?? {};
-  L.push([{ t: '토큰 ', fg: PALETTE.muted, bold: true }, { t: fmtTokens(t.total), fg: PALETTE.text, bold: true }, ...(s.cost != null ? [{ t: '   비용 ', fg: PALETTE.muted, bold: true }, { t: money(s.cost), fg: PALETTE.money, bold: true }, { t: ' (API 환산)', fg: PALETTE.faint }] : [])]);
-  const parts = [
-    ['입력', t.input, '#93c5fd'],
-    ['출력', t.output, '#c4b5fd'],
-    ['캐시 읽기', t.cacheRead, '#5eead4'],
-    ['캐시 쓰기', t.cacheWrite, '#fcd34d'],
-  ];
-  const barW = Math.max(6, leftW - 20);
-  const max = Math.max(1, ...parts.map((p) => p[1] ?? 0));
-  for (const [k, v, color] of parts) {
-    const n = Math.round(((v ?? 0) / max) * barW);
-    L.push([{ t: pad(k, 9), fg: PALETTE.muted }, { t: pad(fmtTokens(v ?? 0), 7, 'right') + ' ', fg: PALETTE.text }, { t: '█'.repeat(n), fg: color }, { t: '░'.repeat(barW - n), fg: PALETTE.line }]);
+  L.push([{ t: pad('토큰', 9), fg: PALETTE.muted, bold: true }, { t: fmtTokens(t.total), fg: PALETTE.text, bold: true }]);
+  if (t.subCount) L.push([{ t: ' '.repeat(9) }, { t: `메인 ${fmtTokens(t.main)} + 서브 ${t.subCount}개 ${fmtTokens(t.sub)}`, fg: PALETTE.faint }]);
+  L.push([{ t: ' '.repeat(9) }, { t: `입력 ${fmtTokens(t.input)} · 출력 ${fmtTokens(t.output)}`, fg: PALETTE.faint }]);
+  L.push([{ t: ' '.repeat(9) }, { t: `캐시 읽기 ${fmtTokens(t.cacheRead)} · 쓰기 ${fmtTokens(t.cacheWrite)}`, fg: PALETTE.faint }]);
+  if (s.cost != null) {
+    L.push([{ t: pad('비용', 9), fg: PALETTE.muted, bold: true }, { t: money(s.cost, s.costUnknown), fg: PALETTE.money, bold: true }, { t: ' API 환산', fg: PALETTE.faint }]);
+    L.push([{ t: ' '.repeat(9) }, { t: `캐시 제외 ${money(s.costNoCache, s.costUnknown)}`, fg: PALETTE.faint }, ...(s.costUnknown ? [{ t: '  ? 가격표에 없는 모델 포함', fg: PALETTE.waiting }] : [])]);
   }
   if (s.context?.window) {
     L.push([{ t: pad('컨텍스트', 9), fg: PALETTE.muted }, { t: pad(`${fmtTokens(s.context.used)}/${fmtTokens(s.context.window)}`, 11) + ' ', fg: PALETTE.text }, ...gauge(s.context.used, s.context.window, Math.max(4, leftW - 26))]);
@@ -314,11 +332,21 @@ export function render(view, W, H) {
   const wantDetail = view.showDetail && Boolean(sel);
   const minDetail = wantDetail ? 12 : 0;
   const room = Math.max(1, Math.min(Math.max(1, rows.length), H - lines.length - minDetail - 2));
+  // 표가 다 들어가지 않으면 마지막 줄에 몇 개가 가려졌는지 알린다.
+  const clipped = rows.length > room && room > 1;
+  const shown = clipped ? room - 1 : room;
   const selRow = Math.max(0, rows.findIndex((r) => !r.m && r.s === sel));
   const lastOfSel = selRow + (sel?.members.length ?? 0);
-  const start = Math.min(Math.max(0, lastOfSel - room + 1, 0), Math.max(0, rows.length - room), selRow);
+  const start = Math.min(Math.max(0, lastOfSel - shown + 1), Math.max(0, rows.length - shown), selRow);
+  const visible = rows.slice(start, start + shown);
   if (!sessions.length) lines.push(line([{ t: '   실행 중인 AI 세션이 없습니다.', fg: PALETTE.muted, italic: true }], W));
-  for (const r of rows.slice(start, start + room)) lines.push(r.m ? memberRow(r.m, r.last, c, W, view.frame) : sessionRow(r.s, c, W, r.s === sel, view.frame));
+  for (const r of visible) lines.push(r.m ? memberRow(r.m, r.last, c, W, view.frame) : sessionRow(r.s, c, W, r.s === sel, view.frame));
+  if (clipped) {
+    const onScreen = new Set(visible.filter((r) => !r.m).map((r) => r.s));
+    const hidden = sessions.filter((s) => !onScreen.has(s));
+    const waitingHidden = hidden.filter((s) => s.status === 'waiting').length;
+    lines.push(line([{ t: `   … +${hidden.length} 세션`, fg: PALETTE.muted }, ...(waitingHidden ? [{ t: ` (응답 대기 ${waitingHidden})`, fg: PALETTE.waiting, bold: true }] : []), { t: '  ↑↓ 로 이동', fg: PALETTE.faint }], W));
+  }
   if (wantDetail) {
     lines.push(line([], W));
     lines.push(...detail(sel, W, Math.max(minDetail, H - lines.length - 1), view.frame));

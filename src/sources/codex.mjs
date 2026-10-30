@@ -49,7 +49,7 @@ function newState(path) {
 }
 
 function snapshot(st) {
-  const out = { offset: st.tail.offset - Buffer.byteLength(st.tail.rest), pending: [...st.pending] };
+  const out = { offset: st.tail.lineOffset, pending: [...st.pending] };
   for (const k of SAVED) out[k] = st[k];
   return out;
 }
@@ -127,17 +127,17 @@ function applyLine(st, x) {
 
 export const _test = { newState, applyLine, phaseOf };
 
-export function collectCodex({ showEnded }) {
+export function collectCodex({ showEnded, budget }) {
   const procs = findProcesses(isCodex);
   if (!procs.length && !showEnded) return [];
 
   const files = recentFiles();
+  const seen = new Set(files.map((f) => f.path));
+  for (const path of states.keys()) if (!seen.has(path)) states.delete(path);
   for (const f of files) {
     let st = states.get(f.path);
     if (!st) states.set(f.path, (st = newState(f.path)));
-    const lines = st.tail.read();
-    for (const x of lines) applyLine(st, x);
-    if (lines.length) markDirty(f.path, () => snapshot(st));
+    if (st.tail.read((x) => applyLine(st, x), budget)) markDirty(f.path, () => snapshot(st));
   }
 
   // 같은 폴더에서 돌고 있는 codex 프로세스 수만큼, 가장 최근에 바뀐 세션 파일을 '실행 중'으로 본다.

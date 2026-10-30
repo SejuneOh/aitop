@@ -5,6 +5,7 @@ import { claudeCost } from '../pricing.mjs';
 import { emptyTokens, pushEvent, describeTool, isNoisePrompt } from './common.mjs';
 
 const RECENT_IDS = 64;
+const LOADING_MIN_BYTES = 4 * 1024 * 1024;
 
 export class ClaudeTracker {
   constructor(path) {
@@ -12,6 +13,9 @@ export class ClaudeTracker {
     this.recent = new Map();
     this.tokens = emptyTokens();
     this.cost = 0;
+    this.costNoCache = 0;
+    // 가격표에 없는 모델의 사용량이 섞였는지. 그 몫은 비용에 넣지 않고 화면에 '?' 로 알린다.
+    this.costUnknown = false;
     this.context = 0;
     this.model = null;
     this.title = null;
@@ -24,7 +28,7 @@ export class ClaudeTracker {
     const c = loadCache(path);
     if (c) {
       this.tail.offset = c.offset;
-      Object.assign(this, { tokens: c.tokens, cost: c.cost, context: c.context, model: c.model, title: c.title, branch: c.branch, events: c.events, lastTool: c.lastTool, lastKind: c.lastKind });
+      Object.assign(this, { tokens: c.tokens, cost: c.cost, costNoCache: c.costNoCache, costUnknown: c.costUnknown, context: c.context, model: c.model, title: c.title, branch: c.branch, events: c.events, lastTool: c.lastTool, lastKind: c.lastKind });
       this.recent = new Map(c.recent);
       this.pending = new Map(c.pending);
     }
@@ -38,18 +42,25 @@ export class ClaudeTracker {
     return this.tail.mtimeMs;
   }
 
-  update() {
-    const lines = this.tail.read();
-    for (const x of lines) this.apply(x);
-    if (lines.length) markDirty(this.path, () => this.snapshot());
-    return lines.length;
+  // 아직 읽지 않은 양이 많으면 0~1 사이 진행률, 거의 다 읽었으면 null.
+  // 새로 붙은 몇 줄을 다음 갱신으로 미룬 것까지 '읽는 중' 으로 보이면 실제 진행 단계가 가려진다.
+  get loading() {
+    return this.tail.size - this.tail.offset > LOADING_MIN_BYTES ? this.tail.progress : null;
+  }
+
+  update(budget) {
+    const n = this.tail.read((x) => this.apply(x), budget);
+    if (n) markDirty(this.path, () => this.snapshot());
+    return n;
   }
 
   snapshot() {
     return {
-      offset: this.tail.offset - Buffer.byteLength(this.tail.rest),
+      offset: this.tail.lineOffset,
       tokens: this.tokens,
       cost: this.cost,
+      costNoCache: this.costNoCache,
+      costUnknown: this.costUnknown,
       context: this.context,
       model: this.model,
       title: this.title,
@@ -73,7 +84,10 @@ export class ClaudeTracker {
     t.cacheWrite += n(u, 'cache_creation_input_tokens') - n(prev?.u, 'cache_creation_input_tokens');
     t.total = t.input + t.output + t.cacheRead + t.cacheWrite;
     const cost = claudeCost(model, u);
-    this.cost += cost - (prev?.cost ?? 0);
+    const used = n(u, 'input_tokens') + n(u, 'output_tokens') + n(u, 'cache_read_input_tokens') + n(u, 'cache_creation_input_tokens');
+    if (!cost && used > 0) this.costUnknown = true;
+    this.cost += (cost?.total ?? 0) - (prev?.cost?.total ?? 0);
+    this.costNoCache += (cost?.noCache ?? 0) - (prev?.cost?.noCache ?? 0);
     this.recent.delete(id);
     this.recent.set(id, { u, cost });
     if (this.recent.size > RECENT_IDS) this.recent.delete(this.recent.keys().next().value);
