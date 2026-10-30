@@ -1,6 +1,6 @@
 {
   "name": "@sejuneoh/aitop",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "터미널에서 Claude Code · Codex · Gemini 세션과 토큰을 실시간으로 보는 읽기 전용 모니터",
   "license": "UNLICENSED",
   "type": "module",
