@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { PRICE_TAG } from './pricing.mjs';
 
 // 캐시 형식이 바뀌면 VERSION 을, 가격표가 바뀌면 PRICE_TAG 가 폴더 이름을 바꿔서 예전 캐시를 버린다.
-const VERSION = 3;
+const VERSION = 4;
 const ROOT = join(process.env.XDG_CACHE_HOME ?? join(homedir(), '.cache'), 'aitop');
 const NAME = `v${VERSION}-${PRICE_TAG}`;
 const DIR = join(ROOT, NAME);
@@ -29,12 +29,13 @@ function removeOldDirs() {
   } catch {}
 }
 
-const keyOf = (path) => createHash('sha1').update(path).digest('hex');
+// kind: 같은 기록 파일을 다른 용도로 읽는 tracker 가 각자 캐시를 갖도록 구분한다 (예: 세션 화면용, 날짜별 사용량용).
+const keyOf = (path, kind) => createHash('sha1').update(`${kind}\0${path}`).digest('hex');
 
 // 파일이 바뀌지 않고 뒤에만 붙었을 때(크기가 같거나 커졌고 inode 가 같을 때)만 캐시를 쓴다.
-export function loadCache(path) {
+export function loadCache(path, kind = '') {
   try {
-    const c = JSON.parse(readFileSync(join(DIR, keyOf(path) + '.json'), 'utf8'));
+    const c = JSON.parse(readFileSync(join(DIR, keyOf(path, kind) + '.json'), 'utf8'));
     const st = statSync(path);
     if (c.path !== path || c.ino !== st.ino || st.size < c.offset) return null;
     return c;
@@ -43,8 +44,8 @@ export function loadCache(path) {
   }
 }
 
-export function markDirty(path, snapshot) {
-  dirty.set(path, snapshot);
+export function markDirty(path, snapshot, kind = '') {
+  dirty.set(keyOf(path, kind), { path, build: snapshot });
 }
 
 export function flushCache() {
@@ -55,11 +56,11 @@ export function flushCache() {
     return;
   }
   if (!cleaned) removeOldDirs();
-  for (const [path, build] of dirty) {
+  for (const [key, { path, build }] of dirty) {
     try {
       const data = build();
       if (!data) continue;
-      const file = join(DIR, keyOf(path) + '.json');
+      const file = join(DIR, key + '.json');
       writeFileSync(file + '.tmp', JSON.stringify({ ...data, path, ino: statSync(path).ino }), { mode: 0o600 });
       renameSync(file + '.tmp', file);
     } catch {}
