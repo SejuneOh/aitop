@@ -27,6 +27,7 @@
   },
   "scripts": {
     "start": "node bin/aitop.mjs",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "test:e2e": "node --test test/e2e/*.e2e.mjs"
   }
 }

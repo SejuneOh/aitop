@@ -17,5 +17,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      - run: npm test
-      - run: node bin/aitop.mjs --once > /dev/null
+      - name: 단위 테스트
+        run: npm test
+      # 실제 bin 을 실행한다: --json/--once/--help 와, 가상 터미널(script)에서 키 입력·종료 확인
+      - name: e2e 테스트
+        run: npm run test:e2e
+      - name: 실행 확인 (세션 없는 환경)
+        run: node bin/aitop.mjs --once > /dev/null
