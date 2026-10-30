@@ -64,8 +64,9 @@ test('이번 지시에 고친 파일이 없으면 안내를 보이고, 목록에
   s.turns = [...s.turns, { n: 4, at: t0 + 20 * 60_000, text: '테스트 돌려줘' }];
   const view = { data: { sessions: [s], usage: null, errors: [], at: Date.now() }, selectedId: s.id, showDetail: true, frame: 0, focus: null, tab: 'now', filePath: null };
   const out = render(view, 120, 30).map(strip).join('\n');
-  assert.match(out, /"테스트 돌려줘"\s+파일 0 · 편집 0회/);
-  assert.match(out, /이 지시에서 고친 파일이 없습니다/);
+  assert.match(out, /편집 기록 · 0개/);
+  assert.match(out, /"테스트 돌려줘"/);
+  assert.match(out, /· 이 지시에서는 고친 파일 없음/);
   const act = { quit() {}, refresh() {}, move() {}, next() {}, keepVisible() {} };
   onKey(view, 'f', act);
   assert.deepEqual([view.focus, view.filePath], ['files', null]);

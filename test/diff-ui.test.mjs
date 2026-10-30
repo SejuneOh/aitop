@@ -16,22 +16,23 @@ const files = Array.from({ length: 9 }, (_, i) => ({ path: `/work/demo/src/deep/
 
 test('고친 파일이 없으면 오른쪽 칸은 최근 활동만 보인다', () => {
   const out = render(view(session([])), 120, 30).map(strip).join('\n');
-  assert.match(out, /최근 활동/);
+  assert.match(out, /── 최근 활동 ─/);
   assert.doesNotMatch(out, /변경 파일/);
 });
 
 test('고친 파일이 있으면 위쪽에 목록, 아래쪽에 최근 활동을 보이고 넘치면 외 N개', () => {
   const lines = render(view(session(files)), 120, 22).map(strip);
   const all = lines.join('\n');
-  assert.match(all, /변경 파일 \[이번 지시\] 전체 /);
-  assert.match(all, /파일 9 · 편집 45회  · Edit\/Write 기록 기준/);
+  // 두 구획은 라벨 가로줄로 나뉘고, 변경 파일 가로줄 끝에 git diff 가 아님을 알리는 '편집 기록' 이 붙는다.
+  assert.match(all, /── 변경 파일 ─+ 편집 기록 · 9개 · f ─/);
+  assert.match(all, /‹이번 지시›  전체/);
   assert.match(all, /src\/deep\/folder\/file0\.mjs\s+편집 ×1  새 파일  \d\d:\d\d/);
   assert.match(all, /src\/deep\/folder\/file1\.mjs\s+편집 ×2  \d\d:\d\d/);
   // +N -M 은 기준 대비 순변경으로 읽히므로 누적 줄 수에는 쓰지 않는다.
   assert.doesNotMatch(all, /[+-]\d+ [+-]\d+/);
-  assert.match(all, /… 외 \d+개/);
-  const fileLine = lines.findIndex((l) => l.includes('변경 파일 ['));
-  const actLine = lines.findIndex((l) => l.includes('최근 활동'));
+  assert.match(all, /\+\d+개 더/);
+  const fileLine = lines.findIndex((l) => l.includes('── 변경 파일'));
+  const actLine = lines.findIndex((l) => l.includes('── 최근 활동'));
   assert.ok(actLine > fileLine);
   assert.match(lines.at(-1), /f\s+변경 파일/);
 });
@@ -52,7 +53,9 @@ test('목록과 diff 는 어느 화면 크기에서도 패널을 넘지 않는�
 
 test('목록에서 고른 파일은 표시되고, 아래쪽 파일을 고르면 그 파일이 보이게 내려간다', () => {
   const lines = render(view(session(files), { focus: 'files', filePath: files[8].path }), 120, 30).map(strip);
-  assert.ok(lines.some((l) => /▸src\/deep\/folder\/file8\.mjs/.test(l)));
+  // 목록에 들어가면 구획 왼쪽에 ▌, 고른 행에 ▸. 색이 없어도 글자로 구분된다.
+  assert.ok(lines.some((l) => /▌▸ src\/deep\/folder\/file8\.mjs/.test(l)));
+  assert.ok(lines.some((l) => /▌── 변경 파일 ─+ 편집 기록 · 9개 ─/.test(l)));
   assert.match(lines.at(-1), /파일 선택.*diff 보기.*세션으로/);
 });
 
@@ -60,7 +63,7 @@ test('diff 는 오른쪽 칸 전체에 시각 · 누가 · 위치 머리와 함�
   const f = { ...files[1], hunks: [hunk('general-purpose', 40, ['-a', '+b']), hunk('메인', 5, [' ctx', '-old', '+new'])] };
   const lines = render(view(session([files[0], f]), { focus: 'diff', filePath: f.path }), 120, 30).map(strip);
   const all = lines.join('\n');
-  assert.match(all, /‹ src\/deep\/folder\/file1\.mjs  편집 ×2 · 쓴 줄 10 · 지운 줄 1  2\/2/);
+  assert.match(all, /── ‹ (src|…)\/deep\/folder\/file1\.mjs · 편집 ×2 · 쓴 줄 10 · 지운 줄 1 ─+ 2\/2 ─/);
   assert.match(all, /\d\d:\d\d:\d\d · general-purpose · @@ -40,1 \+40,2 @@/);
   assert.match(all, /\s+5 \sctx/);
   assert.match(all, /\s+6 \+new/);
