@@ -1,0 +1,108 @@
+// 키 입력 처리. 화면 상태(view)를 바꾸고, 종료·갱신·세션 이동처럼 밖에서 해야 할 일은 act 로 부른다.
+// view.focus: null(세션 선택) → 'files'(변경 파일 목록) → 'diff'(고른 파일의 변경 내용). Esc 는 한 단계씩 뒤로 가고 종료하지 않는다.
+export const KEY = { up: '\x1b[A', down: '\x1b[B', right: '\x1b[C', left: '\x1b[D', pageUp: '\x1b[5~', pageDown: '\x1b[6~', esc: '\x1b', enter: '\r', tab: '\t', ctrlC: '\x03', backspace: '\x7f' };
+
+const isUp = (k) => k === KEY.up || k === 'k';
+const isDown = (k) => k === KEY.down || k === 'j';
+const isBack = (k) => k === KEY.esc || k === KEY.left || k === 'h';
+
+export function selectedSession(view) {
+  return view.data?.sessions.find((s) => s.id === view.selectedId) ?? null;
+}
+
+const filesOf = (view) => selectedSession(view)?.files ?? [];
+
+// 갱신 뒤에 고른 파일이 목록에서 빠졌거나 세션에 고친 파일이 없어졌으면 포커스를 맞춘다.
+export function fixFocus(view) {
+  if (!view.focus) return;
+  const files = filesOf(view);
+  if (!files.length || !view.showDetail) {
+    view.focus = null;
+    return;
+  }
+  if (!files.some((f) => f.path === view.filePath)) {
+    view.filePath = files[0].path;
+    view.focus = 'files';
+  }
+}
+
+function enterFiles(view) {
+  const files = filesOf(view);
+  if (!files.length) return;
+  view.showDetail = true;
+  view.focus = 'files';
+  if (!files.some((f) => f.path === view.filePath)) view.filePath = files[0].path;
+}
+
+function stepFile(view, delta) {
+  const files = filesOf(view);
+  const i = Math.max(0, files.findIndex((f) => f.path === view.filePath));
+  view.filePath = files[Math.min(files.length - 1, Math.max(0, i + delta))]?.path ?? null;
+}
+
+function filesKey(view, key) {
+  if (isUp(key)) stepFile(view, -1);
+  else if (isDown(key)) stepFile(view, 1);
+  else if (key === KEY.enter || key === KEY.right || key === 'l') {
+    view.focus = 'diff';
+    view.diffScroll = 0;
+  } else if (isBack(key) || key === 'f' || key === KEY.tab) view.focus = null;
+  else return false;
+  return true;
+}
+
+function diffKey(view, key) {
+  const page = view.diffPage ?? 10;
+  if (isUp(key)) view.diffScroll = Math.max(0, (view.diffScroll ?? 0) - 1);
+  else if (isDown(key)) view.diffScroll = (view.diffScroll ?? 0) + 1;
+  else if (key === ' ' || key === KEY.pageDown) view.diffScroll = (view.diffScroll ?? 0) + page;
+  else if (key === KEY.pageUp) view.diffScroll = Math.max(0, (view.diffScroll ?? 0) - page);
+  else if (key === '[' || key === ']') {
+    stepFile(view, key === '[' ? -1 : 1);
+    view.diffScroll = 0;
+  } else if (isBack(key)) view.focus = 'files';
+  else return false;
+  return true;
+}
+
+// 검색 중에는 글자를 검색어로 받는다. Enter 는 검색어를 남기고 목록으로, Esc 는 검색을 지운다.
+function searchKey(view, key, act) {
+  if (key === KEY.enter) view.searching = false;
+  else if (key === KEY.esc) {
+    view.searching = false;
+    view.filter = '';
+  } else if (key === KEY.backspace || key === '\b') view.filter = [...(view.filter ?? '')].slice(0, -1).join('');
+  else if (!/[\x00-\x1f\x7f]/.test(key)) view.filter = (view.filter ?? '') + key;
+  act.keepVisible();
+}
+
+export function onKey(view, key, act) {
+  if (key === KEY.ctrlC) return act.quit();
+  if (view.searching) return searchKey(view, key, act);
+  if (key === '?' || (key === KEY.esc && view.help)) {
+    view.help = !view.help && key === '?';
+    return;
+  }
+  if (key === 'q') return act.quit();
+  if (view.focus === 'diff' && diffKey(view, key)) return;
+  if (view.focus === 'files' && filesKey(view, key)) return;
+  if (key === KEY.esc) {
+    view.filter = '';
+    return;
+  }
+  if (key === 'f' || key === KEY.tab) return enterFiles(view);
+  if (key === '/') {
+    view.searching = true;
+    view.filter = '';
+    view.focus = null;
+  } else if (isUp(key)) act.move(-1);
+  else if (isDown(key)) act.move(1);
+  else if (key === 'n') act.next();
+  else if (key === 'd') {
+    view.showDetail = !view.showDetail;
+    if (!view.showDetail) view.focus = null;
+  } else if (key === 'e') {
+    view.showEnded = !view.showEnded;
+    act.refresh();
+  }
+}

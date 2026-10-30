@@ -3,6 +3,7 @@ import { JsonlTail } from '../tail.mjs';
 import { loadCache, markDirty } from '../cache.mjs';
 import { claudeCost } from '../pricing.mjs';
 import { emptyTokens, pushEvent, describeTool, isNoisePrompt } from './common.mjs';
+import { addChange } from './files.mjs';
 
 const RECENT_IDS = 64;
 const LOADING_MIN_BYTES = 4 * 1024 * 1024;
@@ -18,7 +19,7 @@ export class ClaudeTracker {
     const c = loadCache(path);
     if (c) {
       this.tail.offset = c.offset;
-      Object.assign(this, { tokens: c.tokens, cost: c.cost, costNoCache: c.costNoCache, costUnknown: c.costUnknown, context: c.context, model: c.model, title: c.title, branch: c.branch, events: c.events, lastTool: c.lastTool, lastKind: c.lastKind });
+      Object.assign(this, { tokens: c.tokens, cost: c.cost, costNoCache: c.costNoCache, costUnknown: c.costUnknown, context: c.context, model: c.model, title: c.title, branch: c.branch, events: c.events, lastTool: c.lastTool, lastKind: c.lastKind, files: c.files ?? [] });
       this.recent = new Map(c.recent);
       this.pending = new Map(c.pending);
     }
@@ -38,6 +39,8 @@ export class ClaudeTracker {
     this.lastTool = null;
     this.pending = new Map();
     this.lastKind = null;
+    // Edit/Write 로 고친 파일 (files.mjs)
+    this.files = [];
   }
 
   get path() {
@@ -76,6 +79,7 @@ export class ClaudeTracker {
       lastKind: this.lastKind,
       recent: [...this.recent],
       pending: [...this.pending],
+      files: this.files,
     };
   }
 
@@ -125,6 +129,7 @@ export class ClaudeTracker {
     }
 
     if (x.type === 'user' && x.message) {
+      if (x.toolUseResult) addChange(this.files, x.toolUseResult, x.timestamp);
       const c = x.message.content;
       if (Array.isArray(c)) for (const p of c) if (p.type === 'tool_result') this.pending.delete(p.tool_use_id);
       const text = typeof c === 'string' ? c : Array.isArray(c) ? c.filter((p) => p.type === 'text').map((p) => p.text).join(' ') : '';
