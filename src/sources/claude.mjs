@@ -74,6 +74,21 @@ function emptySub() {
   return { count: 0, tokens: emptyTokens(), cost: 0, costNoCache: 0, costUnknown: false };
 }
 
+// 메인 tracker 와 서브에이전트 합계를 화면에 보일 세션 숫자로 합친다. 기록을 아직 읽지 않았으면(t 없음) 비용은 null.
+function sessionTotals(t, sub) {
+  const main = t?.tokens ?? emptyTokens();
+  const tokens = { main: main.total, sub: sub.tokens.total, subCount: sub.count };
+  for (const k of Object.keys(main)) tokens[k] = main[k] + sub.tokens[k];
+  const used = t?.context ?? 0;
+  return {
+    tokens,
+    cost: t ? t.cost + sub.cost : null,
+    costNoCache: t ? t.costNoCache + sub.costNoCache : null,
+    costUnknown: Boolean(t?.costUnknown || sub.costUnknown),
+    context: { used, window: used > 200_000 ? 1_000_000 : 200_000 },
+  };
+}
+
 function readMembers(transcript, parent, budget) {
   const dir = join(transcript.replace(/\.jsonl$/, ''), 'subagents');
   const sub = emptySub();
@@ -171,9 +186,11 @@ function recentTranscripts() {
   return list;
 }
 
-function readHead(path) {
-  if (heads.has(path)) return heads.get(path);
-  const head = { cwd: null, title: null, branch: null, startedAt: null };
+// 기록이 바뀌었으면(mtime) 앞부분을 다시 읽어 뒤늦게 붙은 제목도 반영한다.
+function readHead(path, mtime) {
+  const cached = heads.get(path);
+  if (cached && cached.mtime === mtime) return cached;
+  const head = { mtime, cwd: null, title: null, branch: null, startedAt: null };
   try {
     const fd = openSync(path, 'r');
     const buf = Buffer.alloc(HEAD_BYTES);
@@ -197,17 +214,31 @@ function readHead(path) {
   return head;
 }
 
-// 끝난 세션의 기록 본문은 선택했을 때(또는 이미 캐시가 있을 때)만 읽는다.
+// 캐시가 있는지는 기록이 바뀔 때만 다시 확인한다 (끝난 세션 수십 개를 매초 확인하지 않게).
+const cacheChecked = new Map();
+
+function hasCache(path, mtime) {
+  const c = cacheChecked.get(path);
+  if (c && c.mtime === mtime) return c.ok;
+  const ok = Boolean(loadCache(path));
+  cacheChecked.set(path, { mtime, ok });
+  return ok;
+}
+
+// 끝난 세션의 기록 본문은 선택했을 때, 이미 캐시가 있을 때, 또는 --once 처럼 한도 없이 읽을 때만 읽는다.
+// 한 번 읽기 시작한 세션은 선택을 옮겨도 계속 읽어서, 서브에이전트까지 포함한 합계가 흔들리지 않게 한다.
 function endedFromTranscripts(known, selectedId, budget) {
   const out = [];
-  for (const f of recentTranscripts()) {
+  const eager = budget.left === Infinity;
+  const recent = recentTranscripts();
+  const recentPaths = new Set(recent.map((f) => f.path));
+  for (const map of [heads, cacheChecked]) for (const p of map.keys()) if (!recentPaths.has(p)) map.delete(p);
+  for (const f of recent) {
     if (known.has(f.sessionId)) continue;
-    const head = readHead(f.path);
-    const t = f.sessionId === selectedId || trackers.has(f.path) || loadCache(f.path) ? tracker(trackers, f.path, budget) : null;
-    const { members, sub } = t && f.sessionId === selectedId ? readMembers(f.path, t, budget) : { members: [], sub: emptySub() };
-    const main = t?.tokens ?? emptyTokens();
-    const tokens = { main: main.total, sub: sub.tokens.total, subCount: sub.count };
-    for (const k of Object.keys(main)) tokens[k] = main[k] + sub.tokens[k];
+    const head = readHead(f.path, f.mtime);
+    const want = eager || f.sessionId === selectedId || trackers.has(f.path) || hasCache(f.path, f.mtime);
+    const t = want ? tracker(trackers, f.path, budget) : null;
+    const { sub } = t ? readMembers(f.path, t, budget) : { sub: emptySub() };
     out.push({
       tool: 'claude',
       id: f.sessionId,
@@ -227,11 +258,7 @@ function endedFromTranscripts(known, selectedId, budget) {
       now: '',
       startedAt: head.startedAt,
       updatedAt: f.mtime,
-      tokens,
-      cost: t ? t.cost + sub.cost : null,
-      costNoCache: t ? t.costNoCache + sub.costNoCache : null,
-      costUnknown: Boolean(t?.costUnknown || sub.costUnknown),
-      context: { used: t?.context ?? 0, window: (t?.context ?? 0) > 200_000 ? 1_000_000 : 200_000 },
+      ...sessionTotals(t, sub),
       events: t?.events ?? [],
       members: [],
     });
@@ -256,8 +283,10 @@ export function collectClaude({ showEnded, budget, selectedId }) {
     if (!prev || (e.alive && !prev.alive) || (e.updatedAt ?? e.startedAt) > (prev.updatedAt ?? prev.startedAt)) latest.set(e.sessionId, e);
   }
 
+  // 읽기 한도가 큰 기록 하나에 다 쓰이지 않도록, 살아 있는 세션의 새 줄부터 읽는다.
+  const entries = [...latest.values()].sort((a, b) => Number(b.alive) - Number(a.alive));
   const out = [];
-  for (const e of latest.values()) {
+  for (const e of entries) {
     const touched = e.updatedAt ?? e.startedAt ?? 0;
     if (!e.alive && !(showEnded && Date.now() - touched < ENDED_WINDOW_MS)) continue;
 
@@ -267,9 +296,6 @@ export function collectClaude({ showEnded, budget, selectedId }) {
     const mtime = Math.max(t?.mtimeMs ?? 0, touched);
     const status = statusOf(e, e.alive, mtime);
     const autoName = !e.name || e.name === e.sessionId.slice(0, 8);
-    const main = t?.tokens ?? emptyTokens();
-    const tokens = { main: main.total, sub: sub.tokens.total, subCount: sub.count };
-    for (const k of Object.keys(main)) tokens[k] = main[k] + sub.tokens[k];
 
     out.push({
       tool: 'claude',
@@ -289,11 +315,7 @@ export function collectClaude({ showEnded, budget, selectedId }) {
       now: t?.lastTool ?? t?.events.at(-1)?.text ?? '',
       startedAt: e.startedAt,
       updatedAt: mtime,
-      tokens,
-      cost: (t?.cost ?? 0) + sub.cost,
-      costNoCache: (t?.costNoCache ?? 0) + sub.costNoCache,
-      costUnknown: Boolean(t?.costUnknown || sub.costUnknown),
-      context: { used: t?.context ?? 0, window: (t?.context ?? 0) > 200_000 ? 1_000_000 : 200_000 },
+      ...sessionTotals(t, sub),
       events: t?.events ?? [],
       members: status === 'ended' ? [] : members,
     });

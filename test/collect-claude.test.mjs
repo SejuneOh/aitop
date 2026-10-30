@@ -34,13 +34,22 @@ test('세션 목록에서 빠지면 tracker 도 정리된다', () => {
 
 test('읽기 한도가 작으면 진행률을 보여 주고, 다음 갱신에서 마저 읽는다', () => {
   fx.session({ sessionId: 'bbbbbbbb-2' });
-  const big = 'x'.repeat(2 * 1024 * 1024);
+  const big = 'x'.repeat(6 * 1024 * 1024);
   fx.transcript('bbbbbbbb-2', [user('긴 기록'), assistant('m1', [{ type: 'text', text: big }], usage(1, 1)), assistant('m2', [{ type: 'text', text: big }], usage(1, 1))]);
 
   const [partial] = run({ budget: createBudget(1) });
   assert.match(partial.phase.text, /^기록 읽는 중 \d+%$/);
   let s;
-  for (let i = 0; i < 5; i++) [s] = run({ budget: createBudget(1024 * 1024) });
+  for (let i = 0; i < 20; i++) [s] = run({ budget: createBudget(1024 * 1024) });
   assert.doesNotMatch(s.phase.text, /기록 읽는 중/);
   assert.equal(s.tokens.total, 4);
+});
+
+test('몇 줄만 밀린 세션은 읽는 중 대신 실제 진행 단계를 보인다', () => {
+  fx.session({ sessionId: 'hhhhhhhh-5' });
+  const p = fx.transcript('hhhhhhhh-5', [user('작업'), assistant('m1', [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'ls' } }], usage(1, 1))]);
+  run();
+  fx.append(p, [user([{ type: 'tool_result', tool_use_id: 't1' }])]);
+  const [s] = run({ budget: createBudget(0) });
+  assert.equal(s.phase.text, '도구 실행 · Bash');
 });

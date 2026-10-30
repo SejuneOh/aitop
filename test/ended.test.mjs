@@ -7,7 +7,8 @@ const fx = makeClaudeHome();
 const { collectClaude } = await import('../src/sources/claude.mjs');
 const { createBudget } = await import('../src/tail.mjs');
 
-const run = (opts) => collectClaude({ budget: createBudget(), ...opts });
+// 실시간 화면처럼 한도가 있는 읽기. 한도가 없으면(--once) 모든 종료 세션을 읽는다.
+const run = (opts) => collectClaude({ budget: createBudget(1e9), ...opts });
 
 // sessions/<pid>.json 없이 기록만 남은 세션들
 fx.transcript('ffffffff-1', [{ type: 'ai-title', aiTitle: '어제 끝난 작업', sessionId: 'ffffffff-1' }, { ...assistant('m1', [], usage(10, 20)), cwd: '/work/alpha', gitBranch: 'main' }], '-work-alpha');

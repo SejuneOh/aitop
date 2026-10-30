@@ -24,19 +24,24 @@ function scanAll() {
     } catch {
       continue;
     }
-    if (!argv.length || !(isCodex(argv) || isGemini(argv))) continue;
-    let cwd = null;
-    try {
-      cwd = readlinkSync(`/proc/${pid}/cwd`);
-    } catch {}
-    list.push({ pid: Number(pid), argv, cwd });
+    if (!argv.length) continue;
+    list.push({ pid: Number(pid), argv });
   }
   scan = { at: Date.now(), list };
   return list;
 }
 
+// 작업 폴더는 일치한 프로세스만 읽는다.
 export function findProcesses(match) {
-  return scanAll().filter((p) => match(p.argv));
+  return scanAll()
+    .filter((p) => match(p.argv))
+    .map((p) => {
+      let cwd = null;
+      try {
+        cwd = readlinkSync(`/proc/${p.pid}/cwd`);
+      } catch {}
+      return { ...p, cwd };
+    });
 }
 
 const base = (p) => p.split('/').pop();

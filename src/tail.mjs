@@ -14,15 +14,17 @@ export class JsonlTail {
   constructor(path) {
     this.path = path;
     this.offset = 0;
-    // 아직 줄바꿈이 오지 않은 뒷부분. 청크 경계에서 한글 같은 여러 바이트 문자가 잘려도 깨지지 않게 바이트로 둔다.
-    this.rest = Buffer.alloc(0);
+    // 아직 줄바꿈이 오지 않은 뒷부분 조각들. 청크 경계에서 한글 같은 여러 바이트 문자가 잘려도 깨지지 않게 바이트로 두고,
+    // 아주 긴 줄도 조각을 모아 두었다가 줄바꿈이 올 때 한 번만 합친다.
+    this.rest = [];
+    this.restLength = 0;
     this.mtimeMs = 0;
     this.size = 0;
   }
 
   // 완성된 줄까지 읽은 위치. 캐시에 저장해 두고 다음 실행에서 여기서부터 읽는다.
   get lineOffset() {
-    return this.offset - this.rest.length;
+    return this.offset - this.restLength;
   }
 
   get done() {
@@ -45,7 +47,8 @@ export class JsonlTail {
     this.size = st.size;
     if (st.size < this.offset) {
       this.offset = 0;
-      this.rest = Buffer.alloc(0);
+      this.rest = [];
+      this.restLength = 0;
     }
     if (st.size === this.offset || budget.left <= 0) return 0;
 
@@ -58,14 +61,17 @@ export class JsonlTail {
         if (n <= 0) break;
         this.offset += n;
         budget.left -= n;
-        const data = this.rest.length ? Buffer.concat([this.rest, buf.subarray(0, n)]) : buf.subarray(0, n);
-        const end = data.lastIndexOf(NL);
+        const chunk = buf.subarray(0, n);
+        const end = chunk.lastIndexOf(NL);
         if (end < 0) {
-          this.rest = Buffer.from(data);
+          this.rest.push(Buffer.from(chunk));
+          this.restLength += n;
           continue;
         }
-        this.rest = Buffer.from(data.subarray(end + 1));
-        for (const line of data.toString('utf8', 0, end).split('\n')) {
+        const data = this.restLength ? Buffer.concat([...this.rest, chunk.subarray(0, end)]) : chunk.subarray(0, end);
+        this.rest = end + 1 < n ? [Buffer.from(chunk.subarray(end + 1))] : [];
+        this.restLength = n - end - 1;
+        for (const line of data.toString('utf8').split('\n')) {
           if (!line) continue;
           let x;
           try {

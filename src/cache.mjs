@@ -15,10 +15,17 @@ export const CACHE_DIR = DIR;
 const dirty = new Map();
 let cleaned = false;
 
+// 다른 버전의 aitop 이 같이 쓰고 있을 수 있으니, 일주일 넘게 손대지 않은 예전 캐시 폴더만 지운다.
+const STALE_DIR_MS = 7 * 24 * 3600 * 1000;
+
 function removeOldDirs() {
   cleaned = true;
   try {
-    for (const d of readdirSync(ROOT)) if (d !== NAME) rmSync(join(ROOT, d), { recursive: true, force: true });
+    for (const d of readdirSync(ROOT)) {
+      if (d === NAME) continue;
+      const p = join(ROOT, d);
+      if (Date.now() - statSync(p).mtimeMs > STALE_DIR_MS) rmSync(p, { recursive: true, force: true });
+    }
   } catch {}
 }
 

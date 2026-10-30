@@ -6,13 +6,13 @@ import { createBudget } from './tail.mjs';
 const RANK = { waiting: 0, busy: 1, shell: 2, live: 3, idle: 4, ended: 5 };
 
 // budgetBytes: 이번 갱신에서 세션 기록을 읽을 최대 바이트. 실시간 화면은 작게 잡아 큰 기록을 여러 번에 나눠 읽는다.
+// 도구마다 한도를 따로 줘서, Claude 의 큰 기록이 Codex 세션 읽기를 막지 않게 한다.
 export function collect({ budgetBytes = Infinity, ...opts } = {}) {
-  const budget = createBudget(budgetBytes);
   const sessions = [];
   const errors = [];
   for (const [tool, fn] of [['claude', collectClaude], ['codex', collectCodex], ['gemini', collectGemini]]) {
     try {
-      sessions.push(...fn({ ...opts, budget }));
+      sessions.push(...fn({ ...opts, budget: createBudget(budgetBytes) }));
     } catch (err) {
       errors.push(`${tool}: ${err.message}`);
     }

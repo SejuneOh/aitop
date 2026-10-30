@@ -5,6 +5,7 @@ import { claudeCost } from '../pricing.mjs';
 import { emptyTokens, pushEvent, describeTool, isNoisePrompt } from './common.mjs';
 
 const RECENT_IDS = 64;
+const LOADING_MIN_BYTES = 4 * 1024 * 1024;
 
 export class ClaudeTracker {
   constructor(path) {
@@ -41,9 +42,10 @@ export class ClaudeTracker {
     return this.tail.mtimeMs;
   }
 
-  // 아직 기록을 끝까지 읽지 못했으면 0~1 사이 진행률, 다 읽었으면 null.
+  // 아직 읽지 않은 양이 많으면 0~1 사이 진행률, 거의 다 읽었으면 null.
+  // 새로 붙은 몇 줄을 다음 갱신으로 미룬 것까지 '읽는 중' 으로 보이면 실제 진행 단계가 가려진다.
   get loading() {
-    return this.tail.done ? null : this.tail.progress;
+    return this.tail.size - this.tail.offset > LOADING_MIN_BYTES ? this.tail.progress : null;
   }
 
   update(budget) {
