@@ -4,6 +4,7 @@ import { render, filterSessions } from '../src/ui.mjs';
 import { flushCache } from '../src/cache.mjs';
 import { toJson } from '../src/json.mjs';
 import { createAttention, updateAttention, markSeen, nextAttention } from '../src/attention.mjs';
+import { onKey } from '../src/keys.mjs';
 
 const args = new Set(process.argv.slice(2));
 if (args.has('-h') || args.has('--help')) {
@@ -14,7 +15,7 @@ if (args.has('-h') || args.has('--help')) {
   aitop --all      종료된 세션(24시간 이내)도 함께 본다
   aitop --json     세션 목록과 사용량 합계를 JSON 으로 한 번 출력한다 (--all 과 함께 쓸 수 있다)
 
-  키: / 검색 · ↑↓/jk 선택 · n 다음 볼 세션 · d 상세 · e 종료 세션 토글 · ? 도움말 · q 나가기`);
+  키: / 검색 · ↑↓/jk 선택 · n 다음 볼 세션 · d 상세 · e 종료 세션 토글 · Esc 뒤로 · ? 도움말 · q 나가기`);
   process.exit(0);
 }
 
@@ -117,47 +118,22 @@ function goTo(next) {
   if (next.unseen) view.data.sessions = view.data.sessions.map((s) => (s.id === next.id ? s.plain : s));
 }
 
-// 검색 중에는 글자를 검색어로 받는다. Enter 는 검색어를 남기고 목록으로, Esc 는 검색을 지운다.
-function searchKey(key) {
-  if (key === '\x03') return quit();
-  if (key === '\r') view.searching = false;
-  else if (key === '\x1b') {
-    view.searching = false;
-    view.filter = '';
-  } else if (key === '\x7f' || key === '\b') view.filter = [...(view.filter ?? '')].slice(0, -1).join('');
-  else if (!/[\x00-\x1f\x7f]/.test(key)) view.filter = (view.filter ?? '') + key;
-  keepSelectionVisible();
-  draw();
-}
-
 function keepSelectionVisible() {
   const list = visible();
   if (list.length && !list.some((s) => s.id === view.selectedId)) select(list[0].id);
 }
 
 stdin.setEncoding('utf8');
+const act = {
+  quit,
+  refresh,
+  move,
+  next: () => goTo(nextAttention(attention, visible(), view.selectedId)),
+  keepVisible: keepSelectionVisible,
+};
+
 stdin.on('data', (key) => {
-  if (view.searching) return searchKey(key);
-  if (key === '?' || (key === '\x1b' && view.help)) {
-    view.help = !view.help && key === '?';
-    return draw();
-  }
-  if (key === '\x1b' && view.filter) {
-    view.filter = '';
-    return draw();
-  }
-  if (key === 'q' || key === '\x03' || key === '\x1b') return quit();
-  if (key === '/') {
-    view.searching = true;
-    view.filter = '';
-  } else if (key === '\x1b[A' || key === 'k') move(-1);
-  else if (key === '\x1b[B' || key === 'j') move(1);
-  else if (key === 'n') goTo(nextAttention(attention, visible(), view.selectedId));
-  else if (key === 'd') view.showDetail = !view.showDetail;
-  else if (key === 'e') {
-    view.showEnded = !view.showEnded;
-    refresh();
-  }
+  onKey(view, key, act);
   draw();
 });
 

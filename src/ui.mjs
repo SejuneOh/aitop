@@ -1,6 +1,6 @@
 // 화면 그리기: 상단 요약 바 → 세션 표(팀원 트리 포함) → 선택한 세션 상세 → 단축키 바.
 import { homedir } from 'node:os';
-import { width, truncate, pad, fmtTokens, fmtAgo } from './text.mjs';
+import { width, truncate, pad, fmtTokens, fmtAgo, stripControl } from './text.mjs';
 
 const NO_COLOR = Boolean(process.env.NO_COLOR);
 
@@ -39,12 +39,13 @@ export function style({ fg, bg, bold, dim, italic } = {}) {
 const RESET = NO_COLOR ? '' : '\x1b[0m';
 
 // segs: [{ t: 텍스트, ...style }]. 폭 W 에 맞춰 자르고, 남는 칸은 bg 로 채운다.
+// 화면에 나가는 글자는 모두 여기를 지나므로, 기록에서 온 제어문자도 여기서 한 번 더 지운다.
 function line(segs, W, bg) {
   let out = '';
   let used = 0;
   for (const seg of segs) {
     if (used >= W) break;
-    const t = truncate(seg.t ?? '', W - used);
+    const t = truncate(stripControl(seg.t ?? ''), W - used);
     out += style({ bg, ...seg }) + t;
     used += width(t);
   }
@@ -317,8 +318,9 @@ const HELP = [
   ['n', '다음 볼 세션으로 이동 (응답 대기 → 완료 · 확인 전)'],
   ['d', '상세 패널 열기·닫기'],
   ['e', '종료된 세션(24시간) 보이기·숨기기'],
-  ['?', '이 도움말 열기·닫기 (Esc 로도 닫힘)'],
-  ['q', '나가기'],
+  ['?', '이 도움말 열기·닫기'],
+  ['Esc', '한 단계 뒤로 (도움말 닫기, 검색 지우기). 종료하지 않음'],
+  ['q Ctrl-C', '나가기'],
   ['', ''],
   ['상태 기호', null],
   ['⠋', '작업 중 (색: 초록 생각·답변, 파랑 도구 실행, 분홍 팀원 작업)'],
