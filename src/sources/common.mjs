@@ -7,11 +7,16 @@ export function emptyTokens() {
   return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
 }
 
+// 기록 줄의 timestamp. 없거나 읽을 수 없으면 지금 시각.
+export const parseTs = (ts) => (ts && Date.parse(ts)) || Date.now();
+
 export function pushEvent(state, at, kind, text) {
   const t = mask(oneLine(text));
-  if (!t) return;
-  state.events.push({ at: at ? Date.parse(at) || Date.now() : Date.now(), kind, text: t });
+  if (!t) return null;
+  const e = { at: parseTs(at), kind, text: t };
+  state.events.push(e);
   if (state.events.length > MAX_EVENTS) state.events.shift();
+  return e;
 }
 
 const short = (p) => (p ? basename(String(p)) : '');
