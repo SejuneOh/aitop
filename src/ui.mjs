@@ -214,14 +214,24 @@ function memberRow(m, last, c, W, frame) {
     { t: ' '.repeat(c.mark + c.glyph) },
     { t: pad('  ' + branch, c.tool) + ' ', fg: PALETTE.line },
   ];
-  if (c.showModel) segs.push({ t: pad(shortModel(m.model), c.model) + ' ', fg: PALETTE.faint });
-  segs.push({ ...g, t: g.t + ' ' }, { t: pad(m.name, c.name - 2) + ' ', fg: done ? PALETTE.faint : PALETTE.team });
-  if (c.showProject) segs.push({ t: pad(m.task ?? '', c.project) + ' ', fg: PALETTE.faint, italic: true });
+  // 같은 타입의 팀원이 여럿이어도 구분되도록, 하는 일(description)을 앞에 두고 타입은 흐리게 붙인다.
+  const nameW = c.name - 2;
+  const suffix = m.task ? ` · ${m.name}` : '';
+  const label = truncate(m.task || m.name, suffix ? nameW - 6 : nameW);
+  const showSuffix = suffix && nameW - width(label) >= 6;
+  const started = m.started !== false;
+  if (c.showModel) segs.push({ t: pad(started ? shortModel(m.model) : '', c.model) + ' ', fg: PALETTE.faint });
+  segs.push(
+    { ...g, t: g.t + ' ' },
+    { t: label, fg: done ? PALETTE.faint : PALETTE.team },
+    { t: pad(showSuffix ? suffix : '', nameW - width(label)) + ' ', fg: PALETTE.faint },
+  );
+  if (c.showProject) segs.push({ t: ' '.repeat(c.project + 1) });
   segs.push(
     { t: pad(m.phase?.text ?? '', c.status) + ' ', fg: done ? PALETTE.faint : PHASE_COLOR[m.phase?.kind] ?? PALETTE.muted },
-    { t: pad(fmtTokens(m.tokens ?? 0), c.tokens, 'right') + ' ', fg: PALETTE.faint },
+    { t: pad(started ? fmtTokens(m.tokens ?? 0) : '', c.tokens, 'right') + ' ', fg: PALETTE.faint },
   );
-  if (c.showCost) segs.push({ t: pad(money(m.cost, m.costUnknown), c.cost, 'right') + ' ', fg: PALETTE.faint });
+  if (c.showCost) segs.push({ t: pad(started ? money(m.cost, m.costUnknown) : '', c.cost, 'right') + ' ', fg: PALETTE.faint });
   return line(segs, W);
 }
 let NOW = Date.now();

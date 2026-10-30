@@ -94,13 +94,16 @@ function readMembers(transcript, parent, budget) {
     const running = !meta.finished && !meta.stoppedByUser && (awaited || age < MEMBER_STALE_MS);
     const finished = !running;
     if (finished && age > MEMBER_FADE_MS) continue;
+    // 첫 응답이 오기 전에는 모델·토큰이 없으므로 '시작 중' 으로 보인다.
+    const started = Boolean(t.model || t.tokens.total > 0);
     members.push({
       id,
       name: meta.agentType ?? 'agent',
       model: t.model,
       task: meta.description ?? '',
       status: finished ? 'done' : 'busy',
-      phase: finished ? { kind: 'done', text: '완료' } : loadingPhase(t) ?? t.phase(),
+      started,
+      phase: finished ? { kind: 'done', text: '완료' } : !started ? { kind: 'idle', text: '시작 중' } : loadingPhase(t) ?? t.phase(),
       now: t.lastTool,
       tokens: t.tokens.total,
       cost: t.cost,
