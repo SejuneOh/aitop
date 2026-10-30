@@ -12,6 +12,9 @@ export class ClaudeTracker {
     this.recent = new Map();
     this.tokens = emptyTokens();
     this.cost = 0;
+    this.costNoCache = 0;
+    // 가격표에 없는 모델의 사용량이 섞였는지. 그 몫은 비용에 넣지 않고 화면에 '?' 로 알린다.
+    this.costUnknown = false;
     this.context = 0;
     this.model = null;
     this.title = null;
@@ -24,7 +27,7 @@ export class ClaudeTracker {
     const c = loadCache(path);
     if (c) {
       this.tail.offset = c.offset;
-      Object.assign(this, { tokens: c.tokens, cost: c.cost, context: c.context, model: c.model, title: c.title, branch: c.branch, events: c.events, lastTool: c.lastTool, lastKind: c.lastKind });
+      Object.assign(this, { tokens: c.tokens, cost: c.cost, costNoCache: c.costNoCache, costUnknown: c.costUnknown, context: c.context, model: c.model, title: c.title, branch: c.branch, events: c.events, lastTool: c.lastTool, lastKind: c.lastKind });
       this.recent = new Map(c.recent);
       this.pending = new Map(c.pending);
     }
@@ -54,6 +57,8 @@ export class ClaudeTracker {
       offset: this.tail.lineOffset,
       tokens: this.tokens,
       cost: this.cost,
+      costNoCache: this.costNoCache,
+      costUnknown: this.costUnknown,
       context: this.context,
       model: this.model,
       title: this.title,
@@ -77,7 +82,10 @@ export class ClaudeTracker {
     t.cacheWrite += n(u, 'cache_creation_input_tokens') - n(prev?.u, 'cache_creation_input_tokens');
     t.total = t.input + t.output + t.cacheRead + t.cacheWrite;
     const cost = claudeCost(model, u);
-    this.cost += cost - (prev?.cost ?? 0);
+    const used = n(u, 'input_tokens') + n(u, 'output_tokens') + n(u, 'cache_read_input_tokens') + n(u, 'cache_creation_input_tokens');
+    if (!cost && used > 0) this.costUnknown = true;
+    this.cost += (cost?.total ?? 0) - (prev?.cost?.total ?? 0);
+    this.costNoCache += (cost?.noCache ?? 0) - (prev?.cost?.noCache ?? 0);
     this.recent.delete(id);
     this.recent.set(id, { u, cost });
     if (this.recent.size > RECENT_IDS) this.recent.delete(this.recent.keys().next().value);

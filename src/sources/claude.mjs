@@ -5,6 +5,7 @@ import { join, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { isAlive } from '../procs.mjs';
 import { ClaudeTracker } from './claude-tracker.mjs';
+import { emptyTokens } from './common.mjs';
 
 const HOME = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude');
 const SESSIONS = join(HOME, 'sessions');
@@ -67,19 +68,26 @@ function loadingPhase(t) {
   return t?.loading != null ? { kind: 'think', text: `기록 읽는 중 ${Math.floor(t.loading * 100)}%` } : null;
 }
 
+// 서브에이전트 전체(끝난 것 포함)의 토큰·비용 합계. 메인 세션 합계에 더해 화면에 보인다.
+function emptySub() {
+  return { count: 0, tokens: emptyTokens(), cost: 0, costNoCache: 0, costUnknown: false };
+}
+
 function readMembers(transcript, parent, budget) {
   const dir = join(transcript.replace(/\.jsonl$/, ''), 'subagents');
-  if (!existsSync(dir)) return { members: [], subTokens: 0, subCost: 0 };
+  const sub = emptySub();
+  if (!existsSync(dir)) return { members: [], sub };
   const members = [];
-  let subTokens = 0;
-  let subCost = 0;
   for (const f of readdirSync(dir)) {
     if (!f.endsWith('.meta.json')) continue;
     const id = f.slice('agent-'.length, -'.meta.json'.length);
     const meta = readJson(join(dir, f)) ?? {};
     const t = tracker(subTrackers, join(dir, `agent-${id}.jsonl`), budget);
-    subTokens += t.tokens.total;
-    subCost += t.cost;
+    sub.count++;
+    for (const k of Object.keys(sub.tokens)) sub.tokens[k] += t.tokens[k];
+    sub.cost += t.cost;
+    sub.costNoCache += t.costNoCache;
+    sub.costUnknown ||= t.costUnknown;
     const age = Date.now() - t.mtimeMs;
     const awaited = Boolean(meta.toolUseId && parent?.pending.has(meta.toolUseId));
     const running = !meta.finished && !meta.stoppedByUser && (awaited || age < MEMBER_STALE_MS);
@@ -95,11 +103,12 @@ function readMembers(transcript, parent, budget) {
       now: t.lastTool,
       tokens: t.tokens.total,
       cost: t.cost,
+      costUnknown: t.costUnknown,
       startedAt: t.events[0]?.at,
     });
   }
   members.sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0));
-  return { members, subTokens, subCost };
+  return { members, sub };
 }
 
 function statusOf(entry, alive, mtime) {
@@ -148,11 +157,13 @@ export function collectClaude({ showEnded, budget }) {
 
     const transcript = findTranscript(e.sessionId);
     const t = transcript ? tracker(trackers, transcript, budget) : null;
-    const { members, subTokens, subCost } = transcript ? readMembers(transcript, t, budget) : { members: [], subTokens: 0, subCost: 0 };
+    const { members, sub } = transcript ? readMembers(transcript, t, budget) : { members: [], sub: emptySub() };
     const mtime = Math.max(t?.mtimeMs ?? 0, touched);
     const status = statusOf(e, e.alive, mtime);
     const autoName = !e.name || e.name === e.sessionId.slice(0, 8);
-    const tokens = t?.tokens ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
+    const main = t?.tokens ?? emptyTokens();
+    const tokens = { main: main.total, sub: sub.tokens.total, subCount: sub.count };
+    for (const k of Object.keys(main)) tokens[k] = main[k] + sub.tokens[k];
 
     out.push({
       tool: 'claude',
@@ -172,8 +183,10 @@ export function collectClaude({ showEnded, budget }) {
       now: t?.lastTool ?? t?.events.at(-1)?.text ?? '',
       startedAt: e.startedAt,
       updatedAt: mtime,
-      tokens: { ...tokens, total: tokens.total + subTokens, sub: subTokens },
-      cost: (t?.cost ?? 0) + subCost,
+      tokens,
+      cost: (t?.cost ?? 0) + sub.cost,
+      costNoCache: (t?.costNoCache ?? 0) + sub.costNoCache,
+      costUnknown: Boolean(t?.costUnknown || sub.costUnknown),
       context: { used: t?.context ?? 0, window: (t?.context ?? 0) > 200_000 ? 1_000_000 : 200_000 },
       events: t?.events ?? [],
       members: status === 'ended' ? [] : members,
