@@ -72,6 +72,7 @@ function readMembers(transcript, parent) {
     members.push({
       id,
       name: meta.agentType ?? 'agent',
+      model: t.model,
       task: meta.description ?? '',
       status: finished ? 'done' : 'busy',
       phase: finished ? { kind: 'done', text: '완료' } : t.phase(),

@@ -95,16 +95,19 @@ const clock = (ms) => {
 };
 
 // 한 행 = 표시(1) + 상태 기호(2) + 각 열 + 열 뒤 공백 1칸. CONTEXT 는 게이지 11 + 퍼센트 5.
+const shortModel = (m) => (m ? m.replace(/^claude-/, '') : '-');
+
 function columns(W) {
   const showProject = W >= 110;
   const showCost = W >= 96;
-  const fixed = { mark: 1, glyph: 2, tool: 7, tokens: 7, cost: showCost ? 8 : 0, ctx: 16, age: 4 };
-  const gaps = 5 + (showProject ? 1 : 0) + (showCost ? 1 : 0);
+  const showModel = W >= 104;
+  const fixed = { mark: 1, glyph: 2, tool: 7, model: showModel ? 10 : 0, tokens: 7, cost: showCost ? 8 : 0, ctx: 16, age: 4 };
+  const gaps = 5 + (showProject ? 1 : 0) + (showCost ? 1 : 0) + (showModel ? 1 : 0);
   const flex = W - Object.values(fixed).reduce((a, b) => a + b, 0) - gaps - 1;
   const name = Math.max(14, Math.min(32, Math.floor(flex * 0.36)));
   const project = showProject ? Math.max(10, Math.min(22, Math.floor(flex * 0.22))) : 0;
   const status = Math.max(12, flex - name - project);
-  return { ...fixed, name, project, status, showProject, showCost };
+  return { ...fixed, name, project, status, showProject, showCost, showModel };
 }
 
 function header(view, W) {
@@ -157,7 +160,9 @@ function toolStrip(view, W) {
 
 function tableHeader(c, W) {
   const h = (t, n, align) => ({ t: pad(t, n, align) + ' ', fg: PALETTE.faint, bold: true });
-  const segs = [{ t: ' '.repeat(c.mark + c.glyph) }, h('TOOL', c.tool), h('SESSION', c.name)];
+  const segs = [{ t: ' '.repeat(c.mark + c.glyph) }, h('TOOL', c.tool)];
+  if (c.showModel) segs.push(h('MODEL', c.model));
+  segs.push(h('SESSION', c.name));
   if (c.showProject) segs.push(h('PROJECT', c.project));
   segs.push(h('STATUS', c.status), h('TOKENS', c.tokens, 'right'));
   if (c.showCost) segs.push(h('COST', c.cost, 'right'));
@@ -175,8 +180,9 @@ function sessionRow(s, c, W, selected, frame) {
     { t: selected ? '▌' : ' ', fg: tc },
     { ...g, t: g.t + ' ' },
     { t: pad(s.tool, c.tool) + ' ', fg: ended ? PALETTE.ended : tc, bold: !ended },
-    { t: pad(s.name ?? '', c.name) + ' ', fg: ended ? PALETTE.ended : PALETTE.text, bold: selected },
   ];
+  if (c.showModel) segs.push({ t: pad(shortModel(s.model), c.model) + ' ', fg: ended ? PALETTE.ended : PALETTE.muted });
+  segs.push({ t: pad(s.name ?? '', c.name) + ' ', fg: ended ? PALETTE.ended : PALETTE.text, bold: selected });
   if (c.showProject) segs.push({ t: pad(s.project ?? '', c.project) + ' ', fg: PALETTE.muted });
   segs.push(
     { t: pad(s.phase?.text ?? '', c.status) + ' ', fg: pc, bold: s.status === 'waiting' },
@@ -192,13 +198,12 @@ function memberRow(m, last, c, W, frame) {
   const done = m.status === 'done';
   const g = done ? { t: '✓', fg: PALETTE.faint } : { t: SPIN[(frame + 3) % SPIN.length], fg: PALETTE.team, bold: true };
   const branch = last ? '└─ ' : '├─ ';
-  const nameW = c.tool + 1 + c.name;
   const segs = [
     { t: ' '.repeat(c.mark + c.glyph) },
-    { t: '  ' + branch, fg: PALETTE.line },
-    { ...g, t: g.t + ' ' },
-    { t: pad(m.name, nameW - 7) + ' ', fg: done ? PALETTE.faint : PALETTE.team },
+    { t: pad('  ' + branch, c.tool) + ' ', fg: PALETTE.line },
   ];
+  if (c.showModel) segs.push({ t: pad(shortModel(m.model), c.model) + ' ', fg: PALETTE.faint });
+  segs.push({ ...g, t: g.t + ' ' }, { t: pad(m.name, c.name - 2) + ' ', fg: done ? PALETTE.faint : PALETTE.team });
   if (c.showProject) segs.push({ t: pad(m.task ?? '', c.project) + ' ', fg: PALETTE.faint, italic: true });
   segs.push(
     { t: pad(m.phase?.text ?? '', c.status) + ' ', fg: done ? PALETTE.faint : PHASE_COLOR[m.phase?.kind] ?? PALETTE.muted },
