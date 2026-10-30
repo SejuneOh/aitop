@@ -300,19 +300,27 @@ function rule(label, meta, w, color = PALETTE.line) {
 }
 
 
-// ▸ src/ui.mjs  편집 ×3  새 파일  14:02. 파일 이름은 진하게, 폴더는 흐리게.
+// 오른쪽 칸 여백: 구획 안 내용은 1칸 들여 쓰고, 배경 띠 안은 좌우 2칸, 항목 사이 3칸.
+const INDENT = { t: ' ' };
+const BAND_PAD = 2;
+const BAND_LEFT = { t: ' '.repeat(BAND_PAD) };
+const GAP = '   ';
+// 오른쪽 칸 안쪽 줄 수가 이만큼이면 빈 줄 여백을 둔다 (목록·diff 공통).
+const ROOMY = 16;
+
+// ▸ src/ui.mjs   편집 ×3   새 파일   14:02. 파일 이름은 진하게, 폴더는 흐리게.
 // 줄 수는 편집마다 더한 값이라 git diff 처럼 읽히지 않게 목록에는 넣지 않는다. 좁으면 시각, 새 파일 표시 순으로 뺀다.
 function fileRow(f, cwd, w, selected) {
-  const tail = [{ t: `  편집 ×${f.edits}`, fg: PALETTE.muted }, ...(f.created ? [{ t: '  새 파일', fg: PALETTE.brand }] : []), { t: `  ${hhmm(f.at)}`, fg: PALETTE.faint }];
+  const tail = [{ t: `${GAP}편집 ×${f.edits}`, fg: PALETTE.muted }, ...(f.created ? [{ t: `${GAP}새 파일`, fg: PALETTE.brand }] : []), { t: `${GAP}${hhmm(f.at)}`, fg: PALETTE.faint }];
   const tailW = () => tail.reduce((a, x) => a + width(x.t), 0);
-  while (tail.length > 1 && w - 2 - tailW() < 12) tail.pop();
-  const pathW = Math.max(1, w - 2 - tailW());
+  while (tail.length > 1 && w - 2 * BAND_PAD - tailW() < 12) tail.pop();
+  const pathW = Math.max(1, w - 2 * BAND_PAD - tailW());
   const path = truncateLeft(relPath(cwd, f.path), pathW);
   const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1;
   const quiet = f.hidden || f.noise;
   return fill(
     [
-      { t: selected ? '▸ ' : '  ', fg: PALETTE.brand, bold: true },
+      { t: pad(selected ? '▸' : '', BAND_PAD), fg: PALETTE.brand, bold: true },
       { t: path.slice(0, cut), fg: PALETTE.muted },
       { t: pad(path.slice(cut), pathW - width(path.slice(0, cut))), fg: quiet ? PALETTE.muted : PALETTE.text, bold: !quiet },
       ...tail,
@@ -325,10 +333,10 @@ function fileRow(f, cwd, w, selected) {
 // 변경 조각을 고친 순서의 역순(최신 먼저)으로, 조각마다 시각 · 누가 · 위치 머리를 달아 보인다.
 // 같은 파일을 여러 번 고치면 줄 번호 기준이 매번 달라져 하나의 diff 로 합칠 수 없다.
 function diffBody(f, w) {
-  if (f.hidden) return [[{ t: '비밀값이 있을 수 있는 파일이라 변경 내용을 숨겼습니다', fg: PALETTE.waiting, italic: true }]];
-  if (!f.hunks.length) return [[{ t: '보관된 변경 내용이 없습니다', fg: PALETTE.faint, italic: true }]];
+  if (f.hidden) return [[INDENT, { t: '비밀값이 있을 수 있는 파일이라 변경 내용을 숨겼습니다', fg: PALETTE.waiting, italic: true }]];
+  if (!f.hunks.length) return [[INDENT, { t: '보관된 변경 내용이 없습니다', fg: PALETTE.faint, italic: true }]];
   const nums = w >= 50;
-  const textW = w - (nums ? 5 : 0);
+  const textW = w - 1 - (nums ? 5 : 0);
   const out = [];
   for (const h of f.hunks) {
     out.push([{ t: `${clock(h.at)} · ${h.agent ?? '메인'} · @@ -${h.oldStart},${h.oldLines} +${h.newStart},${h.newLines} @@`, fg: PALETTE.tool, dim: true }]);
@@ -343,13 +351,14 @@ function diffBody(f, w) {
     if (h.cut) out.push([{ t: `… ${h.cut}줄 생략`, fg: PALETTE.faint, italic: true }]);
   }
   if (f.dropped) out.push([{ t: `… 이전 변경 ${f.dropped}개는 보관 한도를 넘어 생략`, fg: PALETTE.faint, italic: true }]);
-  return out;
+  return out.map((r) => [INDENT, ...r]);
 }
 
 // diff 는 오른쪽 칸 전체를 쓴다. 스크롤 위치는 여기서 내용 길이에 맞춰 다시 맞춘다.
 function diffView(s, files, f, w, rows, view) {
   const body = diffBody(f, w);
-  const page = rows - 1;
+  const gap = rows >= ROOMY ? 1 : 0;
+  const page = rows - 1 - gap;
   view.diffPage = Math.max(1, page - 1);
   const top = Math.min(Math.max(0, view.diffScroll ?? 0), Math.max(0, body.length - page));
   view.diffScroll = top;
@@ -359,7 +368,7 @@ function diffView(s, files, f, w, rows, view) {
   const stats = [` · 편집 ×${f.edits} · 쓴 줄 ${f.add} · 지운 줄 ${f.del}`, ` · ×${f.edits}`, ''].find((x) => room - width(x) >= 12) ?? '';
   const name = truncateLeft(relPath(s.cwd, f.path), Math.max(8, room - width(stats)));
   const label = [{ t: '‹ ', fg: PALETTE.brand, bold: true }, { t: name, fg: PALETTE.text, bold: true }, { t: stats, fg: PALETTE.faint }];
-  return [rule(label, meta, w, PALETTE.brand), ...body.slice(top, top + page)];
+  return [rule(label, meta, w, PALETTE.brand), ...(gap ? [[]] : []), ...body.slice(top, top + page)];
 }
 
 // 사용자 입력(❯)만 진하게 두고 나머지 본문은 흐리게. 파일 목록에 들어가 있으면(dim) 전부 흐리게.
@@ -368,18 +377,18 @@ function activity(s, n, dim = false) {
   const icon = { prompt: { t: '❯ ', fg: tc, bold: true }, tool: { t: '• ', fg: PALETTE.tool }, reply: { t: '↳ ', fg: PALETTE.muted } };
   // 기록 줄 순서와 시각이 어긋날 때가 있어(병렬 도구 호출 등) 시각 순으로 다시 정렬한다. 같은 시각이면 기록 순서를 지킨다.
   const events = [...(s.events ?? [])].sort((a, b) => a.at - b.at).slice(-n);
-  if (!events.length) return [[{ t: '아직 기록된 활동이 없습니다', fg: PALETTE.faint, italic: true }]];
-  const rows = events.map((e) => [{ t: clock(e.at) + '  ', fg: PALETTE.faint }, icon[e.kind], { t: e.text, fg: e.kind === 'prompt' ? PALETTE.text : PALETTE.muted, bold: e.kind === 'prompt' }]);
+  if (!events.length) return [[INDENT, { t: '아직 기록된 활동이 없습니다', fg: PALETTE.faint, italic: true }]];
+  const rows = events.map((e) => [INDENT, { t: clock(e.at) + '  ', fg: PALETTE.faint }, icon[e.kind], { t: e.text, fg: e.kind === 'prompt' ? PALETTE.text : PALETTE.muted, bold: e.kind === 'prompt' }]);
   return dim ? rows.map((r) => r.map((x) => ({ ...x, fg: PALETTE.faint, bold: false }))) : rows;
 }
 
 // ‹이번 지시›  T5  T3  전체. 색을 꺼도 보이게 고른 탭은 ‹ › 로 감싼다. 폭이 모자라면 가운데 지시 탭부터 줄인다.
 function tabsLine(tabs, tab, w) {
-  const seg = (t) => (t.key === tab.key ? { t: `‹${t.label}›`, fg: PALETTE.text, bg: PALETTE.rowSel, bold: true } : { t: ` ${t.label} `, fg: PALETTE.muted });
+  const seg = (t) => (t.key === tab.key ? { t: `‹${t.label}›`, fg: PALETTE.text, bg: PALETTE.rowSel, bold: true } : { t: t.label, fg: PALETTE.muted });
   const keep = [...tabs];
-  const barW = () => keep.reduce((a, t) => a + width(seg(t).t) + 1, 0);
+  const barW = () => keep.reduce((a, t) => a + width(seg(t).t) + 2, 0);
   for (let i = keep.length - 2; i > 0 && barW() > w; i--) if (keep[i].key !== tab.key) keep.splice(i, 1);
-  return keep.flatMap((t) => [seg(t), { t: ' ' }]);
+  return keep.flatMap((t) => [seg(t), { t: '  ' }]);
 }
 
 // 탭 아래 설명: 지시면 시각과 첫 줄, 전체면 편집 수.
@@ -405,7 +414,7 @@ function rightColumn(s, w, rows, view) {
   // 목록에 들어가 있으면 구획 왼쪽에 ▌ 막대를 세우고 가로줄을 강조색으로 바꾼다.
   const gutter = focused ? [{ t: '▌', fg: PALETTE.brand }] : [];
   const inner = w - gutter.length;
-  const tier = rows >= 16 ? 3 : rows >= 11 ? 2 : 1;
+  const tier = rows >= ROOMY ? 3 : rows >= 11 ? 2 : 1;
   const label = [{ t: '변경 파일', fg: focused ? PALETTE.brand : PALETTE.text, bold: true }, ...(tier === 1 ? [{ t: ` · ${tab.label}`, fg: PALETTE.muted }] : [])];
   // git diff 가 아니라 Edit/Write 기록이고 Bash 로 바꾼 파일은 빠진다는 것을 화면에서 바로 알 수 있게 한다.
   const meta = `편집 기록 · Bash 제외 · ${files.length}개${focused ? '' : ' · f'}`;
@@ -413,19 +422,23 @@ function rightColumn(s, w, rows, view) {
   // 11~15 줄에서는 지시 문장이 탭에 밀려 사라지지 않게 그 자리를 먼저 남긴다.
   const note = tabNote(tab, files);
   const noteW = tier === 2 ? Math.min(note.reduce((a, x) => a + width(x.t), 0), Math.floor(inner / 2)) + 1 : 0;
-  if (tier >= 2) head.push([{ t: ' ' }, ...tabsLine(turnTabs(s), tab, inner - 1 - noteW), ...(tier === 2 ? [{ t: ' ' }, ...note] : [])]);
-  if (tier === 3) head.push([{ t: ' ' }, ...note]);
+  if (tier >= 2) head.push([INDENT, ...tabsLine(turnTabs(s), tab, inner - 1 - noteW), ...(tier === 2 ? [{ t: ' ' }, ...note] : [])]);
+  if (tier === 3) head.push([INDENT, ...note]);
 
+  // 넉넉하면(tier 3) 지시 문장과 목록 사이, 목록과 최근 활동 사이에 빈 줄을 하나씩 둔다.
+  // 목록은 칸의 절반까지만 쓰므로 빈 줄을 넣어도 최근 활동은 6줄 넘게 남는다.
+  const gap = tier === 3 ? 1 : 0;
   const selIdx = focused ? files.findIndex((f) => f.path === view.filePath) : -1;
-  const listRows = Math.max(1, Math.ceil(rows / 2) - head.length);
+  const listRows = Math.max(1, Math.ceil(rows / 2) - head.length - gap);
   const overflow = files.length > listRows;
   const slots = overflow ? listRows - 1 : listRows;
   const start = selIdx >= slots ? selIdx - slots + 1 : 0;
   const shown = files.slice(start, start + slots);
-  const block = [...head];
-  if (!files.length) block.push(fill([{ t: '  · 이 지시에서는 고친 파일 없음', fg: PALETTE.faint, italic: true }, { t: `   ${focused ? '←/→' : 'f 다음 ←/→'} 다른 지시`, fg: PALETTE.faint }], inner, PALETTE.bar));
-  shown.forEach((f, k) => block.push(fileRow(f, s.cwd, inner, start + k === selIdx)));
-  if (overflow) block.push(fill([{ t: `  +${files.length - shown.length}개 더`, fg: PALETTE.muted }], inner, PALETTE.bar));
+  const list = [];
+  if (!files.length) list.push(fill([BAND_LEFT, { t: '· 이 지시에서는 고친 파일 없음', fg: PALETTE.faint, italic: true }, { t: `${GAP}${focused ? '←/→' : 'f 다음 ←/→'} 다른 지시`, fg: PALETTE.faint }], inner, PALETTE.bar));
+  shown.forEach((f, k) => list.push(fileRow(f, s.cwd, inner, start + k === selIdx)));
+  if (overflow) list.push(fill([BAND_LEFT, { t: `+${files.length - shown.length}개 더`, fg: PALETTE.muted }], inner, PALETTE.bar));
+  const block = [...head, ...(gap ? [[]] : []), ...list, ...(gap ? [[]] : [])];
   const R = block.map((segs) => [...gutter, ...segs]);
   R.push(activityRule(), ...activity(s, rows - R.length - 1, focused));
   return R;

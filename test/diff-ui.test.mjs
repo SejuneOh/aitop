@@ -26,8 +26,8 @@ test('고친 파일이 있으면 위쪽에 목록, 아래쪽에 최근 활동을
   // 두 구획은 라벨 가로줄로 나뉘고, 변경 파일 가로줄 끝에 git diff 가 아님을 알리는 '편집 기록' 이 붙는다.
   assert.match(all, /── 변경 파일 ─+ 편집 기록 · Bash 제외 · 9개 · f ─/);
   assert.match(all, /‹이번 지시›  전체/);
-  assert.match(all, /src\/deep\/folder\/file0\.mjs\s+편집 ×1  새 파일  \d\d:\d\d/);
-  assert.match(all, /src\/deep\/folder\/file1\.mjs\s+편집 ×2  \d\d:\d\d/);
+  assert.match(all, /src\/deep\/folder\/file0\.mjs\s+편집 ×1   새 파일   \d\d:\d\d/);
+  assert.match(all, /src\/deep\/folder\/file1\.mjs\s+편집 ×2   \d\d:\d\d/);
   // +N -M 은 기준 대비 순변경으로 읽히므로 누적 줄 수에는 쓰지 않는다.
   assert.doesNotMatch(all, /[+-]\d+ [+-]\d+/);
   assert.match(all, /\+\d+개 더/);
