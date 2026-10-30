@@ -1,11 +1,15 @@
 {
-  "name": "aitop",
+  "name": "@sejuneoh/aitop",
   "version": "0.1.0",
-  "private": true,
   "description": "터미널에서 Claude Code · Codex · Gemini 세션과 토큰을 실시간으로 보는 읽기 전용 모니터",
+  "license": "UNLICENSED",
   "type": "module",
   "bin": { "aitop": "bin/aitop.mjs" },
+  "files": ["bin", "src", "README.md"],
   "engines": { "node": ">=20" },
+  "os": ["linux"],
+  "repository": { "type": "git", "url": "git+https://github.com/SejuneOh/aitop.git" },
+  "publishConfig": { "registry": "https://npm.pkg.github.com" },
   "scripts": {
     "start": "node bin/aitop.mjs",
     "test": "node --test test/*.test.mjs"

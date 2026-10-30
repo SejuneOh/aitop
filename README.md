@@ -9,10 +9,31 @@
 
 ## 설치
 
+개발 중에는 비공개 GitHub Packages 레지스트리에만 올린다. 저장소 권한이 있는 계정만 설치할 수 있다.
+
 ```bash
-npm install -g .        # 이 폴더를 가리키는 aitop 명령이 생긴다 (npm 레지스트리에 올리지 않음)
+# 1회: 패키지 읽기 권한을 토큰에 추가하고 npm 에 등록
+gh auth refresh -h github.com -u SejuneOh -s read:packages
+npm config set @sejuneoh:registry https://npm.pkg.github.com
+npm config set //npm.pkg.github.com/:_authToken "$(gh auth token -u SejuneOh)"
+
+# 설치·업데이트
+npm install -g @sejuneoh/aitop
 aitop
 ```
+
+로컬 코드로 바로 써 보려면 저장소에서 `npm install -g .`
+
+## 릴리스
+
+| 브랜치 | 하는 일 |
+|---|---|
+| 기능 브랜치 → `dev` | PR 마다 CI(테스트) 실행. 병합 후 로컬에서 `npm install -g .` 로 확인 |
+| `dev` → `main` | `package.json` 의 `version` 이 아직 배포되지 않은 값이면 GitHub Packages 에 배포하고 `v<버전>` 태그·릴리스 생성 |
+
+버전 올리기는 `dev` 에서 `npm version patch|minor|major --no-git-tag-version` 후 커밋한다. 버전을 올리지 않은 `main` 병합은 테스트만 돌고 배포하지 않는다.
+
+공개 배포로 바꿀 때는 `package.json` 의 `publishConfig.registry` 를 `https://registry.npmjs.org` 로 바꾸고, `release.yml` 에 `NPM_TOKEN` 시크릿과 `--access public` 을 넣는다.
 
 ## 사용
 
