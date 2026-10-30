@@ -40,8 +40,20 @@ export function pad(s, n, align = 'left') {
   return align === 'right' ? gap + t : t + gap;
 }
 
+// 기록에서 읽은 문자열이 터미널 제어 순서(ESC 등)나 방향 바꾸기 문자를 담고 있으면 화면이 깨지거나 터미널 동작이 바뀐다.
+const CONTROL = /[\x00-\x08\x0b-\x1f\x7f-\x9f‎‏‪-‮⁦-⁩]/g;
+
+export function stripControl(s) {
+  return String(s ?? '').replace(CONTROL, '');
+}
+
+// diff 한 줄: 탭은 두 칸으로 펼치고 줄바꿈과 제어문자는 지운다.
+export function cleanLine(s) {
+  return stripControl(String(s ?? '').replace(/\t/g, '  ').replace(/[\r\n]/g, ''));
+}
+
 export function oneLine(s) {
-  return String(s ?? '').replace(/\s+/g, ' ').trim();
+  return stripControl(String(s ?? '').replace(/\s+/g, ' ')).trim();
 }
 
 // 화면 공유 때 새지 않도록 비밀값처럼 보이는 문자열을 가린다.

@@ -31,6 +31,8 @@ export function toJson(data) {
       costNoCache: s.costNoCache ?? null,
       costUnknown: Boolean(s.costUnknown),
       context: { used: s.context?.used ?? 0, window: s.context?.window ?? null },
+      // 변경 내용(diff)은 넣지 않고 파일별 통계만 넣는다.
+      files: (s.files ?? []).map((f) => ({ path: f.path, created: Boolean(f.created), edits: f.edits, added: f.add, removed: f.del, updatedAt: iso(f.at), agents: f.agents ?? [] })),
       members: (s.members ?? []).map((m) => ({ name: m.name, task: m.task ?? null, model: m.model ?? null, status: m.status, phase: m.phase?.text ?? null, tokens: m.tokens ?? 0, cost: m.cost ?? null })),
     })),
   };
