@@ -308,6 +308,37 @@ function detail(s, W, H, frame) {
   return box(title, W, H, L, R, leftW, tc);
 }
 
+const HELP = [
+  ['키', null],
+  ['/', '세션 검색 (이름·폴더·모델). Enter 적용, Esc 지우기'],
+  ['↑↓ j k', '세션 선택'],
+  ['n', '다음 볼 세션으로 이동 (응답 대기 → 완료 · 확인 전)'],
+  ['d', '상세 패널 열기·닫기'],
+  ['e', '종료된 세션(24시간) 보이기·숨기기'],
+  ['?', '이 도움말 열기·닫기 (Esc 로도 닫힘)'],
+  ['q', '나가기'],
+  ['', ''],
+  ['상태 기호', null],
+  ['⠋', '작업 중 (색: 초록 생각·답변, 파랑 도구 실행, 분홍 팀원 작업)'],
+  ['◆', '응답 대기 (권한·질문). 행 배경이 강조된다'],
+  ['●', '완료 · 확인 전 (작업이 끝났는데 아직 선택해 보지 않음)'],
+  ['○', '다음 지시 대기'],
+  ['·', '종료'],
+  ['', ''],
+  ['열', null],
+  ['STATUS', '지금 단계. 큰 기록을 처음 읽는 동안은 기록 읽는 중 N%'],
+  ['TOKENS', '세션 누적 토큰 (서브에이전트 포함, 캐시 읽기 포함)'],
+  ['COST', 'Claude API 정가로 환산한 비용. ? 는 가격표에 없는 모델 포함'],
+  ['CONTEXT', '마지막 요청의 컨텍스트 사용률 (모델별 창 크기 기준)'],
+  ['IDLE', '마지막 활동 후 지난 시간. 작업 중이면 now'],
+  ['오늘 / 7일', '헤더 오른쪽. 최근 7일 Claude 기록의 날짜별 합계'],
+];
+
+function help(W, H) {
+  const left = HELP.map(([k, v]) => (v == null ? [{ t: k, fg: PALETTE.brand, bold: true }] : [{ t: pad(k, 12), fg: PALETTE.text, bold: true }, { t: v, fg: PALETTE.muted }]));
+  return box('도움말  ·  ? 또는 Esc 로 닫기', W, H, left, [], W - 8, PALETTE.brand);
+}
+
 function footer(view, W, matched) {
   const key = (k) => ({ t: ` ${k} `, fg: '#0b0e14', bg: PALETTE.muted, bold: true });
   const lab = (t) => ({ t: ` ${t}   `, fg: PALETTE.muted });
@@ -315,7 +346,7 @@ function footer(view, W, matched) {
     return line([{ t: ' / ', fg: '#0b0e14', bg: PALETTE.brand, bold: true }, { t: ` ${view.filter ?? ''}`, fg: PALETTE.text, bold: true }, { t: '▏', fg: PALETTE.brand }, { t: `  ${matched}개   `, fg: PALETTE.muted }, key('⏎'), lab('적용'), key('Esc'), lab('지우기')], W);
   }
   const search = view.filter ? [{ t: ` /${view.filter} `, fg: '#0b0e14', bg: PALETTE.brand, bold: true }, { t: ` ${matched}개 `, fg: PALETTE.muted }, key('Esc'), lab('검색 지우기')] : [key('/'), lab('검색')];
-  const segs = [{ t: ' ' }, ...search, key('↑↓'), lab('선택'), key('n'), lab('다음 볼 세션'), key('d'), lab(view.showDetail ? '상세 닫기' : '상세 열기'), key('e'), lab(view.showEnded ? '종료 숨기기' : '종료 포함'), key('q'), lab('나가기')];
+  const segs = [{ t: ' ' }, ...search, key('↑↓'), lab('선택'), key('n'), lab('다음 볼 세션'), key('d'), lab(view.showDetail ? '상세 닫기' : '상세 열기'), key('e'), lab(view.showEnded ? '종료 숨기기' : '종료 포함'), key('?'), lab('도움말'), key('q'), lab('나가기')];
   const right = '읽기 전용 · 네트워크 없음 ';
   const used = segs.reduce((a, s) => a + width(s.t), 0);
   segs.push({ t: ' '.repeat(Math.max(1, W - used - width(right))) }, { t: right, fg: PALETTE.faint });
@@ -333,6 +364,12 @@ export function render(view, W, H) {
   const { errors } = view.data;
   const sessions = filterSessions(view.data.sessions, view.filter);
   const c = columns(W);
+  if (view.help) {
+    lines.push(header(view, W), ...help(W, Math.max(3, H - 2)));
+    lines.length = H - 1;
+    lines.push(footer(view, W, sessions.length));
+    return lines;
+  }
   lines.push(header(view, W), toolStrip(view, W), line([], W), tableHeader(c, W));
 
   const rows = [];
