@@ -82,6 +82,8 @@ function openSession() {
   const r = spawnSync('claude', ['attach', s.attachId], { stdio: 'inherit' });
   enterScreen();
   if (r.error) toast(`열기 실패: ${r.error.message}`, true);
+  else if (r.status) toast(`열기 실패: claude attach 가 종료 코드 ${r.status} 로 끝났습니다`, true);
+  else if (r.signal) toast(`열기 중단: ${r.signal}`, true);
   refresh();
   draw();
 }
