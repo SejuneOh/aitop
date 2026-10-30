@@ -281,16 +281,13 @@ function detail(s, W, H, frame) {
   if (s.context?.window) {
     L.push([{ t: pad('컨텍스트', 9), fg: PALETTE.muted }, { t: pad(`${fmtTokens(s.context.used)}/${fmtTokens(s.context.window)}`, 11) + ' ', fg: PALETTE.text }, ...gauge(s.context.used, s.context.window, Math.max(4, leftW - 26))]);
   }
-  if (s.attachId) {
-    L.push([]);
-    L.push([{ t: ' ⏎ ', fg: '#0b0e14', bg: PALETTE.muted, bold: true }, { t: ' 이 세션 열기', fg: PALETTE.muted }]);
-  }
 
   const R = [[{ t: '최근 활동', fg: PALETTE.muted, bold: true }]];
   const room = H - 3;
   const icon = { prompt: { t: '❯ ', fg: tc, bold: true }, tool: { t: '• ', fg: PALETTE.tool }, reply: { t: '↳ ', fg: PALETTE.muted } };
   const textColor = { prompt: PALETTE.text, tool: PALETTE.text, reply: PALETTE.muted };
-  const events = (s.events ?? []).slice(-room);
+  // 기록 줄 순서와 시각이 어긋날 때가 있어(병렬 도구 호출 등) 시각 순으로 다시 정렬한다. 같은 시각이면 기록 순서를 지킨다.
+  const events = [...(s.events ?? [])].sort((a, b) => a.at - b.at).slice(-room);
   if (!events.length) R.push([{ t: '아직 기록된 활동이 없습니다', fg: PALETTE.faint, italic: true }]);
   for (const e of events) R.push([{ t: clock(e.at) + '  ', fg: PALETTE.faint }, icon[e.kind], { t: e.text, fg: textColor[e.kind], bold: e.kind === 'prompt' }]);
 
@@ -299,12 +296,9 @@ function detail(s, W, H, frame) {
 }
 
 function footer(view, W) {
-  if (view.toast && view.toast.until > NOW) {
-    return line([{ t: ' ' }, { t: ` ${view.toast.text} `, fg: '#0b0e14', bg: view.toast.error ? PALETTE.alert : PALETTE.waiting, bold: true }], W);
-  }
   const key = (k) => ({ t: ` ${k} `, fg: '#0b0e14', bg: PALETTE.muted, bold: true });
   const lab = (t) => ({ t: ` ${t}   `, fg: PALETTE.muted });
-  const segs = [{ t: ' ' }, key('↑↓'), lab('선택'), key('⏎'), lab('세션 열기'), key('d'), lab(view.showDetail ? '상세 닫기' : '상세 열기'), key('e'), lab(view.showEnded ? '종료 숨기기' : '종료 포함'), key('q'), lab('나가기')];
+  const segs = [{ t: ' ' }, key('↑↓'), lab('선택'), key('d'), lab(view.showDetail ? '상세 닫기' : '상세 열기'), key('e'), lab(view.showEnded ? '종료 숨기기' : '종료 포함'), key('q'), lab('나가기')];
   const right = '읽기 전용 · 네트워크 없음 ';
   const used = segs.reduce((a, s) => a + width(s.t), 0);
   segs.push({ t: ' '.repeat(Math.max(1, W - used - width(right))) }, { t: right, fg: PALETTE.faint });

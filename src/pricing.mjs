@@ -21,11 +21,39 @@ const PRICES = {
 // 가격표가 바뀌면 이 값이 바뀌고, 캐시 폴더도 바뀌어 예전 비용이 다시 계산된다.
 export const PRICE_TAG = createHash('sha1').update(JSON.stringify(PRICES)).digest('hex').slice(0, 8);
 
-function priceOf(model) {
+// 모델별 컨텍스트 창 크기(토큰). 출처: Anthropic 모델 표(2026-10). 표에 없는 모델은 contextWindow 가 추측한다.
+const WINDOWS = {
+  'claude-fable-5-1': 1_000_000,
+  'claude-mythos-5-1': 1_000_000,
+  'claude-fable-5': 1_000_000,
+  'claude-opus-5-5': 1_000_000,
+  'claude-opus-5': 1_000_000,
+  'claude-opus-4-8': 1_000_000,
+  'claude-opus-4-7': 1_000_000,
+  'claude-opus-4-6': 1_000_000,
+  'claude-sonnet-5-5': 1_000_000,
+  'claude-sonnet-5': 1_000_000,
+  'claude-sonnet-4-6': 1_000_000,
+  'claude-haiku-5-5': 1_000_000,
+  'claude-haiku-4-5': 200_000,
+};
+
+function lookup(table, model) {
   if (!model) return null;
-  if (PRICES[model]) return PRICES[model];
-  const key = Object.keys(PRICES).find((k) => model.startsWith(k));
-  return key ? PRICES[key] : null;
+  if (table[model]) return table[model];
+  const key = Object.keys(table)
+    .sort((a, b) => b.length - a.length)
+    .find((k) => model.startsWith(k));
+  return key ? table[key] : null;
+}
+
+// 모르는 모델은 사용량으로 추측한다: 200k 를 넘었으면 1M 창, 아니면 200k 창.
+export function contextWindow(model, used = 0) {
+  return lookup(WINDOWS, model) ?? (used > 200_000 ? 1_000_000 : 200_000);
+}
+
+function priceOf(model) {
+  return lookup(PRICES, model);
 }
 
 // Claude 메시지 usage 한 건의 환산 비용. total 은 캐시 포함, noCache 는 입력·출력만. 가격표에 없는 모델이면 null.
