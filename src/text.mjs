@@ -56,6 +56,22 @@ export function oneLine(s) {
   return stripControl(String(s ?? '').replace(/\s+/g, ' ')).trim();
 }
 
+// 앞을 잘라 끝(파일 이름)을 남긴다.
+export function truncateLeft(s, max) {
+  if (max <= 0) return '';
+  if (width(s) <= max) return s;
+  const chars = [...s];
+  let out = '';
+  let w = 0;
+  for (let i = chars.length - 1; i >= 0; i--) {
+    const cw = charWidth(chars[i].codePointAt(0));
+    if (w + cw > max - 1) break;
+    out = chars[i] + out;
+    w += cw;
+  }
+  return '…' + out;
+}
+
 // 화면 공유 때 새지 않도록 비밀값처럼 보이는 문자열을 가린다.
 const SECRET_PATTERNS = [
   /\b(sk|pk|rk)-[A-Za-z0-9_-]{16,}/g,

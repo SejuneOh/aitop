@@ -1,6 +1,7 @@
 // 화면 그리기: 상단 요약 바 → 세션 표(팀원 트리 포함) → 선택한 세션 상세 → 단축키 바.
 import { homedir } from 'node:os';
-import { width, truncate, pad, fmtTokens, fmtAgo, stripControl } from './text.mjs';
+import { relative, isAbsolute } from 'node:path';
+import { width, truncate, truncateLeft, pad, fmtTokens, fmtAgo, stripControl } from './text.mjs';
 
 const NO_COLOR = Boolean(process.env.NO_COLOR);
 
@@ -21,6 +22,8 @@ export const PALETTE = {
   ended: '#4b5060',
   alert: '#f87171',
   money: '#fcd34d',
+  addBg: '#10261a',
+  delBg: '#2c1517',
   tools: { claude: '#e8865f', codex: '#5eead4', gemini: '#8ab4f8' },
 };
 
@@ -252,7 +255,7 @@ function memberRow(m, last, c, W, frame) {
 }
 let NOW = Date.now();
 
-function box(title, W, H, leftLines, rightLines, leftW, accent) {
+function box(title, W, H, leftLines, rightLines, leftW, accent, divider = PALETTE.line) {
   const out = [];
   const titleText = ` ${title} `;
   out.push(line([{ t: '╭─', fg: PALETTE.line }, { t: titleText, fg: accent, bold: true }, { t: '─'.repeat(Math.max(0, W - 3 - width(titleText))) + '╮', fg: PALETTE.line }], W));
@@ -263,13 +266,113 @@ function box(title, W, H, leftLines, rightLines, leftW, accent) {
     return [...c, { t: ' '.repeat(Math.max(0, n - c.reduce((a, s) => a + width(s.t), 0))) }];
   };
   for (let i = 0; i < H - 2; i++) {
-    out.push(line([{ t: '│ ', fg: PALETTE.line }, ...fill(leftLines[i] ?? [], leftW), { t: ' │ ', fg: PALETTE.line }, ...fill(rightLines[i] ?? [], rightW), { t: ' │', fg: PALETTE.line }], W));
+    out.push(line([{ t: '│ ', fg: PALETTE.line }, ...fill(leftLines[i] ?? [], leftW), { t: ' │ ', fg: divider }, ...fill(rightLines[i] ?? [], rightW), { t: ' │', fg: PALETTE.line }], W));
   }
   out.push(line([{ t: '╰' + '─'.repeat(W - 2) + '╯', fg: PALETTE.line }], W));
   return out;
 }
 
-function detail(s, W, H, frame) {
+const hhmm = (ms) => clock(ms).slice(0, 5);
+
+// 세션 폴더 기준 상대 경로. 폴더 밖이면 ~ 로 줄인다.
+function relPath(cwd, p) {
+  if (cwd && isAbsolute(p)) {
+    const r = relative(cwd, p);
+    if (r && !r.startsWith('..') && !isAbsolute(r)) return r;
+  }
+  return tilde(p);
+}
+
+// M …/src/ui.mjs  +42 -7  ×3  14:02. 좁으면 시각, 횟수 순으로 뺀다.
+function fileRow(f, cwd, w, selected) {
+  const tail = [{ t: ` +${f.add}`, fg: PALETTE.busy }, { t: ` -${f.del}`, fg: PALETTE.alert }, { t: `  ×${f.edits}`, fg: PALETTE.faint }, { t: `  ${hhmm(f.at)}`, fg: PALETTE.faint }];
+  const tailW = () => tail.reduce((a, x) => a + width(x.t), 0);
+  while (tail.length > 2 && w - 3 - tailW() < 12) tail.pop();
+  const pathW = Math.max(1, w - 3 - tailW());
+  const bg = selected ? PALETTE.rowSel : undefined;
+  return [
+    { t: selected ? '▸' : ' ', fg: PALETTE.brand, bold: true },
+    { t: f.created ? 'A ' : 'M ', fg: f.created ? PALETTE.busy : PALETTE.waiting, bold: true },
+    { t: pad(truncateLeft(relPath(cwd, f.path), pathW), pathW), fg: f.hidden ? PALETTE.muted : PALETTE.text, bold: selected },
+    ...tail,
+  ].map((x) => ({ ...x, bg }));
+}
+
+// 변경 조각을 고친 순서의 역순(최신 먼저)으로, 조각마다 시각 · 누가 · 위치 머리를 달아 보인다.
+// 같은 파일을 여러 번 고치면 줄 번호 기준이 매번 달라져 하나의 diff 로 합칠 수 없다.
+function diffBody(f, w) {
+  if (f.hidden) return [[{ t: '비밀값이 있을 수 있는 파일이라 변경 내용을 숨겼습니다', fg: PALETTE.waiting, italic: true }]];
+  if (!f.hunks.length) return [[{ t: '보관된 변경 내용이 없습니다', fg: PALETTE.faint, italic: true }]];
+  const nums = w >= 50;
+  const textW = w - (nums ? 5 : 0);
+  const out = [];
+  for (const h of f.hunks) {
+    out.push([{ t: `${clock(h.at)} · ${h.agent ?? '메인'} · @@ -${h.oldStart},${h.oldLines} +${h.newStart},${h.newLines} @@`, fg: PALETTE.tool, dim: true }]);
+    let n = h.newStart;
+    for (const l of h.lines) {
+      const k = l[0];
+      const no = { t: pad(k === '-' ? '' : String(n), 4, 'right') + ' ', fg: PALETTE.faint };
+      if (k !== '-') n++;
+      const seg = k === '+' ? { fg: PALETTE.busy, bg: PALETTE.addBg } : k === '-' ? { fg: PALETTE.alert, bg: PALETTE.delBg } : { fg: PALETTE.muted };
+      out.push([...(nums ? [no] : []), { ...seg, t: pad(l, textW) }]);
+    }
+    if (h.cut) out.push([{ t: `… ${h.cut}줄 생략`, fg: PALETTE.faint, italic: true }]);
+  }
+  if (f.dropped) out.push([{ t: `… 이전 변경 ${f.dropped}개는 보관 한도를 넘어 생략`, fg: PALETTE.faint, italic: true }]);
+  return out;
+}
+
+// diff 는 오른쪽 칸 전체를 쓴다. 스크롤 위치는 여기서 내용 길이에 맞춰 다시 맞춘다.
+function diffView(s, f, w, rows, view) {
+  const body = diffBody(f, w);
+  const page = rows - 1;
+  view.diffPage = Math.max(1, page - 1);
+  const top = Math.min(Math.max(0, view.diffScroll ?? 0), Math.max(0, body.length - page));
+  view.diffScroll = top;
+  const i = s.files.indexOf(f);
+  const pct = body.length > page ? `${Math.round(((top + page) / body.length) * 100)}%` : '';
+  const stats = [{ t: ` +${f.add}`, fg: PALETTE.busy }, { t: ` -${f.del}`, fg: PALETTE.alert }, { t: `  ${i + 1}/${s.files.length}`, fg: PALETTE.faint }];
+  const statsW = stats.reduce((a, x) => a + width(x.t), 0);
+  const name = truncateLeft(relPath(s.cwd, f.path), Math.max(8, w - 2 - statsW - width(pct) - 1));
+  const gap = Math.max(1, w - 2 - width(name) - statsW - width(pct));
+  const head = [{ t: '‹ ', fg: PALETTE.brand, bold: true }, { t: name, fg: PALETTE.text, bold: true }, ...stats, { t: ' '.repeat(gap) }, { t: pct, fg: PALETTE.muted }];
+  return [head, ...body.slice(top, top + page)];
+}
+
+function activity(s, n) {
+  const tc = PALETTE.tools[s.tool];
+  const icon = { prompt: { t: '❯ ', fg: tc, bold: true }, tool: { t: '• ', fg: PALETTE.tool }, reply: { t: '↳ ', fg: PALETTE.muted } };
+  const textColor = { prompt: PALETTE.text, tool: PALETTE.text, reply: PALETTE.muted };
+  // 기록 줄 순서와 시각이 어긋날 때가 있어(병렬 도구 호출 등) 시각 순으로 다시 정렬한다. 같은 시각이면 기록 순서를 지킨다.
+  const events = [...(s.events ?? [])].sort((a, b) => a.at - b.at).slice(-n);
+  if (!events.length) return [[{ t: '아직 기록된 활동이 없습니다', fg: PALETTE.faint, italic: true }]];
+  return events.map((e) => [{ t: clock(e.at) + '  ', fg: PALETTE.faint }, icon[e.kind], { t: e.text, fg: textColor[e.kind], bold: e.kind === 'prompt' }]);
+}
+
+// 오른쪽 칸: 고친 파일이 없으면 최근 활동만, 있으면 위쪽 절반까지 변경 파일 목록, 파일을 열면 diff.
+function rightColumn(s, w, rows, view) {
+  const files = s.files ?? [];
+  const title = [{ t: '최근 활동', fg: PALETTE.muted, bold: true }];
+  const open = view?.focus === 'diff' && files.find((f) => f.path === view.filePath);
+  if (open) return diffView(s, open, w, rows, view);
+  if (!files.length) return [title, ...activity(s, rows - 1)];
+  if (rows < 6) return [[...title, { t: `   변경 파일 ${files.length} · f`, fg: PALETTE.faint }], ...activity(s, rows - 1)];
+
+  const focused = view?.focus === 'files';
+  const selIdx = focused ? Math.max(0, files.findIndex((f) => f.path === view.filePath)) : -1;
+  const listRows = Math.ceil(rows / 2) - 1;
+  const overflow = files.length > listRows;
+  const slots = overflow ? listRows - 1 : listRows;
+  const start = selIdx >= slots ? selIdx - slots + 1 : 0;
+  const shown = files.slice(start, start + slots);
+  const R = [[{ t: '변경 파일 ', fg: PALETTE.muted, bold: true }, { t: String(files.length), fg: PALETTE.text, bold: true }, { t: '  Edit/Write 기준', fg: PALETTE.faint }, ...(focused ? [] : [{ t: '  · f 로 이동', fg: PALETTE.faint }])]];
+  shown.forEach((f, k) => R.push(fileRow(f, s.cwd, w, start + k === selIdx)));
+  if (overflow) R.push([{ t: `  … 외 ${files.length - shown.length}개`, fg: PALETTE.muted }]);
+  R.push(title, ...activity(s, rows - R.length - 1));
+  return R;
+}
+
+function detail(s, W, H, frame, view) {
   const tc = PALETTE.tools[s.tool];
   const leftW = Math.min(46, Math.max(30, Math.floor((W - 4) * 0.38)));
   const L = [];
@@ -298,17 +401,9 @@ function detail(s, W, H, frame) {
     L.push([{ t: pad('컨텍스트', 9), fg: PALETTE.muted }, { t: pad(`${fmtTokens(s.context.used)}/${fmtTokens(s.context.window)}`, 11) + ' ', fg: PALETTE.text }, ...gauge(s.context.used, s.context.window, Math.max(4, leftW - 26))]);
   }
 
-  const R = [[{ t: '최근 활동', fg: PALETTE.muted, bold: true }]];
-  const room = H - 3;
-  const icon = { prompt: { t: '❯ ', fg: tc, bold: true }, tool: { t: '• ', fg: PALETTE.tool }, reply: { t: '↳ ', fg: PALETTE.muted } };
-  const textColor = { prompt: PALETTE.text, tool: PALETTE.text, reply: PALETTE.muted };
-  // 기록 줄 순서와 시각이 어긋날 때가 있어(병렬 도구 호출 등) 시각 순으로 다시 정렬한다. 같은 시각이면 기록 순서를 지킨다.
-  const events = [...(s.events ?? [])].sort((a, b) => a.at - b.at).slice(-room);
-  if (!events.length) R.push([{ t: '아직 기록된 활동이 없습니다', fg: PALETTE.faint, italic: true }]);
-  for (const e of events) R.push([{ t: clock(e.at) + '  ', fg: PALETTE.faint }, icon[e.kind], { t: e.text, fg: textColor[e.kind], bold: e.kind === 'prompt' }]);
-
+  const R = rightColumn(s, W - leftW - 7, H - 2, view);
   const title = `${s.name ?? s.tool}  ·  ${s.tool}${s.model ? ' · ' + s.model : ''}`;
-  return box(title, W, H, L, R, leftW, tc);
+  return box(title, W, H, L, R, leftW, tc, view?.focus ? tc : PALETTE.line);
 }
 
 const HELP = [
@@ -316,10 +411,11 @@ const HELP = [
   ['/', '세션 검색 (이름·폴더·모델). Enter 적용, Esc 지우기'],
   ['↑↓ j k', '세션 선택'],
   ['n', '다음 볼 세션으로 이동 (응답 대기 → 완료 · 확인 전)'],
+  ['f Tab', '변경 파일 목록으로. ↑↓ 고르기, Enter diff, [ ] 이전·다음 파일, space 페이지'],
   ['d', '상세 패널 열기·닫기'],
   ['e', '종료된 세션(24시간) 보이기·숨기기'],
   ['?', '이 도움말 열기·닫기'],
-  ['Esc', '한 단계 뒤로 (도움말 닫기, 검색 지우기). 종료하지 않음'],
+  ['Esc', '한 단계 뒤로 (도움말·검색 닫기, diff → 파일 목록 → 세션). 종료하지 않음'],
   ['q Ctrl-C', '나가기'],
   ['', ''],
   ['상태 기호', null],
@@ -336,6 +432,7 @@ const HELP = [
   ['CONTEXT', '마지막 요청의 컨텍스트 사용률 (모델별 창 크기 기준)'],
   ['IDLE', '마지막 활동 후 지난 시간. 작업 중이면 now'],
   ['오늘 / 7일', '헤더 오른쪽. 최근 7일 Claude 기록의 날짜별 합계'],
+  ['변경 파일', 'Edit/Write 도구로 고친 파일만. Bash 로 고친 파일은 빠진다. M 수정, A 새 파일'],
 ];
 
 function help(W, H) {
@@ -343,14 +440,18 @@ function help(W, H) {
   return box('도움말  ·  ? 또는 Esc 로 닫기', W, H, left, [], W - 8, PALETTE.brand);
 }
 
-function footer(view, W, matched) {
+function footer(view, W, matched, sel) {
   const key = (k) => ({ t: ` ${k} `, fg: '#0b0e14', bg: PALETTE.muted, bold: true });
   const lab = (t) => ({ t: ` ${t}   `, fg: PALETTE.muted });
   if (view.searching) {
     return line([{ t: ' / ', fg: '#0b0e14', bg: PALETTE.brand, bold: true }, { t: ` ${view.filter ?? ''}`, fg: PALETTE.text, bold: true }, { t: '▏', fg: PALETTE.brand }, { t: `  ${matched}개   `, fg: PALETTE.muted }, key('⏎'), lab('적용'), key('Esc'), lab('지우기')], W);
   }
+  if (view.focus) {
+    const keys = view.focus === 'diff' ? [key('↑↓'), lab('스크롤'), key('space'), lab('페이지'), key('[ ]'), lab('이전·다음 파일'), key('Esc'), lab('파일 목록으로')] : [key('↑↓'), lab('파일 선택'), key('⏎'), lab('diff 보기'), key('Esc'), lab('세션으로')];
+    return line([{ t: ' ' }, ...keys, key('?'), lab('도움말'), key('q'), lab('나가기')], W);
+  }
   const search = view.filter ? [{ t: ` /${view.filter} `, fg: '#0b0e14', bg: PALETTE.brand, bold: true }, { t: ` ${matched}개 `, fg: PALETTE.muted }, key('Esc'), lab('검색 지우기')] : [key('/'), lab('검색')];
-  const segs = [{ t: ' ' }, ...search, key('↑↓'), lab('선택'), key('n'), lab('다음 볼 세션'), key('d'), lab(view.showDetail ? '상세 닫기' : '상세 열기'), key('e'), lab(view.showEnded ? '종료 숨기기' : '종료 포함'), key('?'), lab('도움말'), key('q'), lab('나가기')];
+  const segs = [{ t: ' ' }, ...search, key('↑↓'), lab('선택'), key('n'), lab('다음 볼 세션'), ...(sel?.files?.length ? [key('f'), lab('변경 파일')] : []), key('d'), lab(view.showDetail ? '상세 닫기' : '상세 열기'), key('e'), lab(view.showEnded ? '종료 숨기기' : '종료 포함'), key('?'), lab('도움말'), key('q'), lab('나가기')];
   const right = '읽기 전용 · 네트워크 없음 ';
   const used = segs.reduce((a, s) => a + width(s.t), 0);
   segs.push({ t: ' '.repeat(Math.max(1, W - used - width(right))) }, { t: right, fg: PALETTE.faint });
@@ -402,11 +503,11 @@ export function render(view, W, H) {
   }
   if (wantDetail) {
     lines.push(line([], W));
-    lines.push(...detail(sel, W, Math.max(minDetail, H - lines.length - 1), view.frame));
+    lines.push(...detail(sel, W, Math.max(minDetail, H - lines.length - 1), view.frame, view));
   }
   if (errors?.length) lines[lines.length - 1] = line([{ t: ' ! ' + errors.join(' / '), fg: PALETTE.alert }], W);
   while (lines.length < H - 1) lines.push(line([], W));
   lines.length = H - 1;
-  lines.push(footer(view, W, sessions.length));
+  lines.push(footer(view, W, sessions.length, sel));
   return lines;
 }
