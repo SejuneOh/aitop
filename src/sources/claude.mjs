@@ -1,18 +1,22 @@
 // Claude Code: ~/.claude/sessions/<pid>.json 으로 살아 있는 세션을 찾고,
-// ~/.claude/projects/*/<sessionId>.jsonl 대화 기록에서 진행 내용과 토큰을 읽는다.
-import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs';
+// ~/.claude/projects/*/<sessionId>.jsonl 대화 기록에서 진행 단계·토큰·비용을 읽는다.
+import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { homedir } from 'node:os';
-import { JsonlTail } from '../tail.mjs';
 import { isAlive } from '../procs.mjs';
-import { emptyTokens, pushEvent, describeTool, isNoisePrompt } from './common.mjs';
+import { ClaudeTracker } from './claude-tracker.mjs';
 
 const HOME = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude');
 const SESSIONS = join(HOME, 'sessions');
 const PROJECTS = join(HOME, 'projects');
 const ENDED_WINDOW_MS = 24 * 3600 * 1000;
+// 끝난 팀원은 이 시간 동안 "완료"로 보였다가 목록에서 사라진다.
+const MEMBER_FADE_MS = 6000;
+// finished 표시 없이 중간에 끊긴 팀원 기록이 남기 때문에, 이 시간 넘게 기록이 없으면 실행 중으로 보지 않는다.
+const MEMBER_STALE_MS = 15 * 60_000;
 
-const states = new Map();
+const trackers = new Map();
+const subTrackers = new Map();
 const pathCache = new Map();
 
 function readJson(p) {
@@ -40,87 +44,67 @@ function findTranscript(sessionId) {
   return path;
 }
 
-function newState() {
-  return { tail: null, usage: new Map(), tokens: emptyTokens(), subTokens: 0, context: 0, model: null, title: null, branch: null, events: [], subagents: new Map(), lastTool: null };
+function tracker(map, path) {
+  let t = map.get(path);
+  if (!t) map.set(path, (t = new ClaudeTracker(path)));
+  t.update();
+  return t;
 }
 
-function addUsage(tokens, prev, u) {
-  const sign = (x, k) => (x?.[k] ?? 0);
-  const delta = {
-    input: sign(u, 'input_tokens') - sign(prev, 'input_tokens'),
-    output: sign(u, 'output_tokens') - sign(prev, 'output_tokens'),
-    cacheRead: sign(u, 'cache_read_input_tokens') - sign(prev, 'cache_read_input_tokens'),
-    cacheWrite: sign(u, 'cache_creation_input_tokens') - sign(prev, 'cache_creation_input_tokens'),
-  };
-  for (const k of Object.keys(delta)) tokens[k] += delta[k];
-  tokens.total = tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite;
-}
-
-function applyLine(st, x) {
-  if (x.type === 'ai-title' && x.aiTitle) st.title = x.aiTitle;
-  if (x.gitBranch) st.branch = x.gitBranch;
-  if (x.isMeta) return;
-
-  if (x.type === 'assistant' && x.message) {
-    const m = x.message;
-    if (m.model && !m.model.startsWith('<')) st.model = m.model;
-    if (m.usage && m.id) {
-      addUsage(st.tokens, st.usage.get(m.id), m.usage);
-      st.usage.set(m.id, m.usage);
-      st.context = (m.usage.input_tokens ?? 0) + (m.usage.cache_read_input_tokens ?? 0) + (m.usage.cache_creation_input_tokens ?? 0);
-    }
-    for (const c of Array.isArray(m.content) ? m.content : []) {
-      if (c.type === 'tool_use') {
-        st.lastTool = describeTool(c.name, c.input);
-        pushEvent(st, x.timestamp, 'tool', st.lastTool);
-      } else if (c.type === 'text' && c.text?.trim()) {
-        pushEvent(st, x.timestamp, 'reply', c.text);
-      }
-    }
-  }
-
-  if (x.type === 'user' && x.message && !x.isSidechain) {
-    const c = x.message.content;
-    const text = typeof c === 'string' ? c : Array.isArray(c) ? c.filter((p) => p.type === 'text').map((p) => p.text).join(' ') : '';
-    if (text && !isNoisePrompt(text)) pushEvent(st, x.timestamp, 'prompt', text);
-  }
-}
-
-function readSubagents(st, transcript) {
+function readMembers(transcript, parent) {
   const dir = join(transcript.replace(/\.jsonl$/, ''), 'subagents');
-  if (!existsSync(dir)) return;
+  if (!existsSync(dir)) return { members: [], subTokens: 0, subCost: 0 };
+  const members = [];
+  let subTokens = 0;
+  let subCost = 0;
   for (const f of readdirSync(dir)) {
     if (!f.endsWith('.meta.json')) continue;
     const id = f.slice('agent-'.length, -'.meta.json'.length);
     const meta = readJson(join(dir, f)) ?? {};
-    let sa = st.subagents.get(id);
-    if (!sa) {
-      sa = { id, tail: new JsonlTail(join(dir, `agent-${id}.jsonl`)), usage: new Map(), tokens: emptyTokens(), now: null, mtime: 0 };
-      st.subagents.set(id, sa);
-    }
-    sa.type = meta.agentType ?? 'agent';
-    sa.description = meta.description ?? '';
-    sa.finished = Boolean(meta.finished);
-    for (const x of sa.tail.read()) {
-      const m = x.message;
-      if (x.type === 'assistant' && m?.usage && m.id) {
-        addUsage(sa.tokens, sa.usage.get(m.id), m.usage);
-        sa.usage.set(m.id, m.usage);
-      }
-      for (const c of Array.isArray(m?.content) ? m.content : []) if (c.type === 'tool_use') sa.now = describeTool(c.name, c.input);
-    }
-    sa.mtime = sa.tail.mtimeMs;
+    const t = tracker(subTrackers, join(dir, `agent-${id}.jsonl`));
+    subTokens += t.tokens.total;
+    subCost += t.cost;
+    const age = Date.now() - t.mtimeMs;
+    const awaited = Boolean(meta.toolUseId && parent?.pending.has(meta.toolUseId));
+    const running = !meta.finished && !meta.stoppedByUser && (awaited || age < MEMBER_STALE_MS);
+    const finished = !running;
+    if (finished && age > MEMBER_FADE_MS) continue;
+    members.push({
+      id,
+      name: meta.agentType ?? 'agent',
+      task: meta.description ?? '',
+      status: finished ? 'done' : 'busy',
+      phase: finished ? { kind: 'done', text: '완료' } : t.phase(),
+      now: t.lastTool,
+      tokens: t.tokens.total,
+      cost: t.cost,
+      startedAt: t.events[0]?.at,
+    });
   }
-  st.subTokens = [...st.subagents.values()].reduce((s, a) => s + a.tokens.total, 0);
+  members.sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0));
+  return { members, subTokens, subCost };
 }
 
 function statusOf(entry, alive, mtime) {
   if (!alive) return 'ended';
   if (entry.waitingFor) return 'waiting';
-  if (entry.status === 'busy') return 'busy';
-  if (entry.status === 'shell') return 'shell';
-  if (entry.status === 'idle') return 'idle';
+  if (['busy', 'shell', 'idle'].includes(entry.status)) return entry.status;
   return Date.now() - mtime < 5000 ? 'busy' : 'idle';
+}
+
+function phaseOf(status, entry, t) {
+  switch (status) {
+    case 'ended':
+      return { kind: 'ended', text: '종료' };
+    case 'waiting':
+      return { kind: 'waiting', text: entry.waitingFor ? `응답 대기 · ${entry.waitingFor}` : '응답 대기' };
+    case 'shell':
+      return { kind: 'tool', text: '쉘 명령 실행 중' };
+    case 'idle':
+      return { kind: 'idle', text: '다음 지시 대기' };
+    default:
+      return t ? t.phase() : { kind: 'think', text: '작업 중' };
+  }
 }
 
 export function collectClaude({ showEnded }) {
@@ -144,40 +128,37 @@ export function collectClaude({ showEnded }) {
     const touched = e.updatedAt ?? e.startedAt ?? 0;
     if (!e.alive && !(showEnded && Date.now() - touched < ENDED_WINDOW_MS)) continue;
 
-    let st = states.get(e.sessionId);
-    if (!st) states.set(e.sessionId, (st = newState()));
     const transcript = findTranscript(e.sessionId);
-    if (transcript) {
-      if (!st.tail || st.tail.path !== transcript) st.tail = new JsonlTail(transcript);
-      for (const x of st.tail.read()) applyLine(st, x);
-      readSubagents(st, transcript);
-    }
-    const mtime = Math.max(st.tail?.mtimeMs ?? 0, touched);
+    const t = transcript ? tracker(trackers, transcript) : null;
+    const { members, subTokens, subCost } = transcript ? readMembers(transcript, t) : { members: [], subTokens: 0, subCost: 0 };
+    const mtime = Math.max(t?.mtimeMs ?? 0, touched);
+    const status = statusOf(e, e.alive, mtime);
     const autoName = !e.name || e.name === e.sessionId.slice(0, 8);
-    const members = [...st.subagents.values()]
-      .filter((a) => !a.finished || Date.now() - a.mtime < 5 * 60_000)
-      .map((a) => ({ name: a.type, task: a.description, now: a.now, status: a.finished ? 'done' : Date.now() - a.mtime < 30_000 ? 'busy' : 'idle', tokens: a.tokens.total }));
+    const tokens = t?.tokens ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
 
     out.push({
       tool: 'claude',
       id: e.sessionId,
+      attachId: e.kind === 'bg' && e.alive ? e.sessionId.slice(0, 8) : null,
       pid: e.pid,
       kind: e.kind === 'bg' ? 'background' : e.kind ?? 'interactive',
-      name: (autoName ? st.title : e.name) ?? `${basename(e.cwd ?? '')} · ${e.sessionId.slice(0, 8)}`,
+      name: (autoName ? t?.title : e.name) ?? `${basename(e.cwd ?? '')} · ${e.sessionId.slice(0, 8)}`,
       cwd: e.cwd,
       project: basename(e.cwd ?? ''),
-      branch: st.branch,
-      model: st.model,
+      branch: t?.branch,
+      model: t?.model,
       live: e.alive,
-      status: statusOf(e, e.alive, mtime),
+      status,
+      phase: phaseOf(status, e, t),
       waitingFor: e.waitingFor ?? null,
-      now: st.lastTool ?? st.events.at(-1)?.text ?? '',
+      now: t?.lastTool ?? t?.events.at(-1)?.text ?? '',
       startedAt: e.startedAt,
       updatedAt: mtime,
-      tokens: { ...st.tokens, total: st.tokens.total + st.subTokens, sub: st.subTokens },
-      context: { used: st.context, window: st.context > 200_000 ? 1_000_000 : 200_000 },
-      events: st.events,
-      members,
+      tokens: { ...tokens, total: tokens.total + subTokens, sub: subTokens },
+      cost: (t?.cost ?? 0) + subCost,
+      context: { used: t?.context ?? 0, window: (t?.context ?? 0) > 200_000 ? 1_000_000 : 200_000 },
+      events: t?.events ?? [],
+      members: status === 'ended' ? [] : members,
     });
   }
   return out;

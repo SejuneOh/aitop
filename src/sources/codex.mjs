@@ -3,6 +3,7 @@ import { readdirSync, statSync, existsSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { JsonlTail } from '../tail.mjs';
+import { loadCache, markDirty } from '../cache.mjs';
 import { findProcesses, isCodex } from '../procs.mjs';
 import { emptyTokens, pushEvent, describeTool, isNoisePrompt } from './common.mjs';
 
@@ -34,8 +35,31 @@ function recentFiles() {
   return out.sort((a, b) => b.mtime - a.mtime);
 }
 
+const SAVED = ['id', 'cwd', 'branch', 'model', 'busy', 'tokens', 'context', 'window', 'events', 'lastTool', 'startedAt', 'lastKind'];
+
 function newState(path) {
-  return { tail: new JsonlTail(path), id: basename(path), cwd: null, branch: null, model: null, busy: false, tokens: emptyTokens(), context: 0, window: 0, events: [], lastTool: null, startedAt: null };
+  const st = { tail: new JsonlTail(path), id: basename(path), cwd: null, branch: null, model: null, busy: false, tokens: emptyTokens(), context: 0, window: 0, events: [], lastTool: null, startedAt: null, pending: new Map(), lastKind: null };
+  const c = loadCache(path);
+  if (c) {
+    st.tail.offset = c.offset;
+    for (const k of SAVED) if (k in c) st[k] = c[k];
+    st.pending = new Map(c.pending ?? []);
+  }
+  return st;
+}
+
+function snapshot(st) {
+  const out = { offset: st.tail.offset - Buffer.byteLength(st.tail.rest), pending: [...st.pending] };
+  for (const k of SAVED) out[k] = st[k];
+  return out;
+}
+
+function phaseOf(st, live) {
+  if (!live) return { kind: 'ended', text: '종료' };
+  if (!st.busy) return { kind: 'idle', text: '다음 지시 대기' };
+  const open = [...st.pending.values()];
+  if (open.length) return { kind: 'tool', text: `도구 실행 · ${open.at(-1)}` };
+  return st.lastKind === 'reply' ? { kind: 'write', text: '답변 작성 중' } : { kind: 'think', text: '생각 중' };
 }
 
 function applyLine(st, x) {
@@ -57,6 +81,7 @@ function applyLine(st, x) {
       case 'task_complete':
       case 'turn_aborted':
         st.busy = false;
+        st.pending.clear();
         break;
       case 'token_count': {
         const t = p.info?.total_token_usage;
@@ -70,9 +95,11 @@ function applyLine(st, x) {
       }
       case 'user_message':
         if (p.message && !isNoisePrompt(p.message)) pushEvent(st, x.timestamp, 'prompt', p.message);
+        st.lastKind = 'prompt';
         break;
       case 'agent_message':
         pushEvent(st, x.timestamp, 'reply', p.message);
+        st.lastKind = 'reply';
         break;
     }
   } else if (x.type === 'response_item') {
@@ -85,14 +112,20 @@ function applyLine(st, x) {
       what = describeTool(p.name, args);
     } else if (p.type === 'custom_tool_call') what = describeTool(p.name, p.input ?? '');
     else if (p.type === 'web_search_call') what = 'WebSearch';
+    else if (p.type === 'function_call_output' || p.type === 'custom_tool_call_output') {
+      st.pending.delete(p.call_id);
+      st.lastKind = 'result';
+    }
     if (what) {
       st.lastTool = what;
+      if (p.call_id && p.type !== 'web_search_call') st.pending.set(p.call_id, p.name);
       pushEvent(st, x.timestamp, 'tool', what);
+      st.lastKind = 'tool';
     }
   }
 }
 
-export const _test = { newState, applyLine };
+export const _test = { newState, applyLine, phaseOf };
 
 export function collectCodex({ showEnded }) {
   const procs = findProcesses(isCodex);
@@ -102,7 +135,9 @@ export function collectCodex({ showEnded }) {
   for (const f of files) {
     let st = states.get(f.path);
     if (!st) states.set(f.path, (st = newState(f.path)));
-    for (const x of st.tail.read()) applyLine(st, x);
+    const lines = st.tail.read();
+    for (const x of lines) applyLine(st, x);
+    if (lines.length) markDirty(f.path, () => snapshot(st));
   }
 
   // 같은 폴더에서 돌고 있는 codex 프로세스 수만큼, 가장 최근에 바뀐 세션 파일을 '실행 중'으로 본다.
@@ -133,6 +168,8 @@ export function collectCodex({ showEnded }) {
       model: st.model,
       live,
       status: !live ? 'ended' : st.busy ? 'busy' : 'idle',
+      phase: phaseOf(st, live),
+      cost: null,
       waitingFor: null,
       now: st.lastTool ?? st.events.at(-1)?.text ?? '',
       startedAt: st.startedAt,
@@ -147,7 +184,7 @@ export function collectCodex({ showEnded }) {
   // 아직 세션 파일을 만들지 않은(첫 입력 전) codex 프로세스도 보여 준다.
   for (const [cwd, pids] of slots) {
     for (const pid of pids) {
-      out.push({ tool: 'codex', id: `pid-${pid}`, pid, kind: 'interactive', name: basename(cwd ?? '') || 'codex', cwd, project: basename(cwd ?? ''), live: true, status: 'idle', now: '첫 입력 대기', updatedAt: Date.now(), tokens: emptyTokens(), context: { used: 0, window: 0 }, events: [], members: [] });
+      out.push({ tool: 'codex', id: `pid-${pid}`, pid, kind: 'interactive', name: basename(cwd ?? '') || 'codex', cwd, project: basename(cwd ?? ''), live: true, status: 'idle', phase: { kind: 'idle', text: '첫 입력 대기' }, cost: null, now: '', updatedAt: Date.now(), tokens: emptyTokens(), context: { used: 0, window: 0 }, events: [], members: [] });
     }
   }
   return out;

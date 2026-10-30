@@ -1,6 +1,8 @@
 #!/usr/bin/env node
+import { spawnSync } from 'node:child_process';
 import { collect } from '../src/collect.mjs';
 import { render } from '../src/ui.mjs';
+import { flushCache } from '../src/cache.mjs';
 
 const args = new Set(process.argv.slice(2));
 if (args.has('-h') || args.has('--help')) {
@@ -10,11 +12,11 @@ if (args.has('-h') || args.has('--help')) {
   aitop --once     현재 상태를 한 번 출력하고 끝낸다
   aitop --all      종료된 세션(24시간 이내)도 함께 본다
 
-  키: ↑↓/jk 선택 · Enter 상세 열기/닫기 · e 종료 세션 토글 · q 나가기`);
+  키: ↑↓/jk 선택 · Enter 세션 열기 · d 상세 · e 종료 세션 토글 · q 나가기`);
   process.exit(0);
 }
 
-const view = { data: null, selectedId: null, showDetail: true, showEnded: args.has('--all'), frame: 0 };
+const view = { data: null, selectedId: null, showDetail: true, showEnded: args.has('--all'), frame: 0, toast: null };
 
 function refresh() {
   view.data = collect({ showEnded: view.showEnded });
@@ -23,6 +25,7 @@ function refresh() {
 
 if (args.has('--once') || !process.stdout.isTTY) {
   refresh();
+  flushCache();
   const W = process.stdout.columns || 140;
   const H = process.stdout.rows || 40;
   process.stdout.write(render(view, W, H).join('\n') + '\n');
@@ -30,7 +33,9 @@ if (args.has('--once') || !process.stdout.isTTY) {
 }
 
 const out = process.stdout;
+const stdin = process.stdin;
 let last = '';
+
 function draw() {
   const frame = render(view, out.columns, out.rows).join('\r\n');
   if (frame === last) return;
@@ -38,20 +43,56 @@ function draw() {
   out.write('\x1b[?2026h\x1b[H' + frame + '\x1b[?2026l');
 }
 
-function quit() {
+function enterScreen() {
+  out.write('\x1b[?1049h\x1b[?25l\x1b[2J');
+  stdin.setRawMode(true);
+  stdin.resume();
+  last = '';
+}
+
+function leaveScreen() {
   out.write('\x1b[0m\x1b[?25h\x1b[?1049l');
+  if (stdin.isTTY) stdin.setRawMode(false);
+}
+
+function quit() {
+  leaveScreen();
+  flushCache();
   process.exit(0);
 }
 
-out.write('\x1b[?1049h\x1b[?25l\x1b[2J');
+function toast(text, error = false) {
+  view.toast = { text, error, until: Date.now() + 3000 };
+}
+
+// 백그라운드 세션을 이 터미널에서 연다. claude attach 가 끝나면(← 또는 Ctrl+Z) 다시 aitop 화면으로 돌아온다.
+function openSession() {
+  const s = view.data?.sessions.find((x) => x.id === view.selectedId);
+  if (!s) return;
+  if (!s.attachId) {
+    toast(s.tool !== 'claude' ? `${s.tool} 세션은 아직 열기를 지원하지 않습니다` : '다른 터미널에서 실행 중인 세션이라 여기서 열 수 없습니다', true);
+    return;
+  }
+  leaveScreen();
+  stdin.pause();
+  out.write(`\n  aitop → "${s.name}" 세션을 엽니다. 세션은 계속 돌고, 나오면 aitop 으로 돌아옵니다.\n\n`);
+  const r = spawnSync('claude', ['attach', s.attachId], { stdio: 'inherit' });
+  enterScreen();
+  if (r.error) toast(`열기 실패: ${r.error.message}`, true);
+  refresh();
+  draw();
+}
+
+enterScreen();
 draw();
-process.stdin.setRawMode(true);
-process.stdin.resume();
-process.stdin.setEncoding('utf8');
 process.on('SIGINT', quit);
 process.on('SIGTERM', quit);
+process.on('SIGCONT', () => {
+  enterScreen();
+  draw();
+});
 process.on('uncaughtException', (err) => {
-  out.write('\x1b[0m\x1b[?25h\x1b[?1049l');
+  leaveScreen();
   console.error(err);
   process.exit(1);
 });
@@ -68,11 +109,13 @@ function move(delta) {
   view.selectedId = list[Math.min(list.length - 1, Math.max(0, i + delta))].id;
 }
 
-process.stdin.on('data', (key) => {
+stdin.setEncoding('utf8');
+stdin.on('data', (key) => {
   if (key === 'q' || key === '\x03' || key === '\x1b') return quit();
   if (key === '\x1b[A' || key === 'k') move(-1);
   else if (key === '\x1b[B' || key === 'j') move(1);
-  else if (key === '\r') view.showDetail = !view.showDetail;
+  else if (key === '\r') return openSession();
+  else if (key === 'd') view.showDetail = !view.showDetail;
   else if (key === 'e') {
     view.showEnded = !view.showEnded;
     refresh();
@@ -82,8 +125,10 @@ process.stdin.on('data', (key) => {
 
 setTimeout(() => {
   refresh();
+  flushCache();
   draw();
   setInterval(refresh, 1000);
+  setInterval(flushCache, 15_000);
   setInterval(() => {
     view.frame++;
     draw();
