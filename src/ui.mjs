@@ -204,7 +204,7 @@ function toolStrip(view, W) {
 }
 
 function tableHeader(c, W) {
-  const h = (t, n, align) => ({ t: pad(t, n, align) + ' ', fg: PALETTE.faint, bold: true });
+  const h = (t, n, align) => ({ t: pad(t, n, align) + ' ', fg: PALETTE.faint });
   const segs = [{ t: ' '.repeat(c.mark + c.glyph) }, h('TOOL', c.tool)];
   if (c.showModel) segs.push(h('MODEL', c.model));
   segs.push(h('SESSION', c.name));
@@ -215,18 +215,21 @@ function tableHeader(c, W) {
   return line(segs, W);
 }
 
-function sessionRow(s, c, W, selected, frame) {
+// 표에서는 세션 이름과 상태가 먼저 보이도록 나머지 열은 흐리게 둔다.
+// hot: 화면에서 비용이 가장 큰 세션들. 그 비용만 돈 색으로 칠한다.
+function sessionRow(s, c, W, selected, frame, hot) {
   const waiting = s.status === 'waiting';
-  const bg = selected ? PALETTE.rowSel : waiting ? PALETTE.rowWaiting : undefined;
+  const bg = selected ? PALETTE.rowFocus : waiting ? PALETTE.rowWaiting : undefined;
   // IDLE: 마지막 활동 후 지난 시간. 지금 일하고 있는 세션은 'now'.
   const working = s.status === 'busy' || s.status === 'shell';
   const idle = working ? 'now' : fmtAgo(NOW - (s.updatedAt ?? 0));
   const ended = s.status === 'ended';
   const tc = PALETTE.tools[s.tool];
   const g = glyph(s, frame);
-  const pc = PHASE_COLOR[s.phase?.kind] ?? PALETTE.muted;
+  // 다음 지시를 기다리는 세션은 상태 글자만 흐리게 한다.
+  const pc = s.phase?.kind === 'idle' ? PALETTE.faint : PHASE_COLOR[s.phase?.kind] ?? PALETTE.muted;
   const segs = [
-    { t: selected ? '▌' : ' ', fg: tc },
+    { t: selected ? '▌' : ' ', fg: PALETTE.brand, bold: true },
     { ...g, t: g.t + ' ' },
     { t: pad(s.tool, c.tool) + ' ', fg: ended ? PALETTE.ended : tc, bold: !ended },
   ];
@@ -235,9 +238,9 @@ function sessionRow(s, c, W, selected, frame) {
   if (c.showProject) segs.push({ t: pad(s.project ?? '', c.project) + ' ', fg: PALETTE.muted });
   segs.push(
     { t: pad(s.phase?.text ?? '', c.status) + ' ', fg: pc, bold: s.status === 'waiting' },
-    { t: pad(s.lazy ? '' : fmtTokens(s.tokens?.total ?? 0), c.tokens, 'right') + ' ', fg: ended ? PALETTE.ended : PALETTE.text },
+    { t: pad(s.lazy ? '' : fmtTokens(s.tokens?.total ?? 0), c.tokens, 'right') + ' ', fg: ended ? PALETTE.ended : PALETTE.muted },
   );
-  if (c.showCost) segs.push({ t: pad(s.lazy ? '' : money(s.cost, s.costUnknown), c.cost, 'right') + ' ', fg: s.cost == null || ended ? PALETTE.faint : PALETTE.money });
+  if (c.showCost) segs.push({ t: pad(s.lazy ? '' : money(s.cost, s.costUnknown), c.cost, 'right') + ' ', fg: s.cost == null || ended ? PALETTE.faint : hot?.has(s.id) ? PALETTE.money : PALETTE.muted, bold: Boolean(hot?.has(s.id)) });
   segs.push(...gauge(s.context?.used ?? 0, s.context?.window ?? 0, 11), { t: ' ' }, { t: pad(idle, c.age, 'right'), fg: waiting ? PALETTE.waiting : PALETTE.faint });
   return line(segs, W, bg);
 }
@@ -576,6 +579,23 @@ function footer(view, W, matched, sel) {
   return hintBar(items, W, '⊘ 읽기전용');
 }
 
+// 화면에서 비용이 가장 큰 세션 두 개 (0 보다 클 때만).
+function topCost(sessions) {
+  const top = sessions.filter((s) => s.cost > 0 && s.status !== 'ended').sort((a, b) => b.cost - a.cost).slice(0, 2);
+  return new Set(top.map((s) => s.id));
+}
+
+// 표를 둥근 상자로 감싼다. 안쪽 줄은 이미 폭 W-4 로 그려져 있다.
+function tableBox(inner, W, count) {
+  const ln = (t) => style({ fg: PALETTE.line }) + t + RESET;
+  const title = ` 세션 ${count} `;
+  const top = line([{ t: '╭─', fg: PALETTE.line }, { t: title, fg: PALETTE.muted }, { t: '─'.repeat(Math.max(0, W - 3 - width(title))) + '╮', fg: PALETTE.line }], W);
+  return [top, ...inner.map((l) => ln('│ ') + l + ln(' │')), line([{ t: '╰' + '─'.repeat(W - 2) + '╯', fg: PALETTE.line }], W)];
+}
+
+// 이 높이 이상이면 세션 표를 상자로 감싼다 (상자 테두리에 두 줄이 든다).
+const TABLE_BOX_H = 30;
+
 export function render(view, W, H) {
   NOW = Date.now();
   const lines = [];
@@ -586,14 +606,18 @@ export function render(view, W, H) {
   }
   const { errors } = view.data;
   const sessions = filterSessions(view.data.sessions, view.filter);
-  const c = columns(W);
+  const boxed = H >= TABLE_BOX_H && W >= 60;
+  const TW = boxed ? W - 4 : W;
+  const c = columns(TW);
   if (view.help) {
     lines.push(header(view, W), ...help(W, Math.max(3, H - 2)));
     lines.length = H - 1;
     lines.push(footer(view, W, sessions.length));
     return lines;
   }
-  lines.push(header(view, W), toolStrip(view, W), line([], W), tableHeader(c, W));
+  lines.push(header(view, W), toolStrip(view, W));
+  if (!boxed) lines.push(line([], W));
+  const table = [tableHeader(c, TW)];
 
   const rows = [];
   for (const s of sessions) {
@@ -603,7 +627,8 @@ export function render(view, W, H) {
   const sel = sessions.find((s) => s.id === view.selectedId) ?? sessions[0];
   const wantDetail = view.showDetail && Boolean(sel);
   const minDetail = wantDetail ? 12 : 0;
-  const room = Math.max(1, Math.min(Math.max(1, rows.length), H - lines.length - minDetail - 2));
+  const used = lines.length + table.length + (boxed ? 2 : 0);
+  const room = Math.max(1, Math.min(Math.max(1, rows.length), H - used - minDetail - 2));
   // 표가 다 들어가지 않으면 마지막 줄에 몇 개가 가려졌는지 알린다.
   const clipped = rows.length > room && room > 1;
   const shown = clipped ? room - 1 : room;
@@ -611,14 +636,16 @@ export function render(view, W, H) {
   const lastOfSel = selRow + (sel?.members.length ?? 0);
   const start = Math.min(Math.max(0, lastOfSel - shown + 1), Math.max(0, rows.length - shown), selRow);
   const visible = rows.slice(start, start + shown);
-  if (!sessions.length) lines.push(line([{ t: view.filter ? `   '${view.filter}' 에 맞는 세션이 없습니다.` : '   실행 중인 AI 세션이 없습니다.', fg: PALETTE.muted, italic: true }], W));
-  for (const r of visible) lines.push(r.m ? memberRow(r.m, r.last, c, W, view.frame) : sessionRow(r.s, c, W, r.s === sel, view.frame));
+  const hot = topCost(sessions);
+  if (!sessions.length) table.push(line([{ t: view.filter ? `   '${view.filter}' 에 맞는 세션이 없습니다.` : '   실행 중인 AI 세션이 없습니다.', fg: PALETTE.muted, italic: true }], TW));
+  for (const r of visible) table.push(r.m ? memberRow(r.m, r.last, c, TW, view.frame) : sessionRow(r.s, c, TW, r.s === sel, view.frame, hot));
   if (clipped) {
     const onScreen = new Set(visible.filter((r) => !r.m).map((r) => r.s));
     const hidden = sessions.filter((s) => !onScreen.has(s));
     const waitingHidden = hidden.filter((s) => s.status === 'waiting').length;
-    lines.push(line([{ t: `   … +${hidden.length} 세션`, fg: PALETTE.muted }, ...(waitingHidden ? [{ t: ` (응답 대기 ${waitingHidden})`, fg: PALETTE.waiting, bold: true }] : []), { t: '  ↑↓ 로 이동', fg: PALETTE.faint }], W));
+    table.push(line([{ t: `   … +${hidden.length} 세션`, fg: PALETTE.muted }, ...(waitingHidden ? [{ t: ` (응답 대기 ${waitingHidden})`, fg: PALETTE.waiting, bold: true }] : []), { t: '  ↑↓ 로 이동', fg: PALETTE.faint }], TW));
   }
+  lines.push(...(boxed ? tableBox(table, W, sessions.length) : table));
   if (wantDetail) {
     lines.push(line([], W));
     lines.push(...detail(sel, W, Math.max(minDetail, H - lines.length - 1), view.frame, view));

@@ -13,8 +13,9 @@ const session = (n) => ({ tool: 'claude', id: 's', name: 'demo', cwd: '/work/dem
 // diff 화면처럼 그 가로줄이 없으면 첫 줄의 가로줄로 찾는다.
 function right(H, extra = {}, n = 3, W = 120) {
   const lines = render({ data: { sessions: [session(n)], usage: null, errors: [], at }, selectedId: 's', showDetail: true, frame: 0, tab: 'now', ...extra }, W, H).map(strip);
-  const top = lines.findIndex((l) => l.startsWith('╭'));
-  const body = lines.slice(top + 1, lines.findIndex((l) => l.startsWith('╰')));
+  // 높은 화면에서는 세션 표도 상자라서, 상세 패널은 마지막 상자다.
+  const top = lines.findLastIndex((l) => l.startsWith('╭'));
+  const body = lines.slice(top + 1, lines.findIndex((l, i) => i > top && l.startsWith('╰')));
   const ruled = body.find((l) => l.includes('── 최근 활동')) ?? body[0];
   const col = width(ruled.slice(0, ruled.indexOf('──', 2)));
   return body.map((l) => {
