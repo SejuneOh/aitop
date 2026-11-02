@@ -1,52 +1,109 @@
-// /proc 를 읽어 실행 중인 AI CLI 프로세스와 그 작업 폴더를 찾는다 (Linux·WSL 전용).
+// 실행 중인 AI CLI 프로세스와 그 작업 폴더를 찾는다.
+// Linux·WSL 은 /proc 를 읽고, macOS 는 ps 와 lsof 를 부른다. 그 밖의 OS 는 프로세스를 세지 못한다.
 import { readdirSync, readFileSync, readlinkSync, existsSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { platform } from 'node:os';
 
-// /proc 가 없는 OS(macOS 등)에서는 실행 중인 프로세스를 셀 수 없다.
+const OS = platform();
+const HAS_PROC = existsSync('/proc/self');
+
 export function canListProcesses() {
-  return existsSync('/proc/self');
+  return HAS_PROC || OS === 'darwin';
 }
 
+// 신호 0 은 보내지 않고 프로세스가 있는지만 본다. 다른 사용자 프로세스면 EPERM 이지만 살아 있다.
 export function isAlive(pid) {
-  return existsSync(`/proc/${pid}`);
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err.code === 'EPERM';
+  }
 }
 
-// 한 번의 갱신 안에서 여러 도구가 /proc 를 각각 훑지 않도록, 짧게 결과를 재사용한다.
-const SCAN_TTL_MS = 500;
-let scan = { at: 0, list: [] };
+// ps -axo pid=,command= 출력 한 줄을 { pid, argv } 로. 인자 안의 공백은 구분할 수 없지만 앞 두 칸(실행 파일 이름)만 쓴다.
+export function parsePs(text) {
+  const out = [];
+  for (const line of String(text).split('\n')) {
+    const m = /^\s*(\d+)\s+(.+)$/.exec(line);
+    if (m) out.push({ pid: Number(m[1]), argv: m[2].trim().split(/\s+/) });
+  }
+  return out;
+}
 
-function scanAll() {
-  if (Date.now() - scan.at < SCAN_TTL_MS) return scan.list;
+// lsof -a -p PID -d cwd -Fn 출력에서 n 으로 시작하는 줄이 작업 폴더다.
+export function parseLsofCwd(text) {
+  return /^n(.+)$/m.exec(String(text))?.[1] ?? null;
+}
+
+const run = (cmd, args) => execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 2000 });
+
+function listProc() {
   const list = [];
   let pids = [];
   try {
     pids = readdirSync('/proc').filter((n) => /^\d+$/.test(n));
   } catch {}
   for (const pid of pids) {
-    if (Number(pid) === process.pid) continue;
     let argv;
     try {
       argv = readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0').filter(Boolean);
     } catch {
       continue;
     }
-    if (!argv.length) continue;
-    list.push({ pid: Number(pid), argv });
+    if (argv.length) list.push({ pid: Number(pid), argv });
   }
+  return list;
+}
+
+function listPs() {
+  try {
+    return parsePs(run('ps', ['-axo', 'pid=,command=']));
+  } catch {
+    return [];
+  }
+}
+
+// 한 번의 갱신 안에서 여러 도구가 각각 훑지 않도록 결과를 재사용한다. ps 는 프로세스를 띄우므로 더 길게 둔다.
+const SCAN_TTL_MS = HAS_PROC ? 500 : 2000;
+let scan = { at: 0, list: [] };
+
+function scanAll() {
+  if (Date.now() - scan.at < SCAN_TTL_MS) return scan.list;
+  const list = (HAS_PROC ? listProc() : OS === 'darwin' ? listPs() : []).filter((p) => p.pid !== process.pid);
   scan = { at: Date.now(), list };
   return list;
 }
 
+// macOS 의 작업 폴더는 lsof 로 얻는다. 프로세스마다 바뀌는 일이 드물어 pid 별로 기억한다.
+const cwdCache = new Map();
+
+function cwdOf(pid) {
+  if (HAS_PROC) {
+    try {
+      return readlinkSync(`/proc/${pid}/cwd`);
+    } catch {
+      return null;
+    }
+  }
+  if (OS !== 'darwin') return null;
+  if (cwdCache.has(pid)) return cwdCache.get(pid);
+  let cwd = null;
+  try {
+    cwd = parseLsofCwd(run('lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn']));
+  } catch {}
+  cwdCache.set(pid, cwd);
+  return cwd;
+}
+
 // 작업 폴더는 일치한 프로세스만 읽는다.
 export function findProcesses(match) {
-  return scanAll()
-    .filter((p) => match(p.argv))
-    .map((p) => {
-      let cwd = null;
-      try {
-        cwd = readlinkSync(`/proc/${p.pid}/cwd`);
-      } catch {}
-      return { ...p, cwd };
-    });
+  const found = scanAll().filter((p) => match(p.argv));
+  // 끝난 프로세스의 pid 는 다른 프로세스가 다시 쓸 수 있으니, 지금 목록에 없는 pid 의 작업 폴더는 잊는다.
+  const alive = new Set(scanAll().map((p) => p.pid));
+  for (const pid of cwdCache.keys()) if (!alive.has(pid)) cwdCache.delete(pid);
+  return found.map((p) => ({ ...p, cwd: cwdOf(p.pid) }));
 }
 
 const base = (p) => p.split('/').pop();

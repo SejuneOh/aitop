@@ -98,13 +98,13 @@ aitop --doctor   도구별 연결 점검 (기록 폴더, 기록 수, 마지막 �
 
 | 도구 | 실행 중 판단 | 진행 내용·토큰 |
 |---|---|---|
-| Claude Code | `~/.claude/sessions/<pid>.json` + `/proc/<pid>` | `~/.claude/projects/*/<sessionId>.jsonl`, `…/subagents/agent-*.jsonl` |
-| Codex CLI | `/proc` 의 `codex` 프로세스 작업 폴더 | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` |
-| Gemini CLI | `/proc` 의 `gemini` 프로세스 | 아직 미지원 |
+| Claude Code | `~/.claude/sessions/<pid>.json` + pid 가 살아 있는지 | `~/.claude/projects/*/<sessionId>.jsonl`, `…/subagents/agent-*.jsonl` |
+| Codex CLI | `codex` 프로세스와 작업 폴더 (Linux `/proc`, macOS `ps`·`lsof`) | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` |
+| Gemini CLI | `gemini` 프로세스 | 아직 미지원 |
 
 ## 알려진 한계
 
-- Linux·WSL 전용 (`/proc` 사용).
+- Linux·WSL·macOS 만 지원한다. Windows(PowerShell)는 설치되지 않는다. macOS 는 `ps`·`lsof` 를 2초에 한 번 부른다.
 - 세션 파일 형식은 각 CLI 의 내부 형식이라, CLI 업데이트로 바뀌면 `src/sources/` 의 해당 파일을 고쳐야 한다.
 - 컨텍스트 창 크기는 기록에 없어서 모델별 표(`src/pricing.mjs`)로 정한다. 표에 없는 모델은 200k 를 넘으면 1M 으로 가정한다.
 - 같은 폴더에서 codex 를 여러 개 띄우면, 최근에 바뀐 세션 파일부터 순서대로 짝짓는다.
