@@ -9,18 +9,32 @@ const HELP = `aitop - 터미널에서 Claude Code · Codex · Gemini 세션을 �
   aitop --json     세션 목록과 사용량 합계를 JSON 으로 한 번 출력한다 (--all 과 함께 쓸 수 있다)
   aitop --doctor   Claude · Codex · Gemini 기록과 실행 중인 프로세스를 찾는지 점검한다 (--json 과 함께 쓸 수 있다)
   aitop --bell     응답 대기 세션이 새로 생기면 터미널 벨을 울린다
+  aitop --theme light|dark  밝은 배경 / 어두운 배경 색 (없으면 COLORFGBG 로 고른다)
   aitop --version  설치된 버전을 보인다
 
   키: / 검색 · ↑↓/jk 선택 · n 다음 볼 세션 · f 변경 파일 · d 상세 · e 종료 세션 토글 · Esc 뒤로 · ? 도움말 · q 나가기`;
 const KNOWN = new Set(['-h', '--help', '-v', '--version', '--once', '--all', '--json', '--doctor', '--bell']);
+const THEMES = ['light', 'dark'];
 const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
-const args = new Set(process.argv.slice(2));
+// --theme light, --theme=light 처럼 값을 받는 옵션은 따로 꺼낸다.
+const argv = process.argv.slice(2);
+let theme = null;
+const rest = [];
+for (let i = 0; i < argv.length; i++) {
+  const m = /^--theme(?:=(.*))?$/.exec(argv[i]);
+  if (!m) rest.push(argv[i]);
+  else theme = m[1] ?? argv[++i] ?? '';
+}
+const args = new Set(rest);
 const unknown = [...args].filter((a) => !KNOWN.has(a));
+if (theme != null && !THEMES.includes(theme)) unknown.push(`--theme ${theme}`.trim());
 if (unknown.length) {
   process.stderr.write(`aitop: 모르는 옵션 ${unknown.join(' ')}\n\n${HELP}\n`);
   process.exit(2);
 }
+// 화면 모듈이 불러올 때 테마를 고르므로 그 전에 넘긴다.
+if (theme) process.env.AITOP_THEME = theme;
 if (args.has('-h') || args.has('--help')) {
   console.log(HELP);
   process.exit(0);

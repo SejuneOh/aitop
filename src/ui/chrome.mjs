@@ -40,7 +40,7 @@ export function help(W, H) {
 }
 
 // 키 칩. 색이 없으면 [f] 처럼 괄호로 보인다.
-export const keyChip = (k) => (NO_COLOR ? { t: `[${k}]` } : { t: ` ${k} `, fg: '#0b0e14', bg: PALETTE.muted, bold: true });
+export const keyChip = (k) => (NO_COLOR ? { t: `[${k}]` } : { t: ` ${k} `, fg: PALETTE.chipText, bg: PALETTE.muted, bold: true });
 
 export const keyLabel = (t) => ({ t: ` ${t}   `, fg: PALETTE.muted });
 
@@ -62,7 +62,7 @@ export function footer(view, W, matched, sel) {
     { k: 'q', t: '나가기', keep: true },
   ];
   if (view.searching) {
-    const input = NO_COLOR ? [{ t: '[/]' }] : [{ t: ' / ', fg: '#0b0e14', bg: PALETTE.brand, bold: true }];
+    const input = NO_COLOR ? [{ t: '[/]' }] : [{ t: ' / ', fg: PALETTE.chipText, bg: PALETTE.brand, bold: true }];
     return hintBar([{ segs: [...input, { t: ` ${view.filter ?? ''}`, fg: PALETTE.text, bold: true }, { t: '▏', fg: PALETTE.brand }, { t: `  ${matched}개   `, fg: PALETTE.muted }], keep: true }, { k: '⏎', t: '적용', keep: true }, { k: 'Esc', t: '지우기', keep: true }], W);
   }
   if (view.focus) {
@@ -75,7 +75,7 @@ export function footer(view, W, matched, sel) {
   // 세션이 하나도 없으면 쓸 수 있는 키만 남긴다.
   if (!view.filter && !view.data?.sessions?.length) return hintBar([{ k: 'e', t: view.showEnded ? '종료 숨김' : '종료 포함' }, ...tail], W, '⊘ 읽기전용');
   const search = view.filter
-    ? { segs: [{ t: ` /${view.filter} `, fg: '#0b0e14', bg: PALETTE.brand, bold: true }, { t: ` ${matched}개 `, fg: PALETTE.muted }, keyChip('Esc'), keyLabel('검색 지우기')], keep: true }
+    ? { segs: [{ t: ` /${view.filter} `, fg: PALETTE.chipText, bg: PALETTE.brand, bold: true }, { t: ` ${matched}개 `, fg: PALETTE.muted }, keyChip('Esc'), keyLabel('검색 지우기')], keep: true }
     : { k: '/', t: '검색' };
   const items = [
     search,

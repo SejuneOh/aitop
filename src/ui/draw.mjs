@@ -62,7 +62,8 @@ export function gauge(used, total, cells) {
   return [
     { t: '━'.repeat(full) + tip, fg: color },
     { t: '─'.repeat(cells - full - (tip ? 1 : 0)), fg: PALETTE.faint },
-    { t: pad(`${Math.round(r * 100)}%`, 5, 'right'), fg: r >= 0.85 ? PALETTE.alert : PALETTE.muted },
+    // 85% 이상은 색이 없어도 보이게 ! 를 붙인다.
+    { t: pad(`${r >= 0.85 ? '!' : ''}${Math.round(r * 100)}%`, 5, 'right'), fg: r >= 0.85 ? PALETTE.alert : PALETTE.muted },
   ];
 }
 

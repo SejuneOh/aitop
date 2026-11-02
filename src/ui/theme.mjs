@@ -1,9 +1,16 @@
 // 색: 팔레트, 색 코드, 테두리 글자. NO_COLOR 이면 색 코드를 넣지 않는다.
-
+// 팔레트는 불러올 때 한 번 고른다: AITOP_THEME(bin 의 --theme) → COLORFGBG 의 배경색 → 어두운 테마.
 
 export const NO_COLOR = Boolean(process.env.NO_COLOR);
 
-export const PALETTE = {
+// COLORFGBG 는 "글자;배경" 색 번호다. 배경이 7(밝은 회색) 이나 9~15(밝은 색) 면 밝은 배경으로 본다.
+export function pickTheme(env = process.env) {
+  if (env.AITOP_THEME === 'light' || env.AITOP_THEME === 'dark') return env.AITOP_THEME;
+  const bg = Number(String(env.COLORFGBG ?? '').split(';').pop());
+  return Number.isInteger(bg) && (bg === 7 || (bg >= 9 && bg <= 15)) ? 'light' : 'dark';
+}
+
+const DARK = {
   text: '#e6e8ee',
   muted: '#8a90a2',
   faint: '#4b5060',
@@ -25,7 +32,38 @@ export const PALETTE = {
   addBg: '#10261a',
   delBg: '#2c1517',
   tools: { claude: '#e8865f', codex: '#5eead4', gemini: '#8ab4f8' },
+  // 색 칩(키 안내, 로고) 위 글자
+  chipText: '#0b0e14',
 };
+
+// 흰 배경용. 글자는 짙게, 배경 띠는 옅게 둔다.
+const LIGHT = {
+  text: '#1f2328',
+  muted: '#57606a',
+  faint: '#8c959f',
+  line: '#d0d7de',
+  rowSel: '#eaeef2',
+  rowFocus: '#dbe7f7',
+  rowWaiting: '#fff3cd',
+  bar: '#f3f5f7',
+  brand: '#0969da',
+  busy: '#1a7f37',
+  waiting: '#9a6700',
+  tool: '#0550ae',
+  team: '#8250df',
+  idle: '#57606a',
+  ended: '#8c959f',
+  alert: '#cf222e',
+  money: '#9a6700',
+  addBg: '#dafbe1',
+  delBg: '#ffebe9',
+  tools: { claude: '#bc4c00', codex: '#0a7d6e', gemini: '#1f5fbf' },
+  chipText: '#ffffff',
+};
+
+export const THEME = pickTheme();
+export const PALETTES = { dark: DARK, light: LIGHT };
+export const PALETTE = THEME === 'light' ? LIGHT : DARK;
 
 export const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)).join(';');
 
