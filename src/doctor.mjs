@@ -5,7 +5,7 @@ import { readdirSync, statSync, existsSync, openSync, readSync, closeSync } from
 import { join } from 'node:path';
 import { homedir, platform } from 'node:os';
 import { findProcesses, isCodex, isGemini, canListProcesses, isAlive } from './procs.mjs';
-import { fmtAgo, pad } from './text.mjs';
+import { fmtAgo, pad, stripControl } from './text.mjs';
 
 const UNIT = { s: '초', m: '분', h: '시간', d: '일' };
 const ago = (ms) => fmtAgo(ms).replace(/[smhd]$/, (u) => UNIT[u]);
@@ -45,15 +45,17 @@ function newest(files) {
   return best;
 }
 
-// 파일 첫 줄(최대 64KB)이 JSON 으로 읽히면 true.
+// 파일 첫 줄이 JSON 으로 읽히면 true, 아니면 false. 비어 있거나 첫 줄이 64KB 를 넘으면 판정하지 않는다(null).
 function firstLineIsJson(path) {
   let fd;
   try {
     fd = openSync(path, 'r');
     const buf = Buffer.alloc(65536);
     const n = readSync(fd, buf, 0, buf.length, 0);
-    const first = buf.subarray(0, n).toString('utf8').split('\n')[0];
-    JSON.parse(first);
+    const text = buf.subarray(0, n).toString('utf8');
+    const end = text.indexOf('\n');
+    if (!n || (end < 0 && n === buf.length)) return null;
+    JSON.parse(end < 0 ? text : text.slice(0, end));
     return true;
   } catch {
     return false;
@@ -62,7 +64,10 @@ function firstLineIsJson(path) {
   }
 }
 
-// JSON 파일 맨 위 키 이름만 (값은 보지 않는다). 크면 앞 64KB 의 첫 줄로 대신한다.
+// 키 이름도 사용자 글이나 경로일 수 있으므로 식별자처럼 생긴 것만 보인다.
+const KEY_NAME = /^[A-Za-z_][\w.-]{0,40}$/;
+
+// JSON 파일 맨 위 키 이름만 (값은 보지 않는다). 앞 64KB 로 읽지 못하면(큰 파일) 맨 위 수준 들여쓰기의 "키": 줄에서 찾는다.
 function topKeys(path) {
   let fd;
   try {
@@ -70,14 +75,19 @@ function topKeys(path) {
     const buf = Buffer.alloc(65536);
     const n = readSync(fd, buf, 0, buf.length, 0);
     const text = buf.subarray(0, n).toString('utf8');
-    let obj;
+    let keys;
     try {
-      obj = JSON.parse(text);
+      let obj = JSON.parse(text);
+      if (Array.isArray(obj)) obj = obj[0];
+      keys = obj && typeof obj === 'object' ? Object.keys(obj) : [];
     } catch {
-      obj = JSON.parse(text.split('\n')[0]);
+      try {
+        keys = Object.keys(JSON.parse(text.split('\n')[0]));
+      } catch {
+        keys = [...text.matchAll(/^ {0,2}\t?"([^"\n]{1,60})"\s*:/gm)].map((m) => m[1]);
+      }
     }
-    if (Array.isArray(obj)) obj = obj[0];
-    return obj && typeof obj === 'object' ? Object.keys(obj).slice(0, 12) : [];
+    return [...new Set(keys)].filter((k) => KEY_NAME.test(k)).slice(0, 12);
   } catch {
     return [];
   } finally {
@@ -162,5 +172,5 @@ export function doctorText(result, version, now = Date.now()) {
     out.push(`         ${d.detail}`);
     if (d.hint) out.push(`         → ${d.hint}`);
   }
-  return out.join('\n');
+  return stripControl(out.join('\n'));
 }

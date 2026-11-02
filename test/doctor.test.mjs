@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, writeFileSync, mkdtempSync } from 'node:fs';
+import { mkdirSync, writeFileSync, mkdtempSync, utimesSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -49,6 +49,29 @@ test('Gemini 는 일부 지원으로 보이고, 기록은 키 이름만 보인�
   assert.match(text, /키: sessionId, messages, startTime/);
   assert.doesNotMatch(text, /SECRET-VALUE/);
   assert.doesNotMatch(JSON.stringify(toolsJson(checkTools().tools)), /SECRET-VALUE/);
+});
+
+test('Gemini 키 중 식별자 모양이 아닌 것(사용자 글, 제어문자)은 보이지 않는다', () => {
+  const p = join(root, 'gemini', 'tmp', 'abc', 'chats', 'session-2.json');
+  writeFileSync(p, JSON.stringify({ 'my password is hunter2': 1, '\u001b]0;pwned\u0007\u001b[2J': 2, sessionId: 'x' }));
+  utimesSync(p, Date.now() / 1000 + 60, Date.now() / 1000 + 60);
+  const t = checkTools().tools.gemini;
+  assert.deepEqual(t.keys, ['sessionId']);
+  const text = doctorText(checkTools(), '9.9.9');
+  assert.doesNotMatch(text, /hunter2|pwned|\u001b/);
+});
+
+test('여러 줄로 정리된 큰 JSON 은 맨 위 키 줄에서 키를 찾는다', () => {
+  const p = join(root, 'gemini', 'tmp', 'abc', 'chats', 'session-3.json');
+  writeFileSync(p, JSON.stringify({ sessionId: 'x', projectHash: 'y', messages: Array.from({ length: 4000 }, (_, i) => ({ id: i, text: 'z'.repeat(30) })) }, null, 2));
+  utimesSync(p, Date.now() / 1000 + 120, Date.now() / 1000 + 120);
+  assert.deepEqual(checkTools().tools.gemini.keys, ['sessionId', 'projectHash', 'messages']);
+});
+
+test('첫 줄이 64KB 를 넘는 기록은 읽기 실패로 보지 않는다', () => {
+  const p = fx.transcript('eeeeeeee-2', [user('x'.repeat(70_000))], '-work-big');
+  utimesSync(p, Date.now() / 1000 + 60, Date.now() / 1000 + 60);
+  assert.equal(checkTools().tools.claude.readable, null);
 });
 
 test('aitop --doctor 와 --doctor --json 을 실행할 수 있다', () => {

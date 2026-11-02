@@ -183,12 +183,14 @@ function header(view, W) {
   const clockSeg = { t: clock(view.data.at), fg: PALETTE.muted, bg: B };
   // 비용은 API 정가 환산이다 (구독 요금제의 실제 청구액이 아님). 폭이 되면 그렇다고 적는다.
   const api = { t: 'API 환산  ', fg: PALETTE.faint, bg: B };
+  const apiShort = { t: 'API ', fg: PALETTE.faint, bg: B };
   const rights = u
     ? [
         [api, ...period('오늘', u.today, true), dot, ...week(true), dot, clockSeg],
         [...period('오늘', u.today, true), dot, ...week(true), dot, clockSeg],
         [api, ...period('오늘', u.today, false), dot, ...week(false), dot, clockSeg],
-        [...period('오늘', u.today, false), dot, ...week(false), dot, clockSeg],
+        [apiShort, ...period('오늘', u.today, false), dot, ...week(false), dot, clockSeg],
+        [apiShort, ...period('오늘', u.today, false), dot, clockSeg],
         [...period('오늘', u.today, false), dot, clockSeg],
         [clockSeg],
       ]
