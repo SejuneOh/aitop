@@ -387,16 +387,18 @@ function fileRow(f, cwd, w, selected) {
 // 같은 파일을 여러 번 고치면 줄 번호 기준이 매번 달라져 하나의 diff 로 합칠 수 없다.
 function diffBody(f, w) {
   if (f.hidden) return [[INDENT, { t: '비밀값이 있을 수 있는 파일이라 변경 내용을 숨겼습니다', fg: PALETTE.waiting, italic: true }]];
-  if (!f.hunks.length) return [[INDENT, { t: '보관된 변경 내용이 없습니다', fg: PALETTE.faint, italic: true }]];
+  if (!f.hunks.length) return [[INDENT, { t: f.deleted ? '이 파일을 삭제했습니다' : '보관된 변경 내용이 없습니다', fg: PALETTE.faint, italic: true }]];
   const nums = w >= 50;
   const textW = w - 1 - (nums ? 5 : 0);
   const out = [];
   for (const h of f.hunks) {
-    out.push([{ t: `${clock(h.at)} · ${h.agent ?? '메인'} · @@ -${h.oldStart},${h.oldLines} +${h.newStart},${h.newLines} @@`, fg: PALETTE.tool, dim: true }]);
+    const head = h.unnumbered ? `@@ ${h.context ?? ''}`.trimEnd() : `@@ -${h.oldStart},${h.oldLines} +${h.newStart},${h.newLines} @@`;
+    out.push([{ t: `${clock(h.at)} · ${h.agent ?? '메인'} · ${head}`, fg: PALETTE.tool, dim: true }]);
     let n = h.newStart;
     for (const l of h.lines) {
       const k = l[0];
-      const no = { t: pad(k === '-' ? '' : String(n), 4, 'right') + ' ', fg: PALETTE.faint };
+      // 줄 번호를 모르는 변경(Codex)은 번호 칸을 비운다.
+      const no = { t: pad(k === '-' || h.unnumbered ? '' : String(n), 4, 'right') + ' ', fg: PALETTE.faint };
       if (k !== '-') n++;
       const seg = k === '+' ? { fg: PALETTE.busy, bg: PALETTE.addBg } : k === '-' ? { fg: PALETTE.alert, bg: PALETTE.delBg } : { fg: PALETTE.muted };
       out.push([...(nums ? [no] : []), { ...seg, t: pad(l, textW) }]);
@@ -590,7 +592,7 @@ const HELP = [
   ['CONTEXT', '마지막 요청의 컨텍스트 사용률 (모델별 창 크기 기준)'],
   ['IDLE', '마지막 활동 후 지난 시간. 작업 중이면 now'],
   ['오늘 / 7일', '헤더 오른쪽. 최근 7일 Claude 기록의 날짜별 합계. API 정가 환산이며 구독 요금제의 청구액이 아니다'],
-  ['변경 파일', 'Edit/Write 도구로 고친 파일과 편집 횟수. git diff 가 아니다. Bash 로 고친 파일은 빠진다'],
+  ['변경 파일', 'Edit/Write(Codex 는 apply_patch) 로 고친 파일과 편집 횟수. git diff 가 아니다. Bash 로 고친 파일은 빠진다'],
   ['', 'diff 머리의 쓴 줄 · 지운 줄은 편집마다 더한 누적값 (최종 변경량 아님)'],
   ['지시 탭', '이번 지시(마지막 지시 뒤), 편집이 있던 이전 지시 T번호, 전체. lock·생성 파일은 끝에 흐리게'],
 ];

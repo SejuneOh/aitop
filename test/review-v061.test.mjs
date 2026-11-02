@@ -32,16 +32,17 @@ test('--json 비용은 소수 넷째 자리까지 반올림한다', () => {
 });
 
 test('이 버전보다 낮은 캐시 폴더는 바로 지우고, 같은 형식의 최근 폴더는 남긴다', () => {
-  for (const d of ['v2', 'v6-ff9e7b58', 'v7-other', 'v7-stale', 'v12-future']) mkdirSync(join(cacheRoot, d), { recursive: true });
+  const V = Number(/^v(\d+)-/.exec(CACHE_DIR.split('/').pop())[1]);
+  for (const d of ['v2', `v${V - 1}-ff9e7b58`, `v${V}-other`, `v${V}-stale`, `v${V + 5}-future`]) mkdirSync(join(cacheRoot, d), { recursive: true });
   const old = Date.now() / 1000 - 8 * 86400;
-  utimesSync(join(cacheRoot, 'v7-stale'), old, old);
+  utimesSync(join(cacheRoot, `v${V}-stale`), old, old);
   const src = join(fx.home, 'x.jsonl');
   writeFileSync(src, '{}\n');
   markDirty(src, () => ({ offset: 3 }));
   flushCache();
   const left = readdirSync(cacheRoot).sort();
   assert.ok(existsSync(CACHE_DIR));
-  assert.deepEqual(left.filter((d) => d !== CACHE_DIR.split('/').pop()), ['v12-future', 'v7-other']);
+  assert.deepEqual(left.filter((d) => d !== CACHE_DIR.split('/').pop()), [`v${V + 5}-future`, `v${V}-other`].sort());
 });
 
 test('상세 패널 컨텍스트 줄은 왼쪽 칸 폭 안에 % 까지 들어간다', async () => {
