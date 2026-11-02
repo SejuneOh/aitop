@@ -7,10 +7,13 @@ const HELP = `aitop - 터미널에서 Claude Code · Codex · Gemini 세션을 �
   aitop --once     현재 상태를 한 번 출력하고 끝낸다
   aitop --all      종료된 세션(24시간 이내)도 함께 본다
   aitop --json     세션 목록과 사용량 합계를 JSON 으로 한 번 출력한다 (--all 과 함께 쓸 수 있다)
+  aitop --doctor   Claude · Codex · Gemini 기록과 실행 중인 프로세스를 찾는지 점검한다 (--json 과 함께 쓸 수 있다)
+  aitop --bell     응답 대기 세션이 새로 생기면 터미널 벨을 울린다
   aitop --version  설치된 버전을 보인다
 
   키: / 검색 · ↑↓/jk 선택 · n 다음 볼 세션 · f 변경 파일 · d 상세 · e 종료 세션 토글 · Esc 뒤로 · ? 도움말 · q 나가기`;
-const KNOWN = new Set(['-h', '--help', '-v', '--version', '--once', '--all', '--json']);
+const KNOWN = new Set(['-h', '--help', '-v', '--version', '--once', '--all', '--json', '--doctor', '--bell']);
+const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
 const args = new Set(process.argv.slice(2));
 const unknown = [...args].filter((a) => !KNOWN.has(a));
@@ -23,13 +26,27 @@ if (args.has('-h') || args.has('--help')) {
   process.exit(0);
 }
 if (args.has('-v') || args.has('--version')) {
-  console.log(JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version);
+  console.log(VERSION);
   process.exit(0);
 }
 
 // 파이프나 파일로 받을 때는 색 코드를 넣지 않는다. 화면 모듈이 불러올 때 NO_COLOR 를 읽으므로 그 전에 정한다.
 const forced = process.env.FORCE_COLOR != null && !['', '0', 'false'].includes(process.env.FORCE_COLOR);
 if (!process.stdout.isTTY && !forced && !process.env.NO_COLOR) process.env.NO_COLOR = '1';
+
+// 받는 쪽(| head 등)이 먼저 닫으면 조용히 끝낸다.
+process.stdout.on('error', (err) => process.exit(err.code === 'EPIPE' ? 0 : 1));
+// 다 쓴 뒤에 끝낸다 (파이프로 넘길 때 64KB 넘는 출력이 잘리지 않게).
+const printAndExit = async (text) => {
+  await new Promise((resolve) => process.stdout.write(text + '\n', resolve));
+  process.exit(0);
+};
+
+const { checkTools, doctorText, toolsJson } = await import('../src/doctor.mjs');
+if (args.has('--doctor')) {
+  const result = checkTools();
+  await printAndExit(args.has('--json') ? JSON.stringify({ version: VERSION, ...result, tools: toolsJson(result.tools) }, null, 2) : doctorText(result, VERSION));
+}
 
 const { collect } = await import('../src/collect.mjs');
 const { render, filterSessions } = await import('../src/ui.mjs');
@@ -44,6 +61,7 @@ const once = args.has('--once') || args.has('--json') || !process.stdout.isTTY;
 const TICK_BUDGET = 24 * 1024 * 1024;
 
 const attention = createAttention();
+let tools = null;
 
 function refresh() {
   const data = collect({ showEnded: view.showEnded, selectedId: view.selectedId, budgetBytes: once ? Infinity : TICK_BUDGET });
@@ -54,6 +72,9 @@ function refresh() {
   }
   updateAttention(attention, data.sessions, view.selectedId);
   data.sessions = data.sessions.map((s) => (attention.unseen.has(s.id) ? { ...s, unseen: true, phase: { kind: 'unseen', text: '완료 · 확인 전' }, plain: s } : s));
+  // 도구별 점검은 기록 폴더를 훑으므로 30초에 한 번만 한다.
+  if (!tools || Date.now() - tools.at > 30_000) tools = { at: Date.now(), result: checkTools() };
+  data.tools = tools.result;
   view.data = data;
   if (view.filter) keepSelectionVisible();
   fixFocus(view);
@@ -74,12 +95,7 @@ if (once) {
   const size = (v) => (Number(v) > 0 ? Math.floor(Number(v)) : 0);
   const W = process.stdout.columns || size(process.env.COLUMNS) || 140;
   const H = process.stdout.rows || size(process.env.LINES) || 40;
-  // 받는 쪽(| head 등)이 먼저 닫으면 조용히 끝낸다.
-  process.stdout.on('error', (err) => process.exit(err.code === 'EPIPE' ? 0 : 1));
-  const text = args.has('--json') ? JSON.stringify(toJson(view.data), null, 2) : render(view, W, H).join('\n');
-  // 파이프로 넘길 때 64KB 넘는 출력이 잘리지 않도록, 다 쓴 뒤에 끝낸다.
-  await new Promise((resolve) => process.stdout.write(text + '\n', resolve));
-  process.exit(0);
+  await printAndExit(args.has('--json') ? JSON.stringify(toJson(view.data, VERSION), null, 2) : render(view, W, H).join('\n'));
 }
 
 const out = process.stdout;

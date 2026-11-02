@@ -1,3 +1,5 @@
+import { toolsJson } from './doctor.mjs';
+
 // aitop --json 출력. 다른 스크립트나 AI 가 읽기 쉬운 모양으로 세션 목록과 사용량 합계를 담는다.
 // 텍스트는 수집 단계에서 이미 비밀값 가림이 적용돼 있다.
 
@@ -8,9 +10,12 @@ const iso = (ms) => (ms ? new Date(ms).toISOString() : null);
 const money = (x) => (typeof x === 'number' ? Math.round(x * 1e4) / 1e4 : (x ?? null));
 const usageOf = (u) => (u ? { ...u, ...('cost' in u ? { cost: money(u.cost) } : {}) } : u);
 
-export function toJson(data) {
+// version 은 aitop 버전, tools 는 aitop --doctor 와 같은 도구별 점검 결과다.
+export function toJson(data, version = null) {
   return {
+    version,
     at: iso(data.at),
+    tools: toolsJson(data.tools?.tools),
     usage: data.usage ? { today: usageOf(data.usage.today), last7days: usageOf(data.usage.week), complete: data.usage.loading == null } : null,
     sessions: data.sessions.map((s) => ({
       tool: s.tool,

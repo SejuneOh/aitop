@@ -53,7 +53,11 @@ aitop --json     세션 목록과 오늘·7일 사용량을 JSON 으로 한 번 
                  0.5.0 부터 files[] 의 줄 수 필드는 writtenLines·deletedLines (편집 누적, 예전 added·removed)
                  0.6.1 부터 비용(cost 등)은 소수 넷째 자리까지 반올림
 aitop --version  설치된 버전
+aitop --doctor   도구별 연결 점검 (기록 폴더, 기록 수, 마지막 기록, 실행 수). --json 과 함께 가능
 ```
+
+동료 PC 에서 Codex · Gemini 가 잡히는지 볼 때는 `aitop --doctor` 결과를 그대로 붙여 넣으면 된다. 기록 내용은 나오지 않는다 (Gemini 는 형식 확인용 JSON 키 이름만).
+`--json` 에는 `version` 과 같은 점검 결과 `tools` 가 들어 있다.
 
 - 모르는 옵션을 주면 오류와 도움말을 보이고 2 로 끝난다.
 - `--once` 를 파이프나 파일로 받으면 색 코드를 넣지 않고(`FORCE_COLOR=1` 이면 넣음), 크기는 `COLUMNS`·`LINES` 를 따른다.

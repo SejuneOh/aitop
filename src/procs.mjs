@@ -1,6 +1,11 @@
 // /proc 를 읽어 실행 중인 AI CLI 프로세스와 그 작업 폴더를 찾는다 (Linux·WSL 전용).
 import { readdirSync, readFileSync, readlinkSync, existsSync } from 'node:fs';
 
+// /proc 가 없는 OS(macOS 등)에서는 실행 중인 프로세스를 셀 수 없다.
+export function canListProcesses() {
+  return existsSync('/proc/self');
+}
+
 export function isAlive(pid) {
   return existsSync(`/proc/${pid}`);
 }
