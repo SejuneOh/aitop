@@ -156,7 +156,7 @@ export function describe(t, now = Date.now()) {
   if (t.found === false && t.state === 'limited') parts.push('기록 폴더 없음');
   else if (t.state !== 'missing') parts.push(`기록 ${t.records.toLocaleString('en-US')}개`);
   if (t.lastAt) parts.push(`마지막 ${ago(now - t.lastAt)} 전`);
-  parts.push(t.running == null ? '실행 수 확인 불가 (/proc 없음)' : `실행 ${t.running}`);
+  parts.push(t.running == null ? '실행 수 확인 불가 (Linux·WSL·macOS 만 지원)' : `실행 ${t.running}`);
   if (t.readable === false) parts.push('최근 기록 읽기 실패');
   if (t.keys?.length) parts.push(`키: ${t.keys.join(', ')}`);
   return { mark: MARK[t.state], state: STATE_TEXT[t.state], path: t.path, detail: parts.join(' · '), hint: t.hint };

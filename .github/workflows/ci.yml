@@ -8,10 +8,15 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
+        os: [ubuntu-latest]
         node: [20, 22, 24]
+        # macOS 는 ps·lsof 로 프로세스를 찾는다. 가상 터미널 e2e 는 util-linux script 가 없어 건너뛴다.
+        include:
+          - os: macos-latest
+            node: 22
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
