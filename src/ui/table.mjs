@@ -1,5 +1,6 @@
 // 위쪽 화면: 요약 헤더, 도구 줄, 세션 표(팀원 행 포함), 세션이 없을 때의 점검 줄.
 import { describe } from '../doctor.mjs';
+import { BRAND } from '../brand.mjs';
 import { fmtAgo, fmtTokens, pad, truncate, width } from '../text.mjs';
 import { EDGE, PALETTE, PHASE_COLOR, RESET, style } from './theme.mjs';
 import { NOW, SPIN, clock, gauge, glyph, line, money, segsWidth, shortModel } from './draw.mjs';
@@ -39,7 +40,7 @@ export function header(view, W) {
     { t: `${n} ${narrow ? short : long}`, fg: n ? (bold ? color : PALETTE.text) : PALETTE.faint, bg: B, bold: bold && n > 0 },
   ];
   const leftOf = (narrow) => [
-    { t: ' ◆ aitop ', fg: PALETTE.chipText, bg: PALETTE.brand, bold: true },
+    { t: ` ${BRAND.logo} aitop `, fg: PALETTE.chipText, bg: PALETTE.brand, bold: true },
     { t: '  ', bg: B },
     { t: `${live.length} live`, fg: PALETTE.text, bg: B, bold: true },
     ...stat('⠿', working, '작업 중', '작업', PALETTE.busy, false, narrow),

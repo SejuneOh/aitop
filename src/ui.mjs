@@ -1,5 +1,6 @@
 // 화면 그리기: 상단 요약 바 → 세션 표(팀원 트리 포함) → 선택한 세션 상세 → 단축키 바.
 import { width } from './text.mjs';
+import { BRAND } from './brand.mjs';
 import { PALETTE } from './ui/theme.mjs';
 import { line, setNow } from './ui/draw.mjs';
 import { TABLE_BOX_H, columns, emptyLines, filterSessions, header, memberRow, sessionRow, tableBox, tableHeader, toolStrip, topCost } from './ui/table.mjs';
@@ -14,7 +15,8 @@ export function render(view, W, H) {
   setNow(Date.now());
   const lines = [];
   if (!view.data) {
-    const msg = '세션 기록을 읽는 중…';
+    // 첫 수집은 동기로 돌아 이 화면이 다시 그려지지 않으므로 움직이지 않는 로고를 둔다.
+    const msg = `${BRAND.logo}  세션 기록을 읽는 중…`;
     for (let i = 0; i < H; i++) lines.push(i === Math.floor(H / 2) ? line([{ t: ' '.repeat(Math.max(0, Math.floor((W - width(msg)) / 2))) }, { t: msg, fg: PALETTE.brand }], W) : line([], W));
     return lines;
   }

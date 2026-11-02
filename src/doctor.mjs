@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { homedir, platform } from 'node:os';
 import { findProcesses, isCodex, isGemini, canListProcesses, isAlive } from './procs.mjs';
 import { fmtAgo, pad, stripControl } from './text.mjs';
+import { BRAND } from './brand.mjs';
 
 const UNIT = { s: '초', m: '분', h: '시간', d: '일' };
 const ago = (ms) => fmtAgo(ms).replace(/[smhd]$/, (u) => UNIT[u]);
@@ -165,7 +166,7 @@ export function describe(t, now = Date.now()) {
 // aitop --doctor 의 사람용 출력.
 export function doctorText(result, version, now = Date.now()) {
   const os = `${result.platform}, 프로세스 ${result.processes ? '확인 가능' : '확인 불가'}`;
-  const out = [`aitop ${version} 연결 점검 (${os})`, ''];
+  const out = [`${BRAND.logo} aitop ${version} 연결 점검 (${os})`, ''];
   for (const t of Object.values(result.tools)) {
     const d = describe(t, now);
     out.push(`${d.mark} ${pad(t.tool, 7)}${pad(d.state, 10)}${d.path}`);
