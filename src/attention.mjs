@@ -31,12 +31,16 @@ export function nextAttention(state, sessions, selectedId) {
   return ordered.find((s) => s.status === 'waiting') ?? ordered.find((s) => state.unseen.has(s.id)) ?? null;
 }
 
-// 창 제목: 응답 대기(◆)와 확인 전(●) 수. 둘 다 없으면 aitop.
-export function windowTitle(sessions) {
-  const waiting = sessions.filter((s) => s.live && s.status === 'waiting').length;
-  const unseen = sessions.filter((s) => s.unseen).length;
+// 응답 대기(◆)와 확인 전(●) 수.
+export function attentionCounts(sessions) {
+  return { waiting: sessions.filter((s) => s.live && s.status === 'waiting').length, unseen: sessions.filter((s) => s.unseen).length };
+}
+
+// 창 제목: 맨 앞 아이콘(탭 사이에서 aitop 을 찾게) + 응답 대기·확인 전 수. 예: 󰚩 (2◆ 1●) aitop
+export function windowTitle(sessions, icon = '') {
+  const { waiting, unseen } = attentionCounts(sessions);
   const marks = [waiting && `${waiting}◆`, unseen && `${unseen}●`].filter(Boolean);
-  return marks.length ? `(${marks.join(' ')}) aitop` : 'aitop';
+  return (icon ? icon + ' ' : '') + (marks.length ? `(${marks.join(' ')}) aitop` : 'aitop');
 }
 
 // 벨: 새로 응답 대기가 된 세션이 있을 때만 true. seen 은 지난번 응답 대기 세션 id 집합이며 여기서 갱신한다.
