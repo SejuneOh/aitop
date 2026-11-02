@@ -181,9 +181,13 @@ function header(view, W) {
   // 장부를 못 읽었으면 화면에 있는 세션(모든 도구)의 누적 토큰이라도 보인다.
   const fallback = [{ t: `Σ ${fmtTokens(sessions.reduce((a, s) => a + (s.tokens?.total ?? 0), 0))} tok`, fg: PALETTE.muted, bg: B }];
   const clockSeg = { t: clock(view.data.at), fg: PALETTE.muted, bg: B };
+  // 비용은 API 정가 환산이다 (구독 요금제의 실제 청구액이 아님). 폭이 되면 그렇다고 적는다.
+  const api = { t: 'API 환산  ', fg: PALETTE.faint, bg: B };
   const rights = u
     ? [
+        [api, ...period('오늘', u.today, true), dot, ...week(true), dot, clockSeg],
         [...period('오늘', u.today, true), dot, ...week(true), dot, clockSeg],
+        [api, ...period('오늘', u.today, false), dot, ...week(false), dot, clockSeg],
         [...period('오늘', u.today, false), dot, ...week(false), dot, clockSeg],
         [...period('오늘', u.today, false), dot, clockSeg],
         [clockSeg],
@@ -244,6 +248,9 @@ function sessionRow(s, c, W, selected, frame, hot) {
   const g = glyph(s, frame);
   // 다음 지시를 기다리는 세션은 상태 글자만 흐리게 한다.
   const pc = s.phase?.kind === 'idle' ? PALETTE.faint : PHASE_COLOR[s.phase?.kind] ?? PALETTE.muted;
+  // 아직 토큰을 하나도 쓰지 않은 세션은 숫자 칸을 비운다. 기다리는 중이면 '아직 지시 없음'.
+  const blank = s.lazy || !(s.tokens?.total > 0);
+  const phaseText = blank && s.tool !== 'gemini' && (s.status === 'idle' || s.status === 'live') ? '아직 지시 없음' : s.phase?.text ?? '';
   const segs = [
     { t: selected ? '▌' : ' ', fg: PALETTE.brand, bold: true },
     { ...g, t: g.t + ' ' },
@@ -253,10 +260,10 @@ function sessionRow(s, c, W, selected, frame, hot) {
   segs.push({ t: pad(s.name ?? '', c.name) + ' ', fg: ended ? PALETTE.ended : PALETTE.text, bold: selected });
   if (c.showProject) segs.push({ t: pad(s.project ?? '', c.project) + ' ', fg: PALETTE.muted });
   segs.push(
-    { t: pad(s.phase?.text ?? '', c.status) + ' ', fg: pc, bold: s.status === 'waiting' },
-    { t: pad(s.lazy ? '' : fmtTokens(s.tokens?.total ?? 0), c.tokens, 'right') + ' ', fg: ended ? PALETTE.ended : PALETTE.muted },
+    { t: pad(phaseText, c.status) + ' ', fg: pc, bold: s.status === 'waiting' },
+    { t: pad(blank ? '' : fmtTokens(s.tokens.total), c.tokens, 'right') + ' ', fg: ended ? PALETTE.ended : PALETTE.muted },
   );
-  if (c.showCost) segs.push({ t: pad(s.lazy ? '' : money(s.cost, s.costUnknown), c.cost, 'right') + ' ', fg: s.cost == null || ended ? PALETTE.faint : hot?.has(s.id) ? PALETTE.money : PALETTE.muted, bold: Boolean(hot?.has(s.id)) });
+  if (c.showCost) segs.push({ t: pad(blank ? '' : money(s.cost, s.costUnknown), c.cost, 'right') + ' ', fg: s.cost == null || ended ? PALETTE.faint : hot?.has(s.id) ? PALETTE.money : PALETTE.muted, bold: Boolean(hot?.has(s.id)) });
   segs.push(...gauge(s.context?.used ?? 0, s.context?.window ?? 0, 11), { t: ' ' }, { t: pad(idle, c.age, 'right'), fg: waiting ? PALETTE.waiting : PALETTE.faint });
   return line(segs, W, bg);
 }
@@ -580,7 +587,7 @@ const HELP = [
   ['COST', 'Claude API 정가로 환산한 비용. ? 는 가격표에 없는 모델 포함'],
   ['CONTEXT', '마지막 요청의 컨텍스트 사용률 (모델별 창 크기 기준)'],
   ['IDLE', '마지막 활동 후 지난 시간. 작업 중이면 now'],
-  ['오늘 / 7일', '헤더 오른쪽. 최근 7일 Claude 기록의 날짜별 합계'],
+  ['오늘 / 7일', '헤더 오른쪽. 최근 7일 Claude 기록의 날짜별 합계. API 정가 환산이며 구독 요금제의 청구액이 아니다'],
   ['변경 파일', 'Edit/Write 도구로 고친 파일과 편집 횟수. git diff 가 아니다. Bash 로 고친 파일은 빠진다'],
   ['', 'diff 머리의 쓴 줄 · 지운 줄은 편집마다 더한 누적값 (최종 변경량 아님)'],
   ['지시 탭', '이번 지시(마지막 지시 뒤), 편집이 있던 이전 지시 T번호, 전체. lock·생성 파일은 끝에 흐리게'],
@@ -655,7 +662,7 @@ function emptyLines(view, W) {
   return out;
 }
 
-// 화면에서 비용이 가장 큰 세션 두 개 (0 보다 클 때만).
+// 화면에 보이는 세션 중 비용이 가장 큰 두 개 (0 보다 클 때만).
 function topCost(sessions) {
   const top = sessions.filter((s) => s.cost > 0 && s.status !== 'ended').sort((a, b) => b.cost - a.cost).slice(0, 2);
   return new Set(top.map((s) => s.id));
@@ -713,7 +720,7 @@ export function render(view, W, H) {
   const lastOfSel = selRow + (sel?.members.length ?? 0);
   const start = Math.min(Math.max(0, lastOfSel - shown + 1), Math.max(0, rows.length - shown), selRow);
   const visible = rows.slice(start, start + shown);
-  const hot = topCost(sessions);
+  const hot = topCost(visible.filter((r) => !r.m).map((r) => r.s));
   if (!sessions.length) table.push(...(view.filter ? [line([{ t: `   '${view.filter}' 에 맞는 세션이 없습니다.`, fg: PALETTE.muted, italic: true }], TW)] : emptyLines(view, TW)));
   for (const r of visible) table.push(r.m ? memberRow(r.m, r.last, c, TW, view.frame) : sessionRow(r.s, c, TW, r.s === sel, view.frame, hot));
   if (clipped) {
