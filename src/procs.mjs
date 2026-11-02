@@ -22,12 +22,36 @@ export function isAlive(pid) {
   }
 }
 
-// ps -axo pid=,command= 출력 한 줄을 { pid, argv } 로. 인자 안의 공백은 구분할 수 없지만 앞 두 칸(실행 파일 이름)만 쓴다.
-export function parsePs(text) {
+// ps 는 인자를 공백으로만 이어 보여 준다. 앞 두 칸(실행 파일, node 스크립트)이 없는 절대 경로면
+// 실제로 있는 경로가 될 때까지 뒤 토큰을 이어 붙인다 (예: ~/Library/Application Support/…/codex.js).
+export function joinPaths(tokens, exists = existsSync) {
+  const out = [];
+  let i = 0;
+  while (i < tokens.length) {
+    let cur = tokens[i++];
+    if (out.length < 2 && cur.startsWith('/') && !exists(cur)) {
+      let j = i;
+      let joined = cur;
+      while (j < tokens.length && j - i < 8) {
+        joined += ' ' + tokens[j++];
+        if (exists(joined)) {
+          cur = joined;
+          i = j;
+          break;
+        }
+      }
+    }
+    out.push(cur);
+  }
+  return out;
+}
+
+// ps -axo pid=,command= 출력을 { pid, argv } 목록으로.
+export function parsePs(text, exists = existsSync) {
   const out = [];
   for (const line of String(text).split('\n')) {
     const m = /^\s*(\d+)\s+(.+)$/.exec(line);
-    if (m) out.push({ pid: Number(m[1]), argv: m[2].trim().split(/\s+/) });
+    if (m) out.push({ pid: Number(m[1]), argv: joinPaths(m[2].trim().split(/\s+/), exists) });
   }
   return out;
 }
@@ -59,7 +83,7 @@ function listProc() {
 
 function listPs() {
   try {
-    return parsePs(run('ps', ['-axo', 'pid=,command=']));
+    return parsePs(run('ps', ['-axww', '-o', 'pid=,command=']));
   } catch {
     return [];
   }
@@ -93,15 +117,17 @@ function cwdOf(pid) {
   try {
     cwd = parseLsofCwd(run('lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn']));
   } catch {}
-  cwdCache.set(pid, cwd);
+  // 실패(lsof 없음, 시간 초과)는 기억하지 않고 다음 갱신에 다시 묻는다.
+  if (cwd) cwdCache.set(pid, cwd);
   return cwd;
 }
 
 // 작업 폴더는 일치한 프로세스만 읽는다.
 export function findProcesses(match) {
-  const found = scanAll().filter((p) => match(p.argv));
+  const all = scanAll();
+  const found = all.filter((p) => match(p.argv));
   // 끝난 프로세스의 pid 는 다른 프로세스가 다시 쓸 수 있으니, 지금 목록에 없는 pid 의 작업 폴더는 잊는다.
-  const alive = new Set(scanAll().map((p) => p.pid));
+  const alive = new Set(all.map((p) => p.pid));
   for (const pid of cwdCache.keys()) if (!alive.has(pid)) cwdCache.delete(pid);
   return found.map((p) => ({ ...p, cwd: cwdOf(p.pid) }));
 }
