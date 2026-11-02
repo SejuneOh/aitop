@@ -15,7 +15,7 @@ export function columns(W) {
   const showProject = W >= 110;
   const showCost = W >= 96;
   const showModel = W >= 104;
-  const fixed = { mark: 1, glyph: 2, tool: 7, model: showModel ? 10 : 0, tokens: 7, cost: showCost ? 8 : 0, ctx: 16, age: 4 };
+  const fixed = { mark: 1, glyph: 2, tool: 7, model: showModel ? 10 : 0, tokens: 7, cost: showCost ? 9 : 0, ctx: 16, age: 4 };
   const gaps = 5 + (showProject ? 1 : 0) + (showCost ? 1 : 0) + (showModel ? 1 : 0);
   const flex = W - Object.values(fixed).reduce((a, b) => a + b, 0) - gaps - 1;
   const name = Math.max(14, Math.min(32, Math.floor(flex * 0.36)));
@@ -39,7 +39,7 @@ export function header(view, W) {
     { t: `${n} ${narrow ? short : long}`, fg: n ? (bold ? color : PALETTE.text) : PALETTE.faint, bg: B, bold: bold && n > 0 },
   ];
   const leftOf = (narrow) => [
-    { t: ' ◆ aitop ', fg: '#0b0e14', bg: PALETTE.brand, bold: true },
+    { t: ' ◆ aitop ', fg: PALETTE.chipText, bg: PALETTE.brand, bold: true },
     { t: '  ', bg: B },
     { t: `${live.length} live`, fg: PALETTE.text, bg: B, bold: true },
     ...stat('⠿', working, '작업 중', '작업', PALETTE.busy, false, narrow),
@@ -143,7 +143,7 @@ export function sessionRow(s, c, W, selected, frame, hot) {
     { t: pad(phaseText, c.status) + ' ', fg: pc, bold: s.status === 'waiting' },
     { t: pad(blank ? '' : fmtTokens(s.tokens.total), c.tokens, 'right') + ' ', fg: ended ? PALETTE.ended : PALETTE.muted },
   );
-  if (c.showCost) segs.push({ t: pad(blank ? '' : money(s.cost, s.costUnknown), c.cost, 'right') + ' ', fg: s.cost == null || ended ? PALETTE.faint : hot?.has(s.id) ? PALETTE.money : PALETTE.muted, bold: Boolean(hot?.has(s.id)) });
+  if (c.showCost) segs.push({ t: pad(blank ? '' : (hot?.has(s.id) ? '▲' : '') + money(s.cost, s.costUnknown), c.cost, 'right') + ' ', fg: s.cost == null || ended ? PALETTE.faint : hot?.has(s.id) ? PALETTE.money : PALETTE.muted, bold: Boolean(hot?.has(s.id)) });
   segs.push(...gauge(s.context?.used ?? 0, s.context?.window ?? 0, 11), { t: ' ' }, { t: pad(idle, c.age, 'right'), fg: waiting ? PALETTE.waiting : PALETTE.faint });
   return line(segs, W, bg);
 }
