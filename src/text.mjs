@@ -31,7 +31,8 @@ export function truncate(s, max) {
     out += ch;
     w += cw;
   }
-  return out + '…';
+  // 원래 글이 … 로 끝나는 곳에서 잘리면 … 가 두 번 붙지 않게 한다.
+  return out.replace(/[…\s]+$/u, '') + '…';
 }
 
 export function pad(s, n, align = 'left') {

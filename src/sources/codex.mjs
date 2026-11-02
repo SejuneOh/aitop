@@ -22,7 +22,12 @@ function dayDirs() {
   return dirs;
 }
 
+// 날짜 폴더를 매초 다시 훑지 않도록 목록을 잠깐 재사용한다.
+const LIST_TTL_MS = 5000;
+let listed = { at: 0, files: [] };
+
 function recentFiles() {
+  if (Date.now() - listed.at < LIST_TTL_MS) return listed.files;
   const out = [];
   for (const dir of dayDirs()) {
     for (const n of readdirSync(dir)) {
@@ -32,7 +37,8 @@ function recentFiles() {
       if (Date.now() - m < RECENT_MS) out.push({ path: p, mtime: m });
     }
   }
-  return out.sort((a, b) => b.mtime - a.mtime);
+  listed = { at: Date.now(), files: out.sort((a, b) => b.mtime - a.mtime) };
+  return listed.files;
 }
 
 const SAVED = ['id', 'cwd', 'branch', 'model', 'busy', 'tokens', 'context', 'window', 'events', 'lastTool', 'startedAt', 'lastKind'];

@@ -4,11 +4,14 @@
 const pickTokens = (t = {}) => ({ total: t.total ?? 0, input: t.input ?? 0, output: t.output ?? 0, cacheRead: t.cacheRead ?? 0, cacheWrite: t.cacheWrite ?? 0, main: t.main ?? null, sub: t.sub ?? null, subCount: t.subCount ?? null });
 
 const iso = (ms) => (ms ? new Date(ms).toISOString() : null);
+// 비용(달러)은 소수 넷째 자리까지 반올림한다.
+const money = (x) => (typeof x === 'number' ? Math.round(x * 1e4) / 1e4 : (x ?? null));
+const usageOf = (u) => (u ? { ...u, ...('cost' in u ? { cost: money(u.cost) } : {}) } : u);
 
 export function toJson(data) {
   return {
     at: iso(data.at),
-    usage: data.usage ? { today: data.usage.today, last7days: data.usage.week, complete: data.usage.loading == null } : null,
+    usage: data.usage ? { today: usageOf(data.usage.today), last7days: usageOf(data.usage.week), complete: data.usage.loading == null } : null,
     sessions: data.sessions.map((s) => ({
       tool: s.tool,
       id: s.id,
@@ -27,13 +30,13 @@ export function toJson(data) {
       startedAt: iso(s.startedAt),
       updatedAt: iso(s.updatedAt),
       tokens: pickTokens(s.tokens),
-      cost: s.cost ?? null,
-      costNoCache: s.costNoCache ?? null,
+      cost: money(s.cost),
+      costNoCache: money(s.costNoCache),
       costUnknown: Boolean(s.costUnknown),
       context: { used: s.context?.used ?? 0, window: s.context?.window ?? null },
       // 변경 내용(diff)은 넣지 않고 파일별 통계만 넣는다. 줄 수는 편집마다 더한 누적값이다 (git diff 아님).
       files: (s.files ?? []).map((f) => ({ path: f.path, created: Boolean(f.created), edits: f.edits, writtenLines: f.add, deletedLines: f.del, updatedAt: iso(f.at), agents: f.agents ?? [] })),
-      members: (s.members ?? []).map((m) => ({ name: m.name, task: m.task ?? null, model: m.model ?? null, status: m.status, phase: m.phase?.text ?? null, tokens: m.tokens ?? 0, cost: m.cost ?? null })),
+      members: (s.members ?? []).map((m) => ({ name: m.name, task: m.task ?? null, model: m.model ?? null, status: m.status, phase: m.phase?.text ?? null, tokens: m.tokens ?? 0, cost: money(m.cost) })),
     })),
   };
 }
