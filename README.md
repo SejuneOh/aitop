@@ -29,8 +29,15 @@ aitop
 
 | 브랜치 | 하는 일 |
 |---|---|
-| 기능 브랜치 → `dev` | PR 마다 CI(테스트) 실행. 병합 후 로컬에서 `npm install -g .` 로 확인 |
-| `dev` → `main` | `package.json` 의 `version` 이 아직 배포되지 않은 값이면 GitHub Packages 에 배포하고 `v<버전>` 태그·릴리스 생성 |
+| 기능 브랜치 → `dev` | PR 마다 CI(단위 테스트 → e2e → 실행 확인, Node 20/22/24) 실행. 병합 후 로컬에서 `npm install -g .` 로 확인 |
+| `dev` → `main` | 단위 테스트와 e2e 를 통과하고 `package.json` 의 `version` 이 아직 배포되지 않은 값이면 GitHub Packages 에 배포하고 `v<버전>` 태그·릴리스 생성 |
+
+테스트
+
+```
+npm test            # 단위 테스트 (test/*.test.mjs)
+npm run test:e2e    # e2e: 실제 bin 실행(--json/--once/--help), 가상 터미널에서 키 입력·종료 확인 (Linux, util-linux script 필요)
+```
 
 버전 올리기는 `dev` 에서 `npm version patch|minor|major --no-git-tag-version` 후 커밋한다. 버전을 올리지 않은 `main` 병합은 테스트만 돌고 배포하지 않는다.
 
