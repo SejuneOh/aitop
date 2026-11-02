@@ -6,6 +6,12 @@ import { JsonlTail } from '../tail.mjs';
 import { loadCache, markDirty } from '../cache.mjs';
 import { findProcesses, isCodex } from '../procs.mjs';
 import { emptyTokens, pushEvent, describeTool, isNoisePrompt } from './common.mjs';
+import { addChange, mergeFiles } from './files.mjs';
+import { codexCost } from '../pricing.mjs';
+import { parsePatch, extractPatch, patchSucceeded } from './patch.mjs';
+
+// 지시 탭에 쓰는 지시 목록은 최근 것만 남긴다.
+const MAX_TURNS = 50;
 
 const ROOT = join(process.env.CODEX_HOME ?? join(homedir(), '.codex'), 'sessions');
 const RECENT_MS = 24 * 3600 * 1000;
@@ -46,10 +52,10 @@ function recentFiles() {
   return out.sort((a, b) => b.mtime - a.mtime);
 }
 
-const SAVED = ['id', 'cwd', 'branch', 'model', 'busy', 'tokens', 'context', 'window', 'events', 'lastTool', 'startedAt', 'lastKind'];
+const SAVED = ['id', 'cwd', 'branch', 'model', 'busy', 'tokens', 'context', 'window', 'events', 'lastTool', 'startedAt', 'lastKind', 'files', 'turns', 'turnCount'];
 
 function newState(path) {
-  const st = { tail: new JsonlTail(path), id: basename(path), cwd: null, branch: null, model: null, busy: false, tokens: emptyTokens(), context: 0, window: 0, events: [], lastTool: null, startedAt: null, pending: new Map(), lastKind: null };
+  const st = { tail: new JsonlTail(path), id: basename(path), cwd: null, branch: null, model: null, busy: false, tokens: emptyTokens(), context: 0, window: 0, events: [], lastTool: null, startedAt: null, pending: new Map(), lastKind: null, files: [], turns: [], turnCount: 0, patches: {} };
   const c = loadCache(path);
   if (c) {
     st.tail.offset = c.offset;
@@ -93,6 +99,7 @@ function applyLine(st, x) {
       case 'turn_aborted':
         st.busy = false;
         st.pending.clear();
+        st.patches = {};
         break;
       case 'token_count': {
         const t = p.info?.total_token_usage;
@@ -105,7 +112,13 @@ function applyLine(st, x) {
         break;
       }
       case 'user_message':
-        if (p.message && !isNoisePrompt(p.message)) pushEvent(st, x.timestamp, 'prompt', p.message);
+        if (p.message && !isNoisePrompt(p.message)) {
+          const e = pushEvent(st, x.timestamp, 'prompt', p.message);
+          if (e) {
+            st.turns.push({ n: ++st.turnCount, at: e.at, text: e.text.slice(0, 120) });
+            if (st.turns.length > MAX_TURNS) st.turns.shift();
+          }
+        }
         st.lastKind = 'prompt';
         break;
       case 'agent_message':
@@ -121,9 +134,21 @@ function applyLine(st, x) {
         args = JSON.parse(p.arguments ?? '{}');
       } catch {}
       what = describeTool(p.name, args);
-    } else if (p.type === 'custom_tool_call') what = describeTool(p.name, p.input ?? '');
-    else if (p.type === 'web_search_call') what = 'WebSearch';
+      // 예전 Codex 는 apply_patch 를 shell 명령 인자로 보냈다 (["apply_patch", "*** Begin Patch…"] 또는 bash -lc 안의 글).
+      const cmd = Array.isArray(args.command) ? args.command.join('\n') : String(args.command ?? '');
+      const text = /\bapply_patch\b/.test(cmd) ? extractPatch(cmd) : null;
+      if (p.call_id && text) st.patches[p.call_id] = { at: x.timestamp, text };
+    } else if (p.type === 'custom_tool_call') {
+      what = describeTool(p.name, p.input ?? '');
+      if (p.call_id && p.name === 'apply_patch') st.patches[p.call_id] = { at: x.timestamp, text: String(p.input ?? '') };
+    } else if (p.type === 'web_search_call') what = 'WebSearch';
     else if (p.type === 'function_call_output' || p.type === 'custom_tool_call_output') {
+      // 성공한 패치만 변경 파일에 넣는다.
+      const patch = st.patches[p.call_id];
+      if (patch) {
+        delete st.patches[p.call_id];
+        if (patchSucceeded(p.output)) for (const r of parsePatch(patch.text, st.cwd)) addChange(st.files, r, patch.at);
+      }
       st.pending.delete(p.call_id);
       st.lastKind = 'result';
     }
@@ -136,7 +161,7 @@ function applyLine(st, x) {
   }
 }
 
-export const _test = { newState, applyLine, phaseOf };
+export const _test = { newState, applyLine, phaseOf, snapshot };
 
 export function collectCodex({ showEnded, budget }) {
   const procs = findProcesses(isCodex);
@@ -167,6 +192,9 @@ export function collectCodex({ showEnded, budget }) {
     const pid = liveByPath.get(f.path);
     const live = pid !== undefined;
     if (!live && !showEnded) continue;
+    // 가격표에 없는 모델은 비용을 ? 로 보인다.
+    const cost = codexCost(st.model, st.tokens);
+    const used = st.tokens.total > 0;
     out.push({
       tool: 'codex',
       id: st.id,
@@ -180,7 +208,9 @@ export function collectCodex({ showEnded, budget }) {
       live,
       status: !live ? 'ended' : st.busy ? 'busy' : 'idle',
       phase: phaseOf(st, live),
-      cost: null,
+      cost: cost?.total ?? (used ? 0 : null),
+      costNoCache: cost?.noCache ?? null,
+      costUnknown: used && !cost,
       waitingFor: null,
       now: st.lastTool ?? st.events.at(-1)?.text ?? '',
       startedAt: st.startedAt,
@@ -188,6 +218,8 @@ export function collectCodex({ showEnded, budget }) {
       tokens: { ...st.tokens, sub: 0 },
       context: { used: st.context, window: st.window || 258_400 },
       events: st.events,
+      files: mergeFiles([{ agent: '메인', files: st.files }]),
+      turns: st.turns,
       members: [],
     });
   }

@@ -24,6 +24,8 @@ function toHunk(h, at) {
     oldLines: h.oldLines ?? 0,
     newStart: h.newStart ?? 0,
     newLines: h.newLines ?? 0,
+    // Codex apply_patch 는 줄 번호 없이 @@ 문맥만 있다.
+    ...(h.unnumbered ? { unnumbered: true, context: clean(h.context ?? '') } : {}),
     lines: lines.slice(0, FILE_LIMITS.hunkLines).map(clean),
     cut: Math.max(0, lines.length - FILE_LIMITS.hunkLines),
   };
@@ -34,6 +36,7 @@ const count = (lines, mark) => lines.reduce((a, l) => a + (typeof l === 'string'
 // toolUseResult 한 건을 { path, created, add, del, hunks } 로 바꾼다. 편집 결과가 아니면 null.
 export function readChange(r, at) {
   if (!r || typeof r !== 'object' || typeof r.filePath !== 'string') return null;
+  if (r.type === 'delete') return { path: r.filePath, created: false, deleted: true, add: 0, del: 0, hunks: [] };
   const patch = Array.isArray(r.structuredPatch) ? r.structuredPatch.filter((h) => h && Array.isArray(h.lines)) : null;
   if (r.type === 'create' && typeof r.content === 'string') {
     // 새 파일은 diff 조각 없이 본문만 남으므로 본문을 + 줄로 보인다.
@@ -54,6 +57,7 @@ export function addChange(files, r, timestamp) {
   let f = files.find((x) => x.path === c.path);
   if (!f) files.push((f = { path: c.path, created: c.created, edits: 0, add: 0, del: 0, at, hidden: isSecretFile(c.path), dropped: 0, hunks: [], log: [] }));
   f.edits++;
+  f.deleted = Boolean(c.deleted);
   f.add += c.add;
   f.del += c.del;
   f.at = Math.max(f.at, at);
@@ -95,6 +99,7 @@ export function mergeFiles(sources) {
       let m = byPath.get(f.path);
       if (!m) byPath.set(f.path, (m = { path: f.path, created: f.created, edits: 0, add: 0, del: 0, at: 0, hidden: f.hidden, dropped: 0, hunks: [], log: [], agents: [] }));
       m.created ||= f.created;
+      if (f.at >= m.at) m.deleted = Boolean(f.deleted);
       m.edits += f.edits;
       m.add += f.add;
       m.del += f.del;
