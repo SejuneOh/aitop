@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { relative, isAbsolute } from 'node:path';
 import { width, truncate, truncateLeft, pad, fmtTokens, fmtAgo, stripControl } from './text.mjs';
 import { turnTabs, currentTab, filesForTab } from './turns.mjs';
+import { describe } from './doctor.mjs';
 
 const NO_COLOR = Boolean(process.env.NO_COLOR);
 
@@ -207,8 +208,9 @@ function toolStrip(view, W) {
     const tok = list.reduce((a, s) => a + (s.tokens?.total ?? 0), 0);
     // 세션이 없는 도구는 이름만 흐리게 둔다.
     if (!live) {
-      // 종료 세션을 함께 볼 때는 그 도구의 누적 토큰을 흐리게 남긴다.
-      segs.push({ t: ` ${tool}`, fg: PALETTE.faint }, ...(view.showEnded && list.length ? [{ t: ` · ${fmtTokens(tok)}`, fg: PALETTE.faint }] : []), { t: '     ' });
+      // 종료 세션을 함께 볼 때는 그 도구의 누적 토큰을 흐리게 남긴다. 기록 폴더가 없으면 미설치로 보인다.
+      const missing = view.data.tools?.tools?.[tool]?.state === 'missing';
+      segs.push({ t: ` ${tool}`, fg: PALETTE.faint }, ...(missing ? [{ t: ' 미설치', fg: PALETTE.faint, italic: true }] : view.showEnded && list.length ? [{ t: ` · ${fmtTokens(tok)}`, fg: PALETTE.faint }] : []), { t: '     ' });
       continue;
     }
     segs.push({ t: '▍', fg: PALETTE.tools[tool] }, { t: tool, fg: PALETTE.tools[tool], bold: true }, { t: ` ${live}`, fg: PALETTE.text }, { t: ` · ${fmtTokens(tok)}`, fg: PALETTE.muted }, { t: '     ' });
@@ -621,6 +623,8 @@ function footer(view, W, matched, sel) {
         : [{ k: '←→', t: '지시' }, { k: '↑↓', t: '파일 선택' }, { k: '⏎', t: 'diff 보기' }, { k: 'Esc', t: '세션으로', keep: true }];
     return hintBar([...keys, ...tail], W, '⊘ 읽기전용');
   }
+  // 세션이 하나도 없으면 쓸 수 있는 키만 남긴다.
+  if (!view.filter && !view.data?.sessions?.length) return hintBar([{ k: 'e', t: view.showEnded ? '종료 숨김' : '종료 포함' }, ...tail], W, '⊘ 읽기전용');
   const search = view.filter
     ? { segs: [{ t: ` /${view.filter} `, fg: '#0b0e14', bg: PALETTE.brand, bold: true }, { t: ` ${matched}개 `, fg: PALETTE.muted }, keyChip('Esc'), keyLabel('검색 지우기')], keep: true }
     : { k: '/', t: '검색' };
@@ -634,6 +638,21 @@ function footer(view, W, matched, sel) {
     ...tail,
   ];
   return hintBar(items, W, '⊘ 읽기전용');
+}
+
+// 세션이 없을 때: aitop --doctor 와 같은 도구별 점검 줄과 종료 세션 보기 안내.
+const MARK_COLOR = { ok: PALETTE.busy, missing: PALETTE.alert, limited: PALETTE.muted };
+function emptyLines(view, W) {
+  const out = [line([{ t: view.showEnded ? '   지난 24시간 안에 AI 세션이 없습니다.' : '   실행 중인 AI 세션이 없습니다.', fg: PALETTE.muted, italic: true }], W), line([], W)];
+  const tools = Object.values(view.data.tools?.tools ?? {});
+  const pathW = Math.max(0, ...tools.map((t) => width(t.path)));
+  for (const t of tools) {
+    const d = describe(t, NOW);
+    out.push(line([{ t: `   ${d.mark} `, fg: MARK_COLOR[t.state], bold: true }, { t: pad(t.tool, 7), fg: PALETTE.tools[t.tool], bold: true }, { t: pad(d.state, 10), fg: PALETTE.text }, { t: pad(d.path, pathW + 2), fg: PALETTE.muted }, { t: d.detail, fg: PALETTE.faint }], W));
+    if (d.hint) out.push(line([{ t: `            → ${d.hint}`, fg: PALETTE.faint }], W));
+  }
+  if (!view.showEnded) out.push(line([], W), line([{ t: '   지난 24시간 세션 보기: ', fg: PALETTE.faint }, { t: 'e', fg: PALETTE.text, bold: true }, { t: ' 또는 ', fg: PALETTE.faint }, { t: 'aitop --all', fg: PALETTE.text }], W));
+  return out;
 }
 
 // 화면에서 비용이 가장 큰 세션 두 개 (0 보다 클 때만).
@@ -695,7 +714,7 @@ export function render(view, W, H) {
   const start = Math.min(Math.max(0, lastOfSel - shown + 1), Math.max(0, rows.length - shown), selRow);
   const visible = rows.slice(start, start + shown);
   const hot = topCost(sessions);
-  if (!sessions.length) table.push(line([{ t: view.filter ? `   '${view.filter}' 에 맞는 세션이 없습니다.` : '   실행 중인 AI 세션이 없습니다.', fg: PALETTE.muted, italic: true }], TW));
+  if (!sessions.length) table.push(...(view.filter ? [line([{ t: `   '${view.filter}' 에 맞는 세션이 없습니다.`, fg: PALETTE.muted, italic: true }], TW)] : emptyLines(view, TW)));
   for (const r of visible) table.push(r.m ? memberRow(r.m, r.last, c, TW, view.frame) : sessionRow(r.s, c, TW, r.s === sel, view.frame, hot));
   if (clipped) {
     const onScreen = new Set(visible.filter((r) => !r.m).map((r) => r.s));
