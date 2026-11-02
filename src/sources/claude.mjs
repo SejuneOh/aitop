@@ -142,6 +142,13 @@ function statusOf(entry, alive, mtime) {
   return Date.now() - mtime < 5000 ? 'busy' : 'idle';
 }
 
+// 응답 대기는 Claude Code 가 세션 파일에 적은 값이다. 그동안 서브에이전트가 돌고 있으면 함께 적어 구분되게 한다.
+function withRunningMembers(phase, status, members) {
+  if (status !== 'waiting') return phase;
+  const running = members.filter((m) => m.status !== 'done' && m.phase?.kind !== 'done').length;
+  return running ? { ...phase, text: `${phase.text} · 에이전트 ${running}개 실행 중` } : phase;
+}
+
 function phaseOf(status, entry, t) {
   switch (status) {
     case 'ended':
@@ -315,7 +322,7 @@ export function collectClaude({ showEnded, budget, selectedId }) {
       status,
       // Claude Code 가 상태를 남기지 않아 기록 수정 시각으로 추측한 경우
       statusGuessed: e.alive && !e.waitingFor && !['busy', 'shell', 'idle'].includes(e.status),
-      phase: phaseOf(status, e, t),
+      phase: withRunningMembers(phaseOf(status, e, t), status, members),
       waitingFor: e.waitingFor ?? null,
       now: t?.lastTool ?? t?.events.at(-1)?.text ?? '',
       startedAt: e.startedAt,
