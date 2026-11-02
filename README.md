@@ -79,6 +79,7 @@ Nerd Font 를 쓰지 않는 터미널에서는 탭 제목 아이콘이 빈 네�
 WezTerm 은 aitop 이 내보내는 user var(`aitop`, `aitop_waiting`, `aitop_unseen`)로 탭을 꾸밀 수 있다. `wezterm.lua` 예:
 
 ```lua
+local wezterm = require 'wezterm'
 wezterm.on('format-tab-title', function(tab)
   local v = tab.active_pane.user_vars
   if v.aitop == '1' then
@@ -87,6 +88,9 @@ wezterm.on('format-tab-title', function(tab)
   end
 end)
 ```
+
+- `format-tab-title` 핸들러는 하나만 쓰인다. 이미 있으면 그 안에 위 조건을 합친다.
+- tmux 안에서 돌리면 tmux 가 user var 를 전달하지 않아 탭 값이 오지 않는다.
 
 - 모르는 옵션을 주면 오류와 도움말을 보이고 2 로 끝난다.
 - `--once` 를 파이프나 파일로 받으면 색 코드를 넣지 않고(`FORCE_COLOR=1` 이면 넣음), 크기는 `COLUMNS`·`LINES` 를 따른다.

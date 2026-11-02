@@ -1,4 +1,4 @@
-// aitop 표식: 로고, 시작 화면 막대, 창·탭 아이콘, WezTerm 탭용 user var.
+// aitop 표식: 로고, 창·탭 아이콘, WezTerm 탭용 user var.
 // AITOP_ICONS 로 고른다.
 //   (없음)  로고 ⣠⣴⣾, 탭 아이콘은 Nerd Font 로봇(U+F06A9), WezTerm user var 를 내보낸다
 //   plain   Nerd 아이콘과 user var 를 끈다. 탭 아이콘은 로고의 마지막 막대 ⣾
@@ -10,12 +10,10 @@ export function iconMode(env = process.env) {
 }
 
 export function brand(mode = iconMode()) {
-  if (mode === 'ascii') return { mode, logo: '>_ai', frames: ['>   ', '>_  ', '>_a ', '>_ai'], tab: '', userVars: false };
+  if (mode === 'ascii') return { mode, logo: '>_ai', tab: '', userVars: false };
   return {
     mode,
     logo: '⣠⣴⣾',
-    // 막대가 하나씩 차오른다. 폭은 늘 3칸.
-    frames: ['⣀⣀⣀', '⣠⣀⣀', '⣠⣴⣀', '⣠⣴⣾'],
     tab: mode === 'plain' ? '⣾' : '\u{F06A9}',
     userVars: mode === 'full',
   };

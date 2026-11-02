@@ -23,12 +23,9 @@ test('모드별 로고, 탭 아이콘, user var', () => {
   assert.deepEqual([brand('ascii').logo, brand('ascii').tab, brand('ascii').userVars], ['>_ai', '', false]);
 });
 
-test('로고와 시작 화면 막대는 폭이 늘 같다 (표가 밀리지 않게)', () => {
-  for (const m of ['full', 'plain', 'ascii']) {
-    const b = brand(m);
-    for (const f of b.frames) assert.equal(width(f), width(b.logo), `${m} ${f}`);
-  }
-  assert.equal(width('⣠⣴⣾'), 3);
+test('로고 폭은 정해져 있다 (헤더 칩이 밀리지 않게)', () => {
+  assert.equal(width(brand('full').logo), 3);
+  assert.equal(width(brand('ascii').logo), 4);
 });
 
 test('창 제목은 아이콘을 맨 앞에 둔다', () => {
@@ -47,9 +44,7 @@ test('헤더 칩과 시작 화면에 로고가 보인다', () => {
   const strip = (x) => x.replace(/\x1b\[[0-9;]*m/g, '');
   const at = Date.now();
   assert.match(strip(render({ data: { sessions: [], usage: null, errors: [], at }, showDetail: true, frame: 0 }, 100, 10)[0]), /^ ⣠⣴⣾ aitop /);
-  const loading = (frame) => render({ data: null, frame }, 60, 5).map(strip).join('\n');
-  assert.match(loading(0), /⣀⣀⣀  세션 기록을 읽는 중/);
-  assert.match(loading(9), /⣠⣴⣾  세션 기록을 읽는 중/);
+  assert.match(render({ data: null, frame: 0 }, 60, 5).map(strip).join('\n'), /⣠⣴⣾  세션 기록을 읽는 중/);
 });
 
 test('AITOP_ICONS=ascii 면 도움말·헤더 로고가 >_ai', () => {

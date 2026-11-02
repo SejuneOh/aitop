@@ -15,9 +15,8 @@ export function render(view, W, H) {
   setNow(Date.now());
   const lines = [];
   if (!view.data) {
-    // 로고 막대가 하나씩 차오르는 동안 기록을 읽는다.
-    const bars = BRAND.frames[Math.floor((view.frame ?? 0) / 3) % BRAND.frames.length];
-    const msg = `${bars}  세션 기록을 읽는 중…`;
+    // 첫 수집은 동기로 돌아 이 화면이 다시 그려지지 않으므로 움직이지 않는 로고를 둔다.
+    const msg = `${BRAND.logo}  세션 기록을 읽는 중…`;
     for (let i = 0; i < H; i++) lines.push(i === Math.floor(H / 2) ? line([{ t: ' '.repeat(Math.max(0, Math.floor((W - width(msg)) / 2))) }, { t: msg, fg: PALETTE.brand }], W) : line([], W));
     return lines;
   }
