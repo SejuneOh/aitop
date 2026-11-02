@@ -52,7 +52,7 @@ const { collect } = await import('../src/collect.mjs');
 const { render, filterSessions } = await import('../src/ui.mjs');
 const { flushCache } = await import('../src/cache.mjs');
 const { toJson } = await import('../src/json.mjs');
-const { createAttention, updateAttention, markSeen, nextAttention } = await import('../src/attention.mjs');
+const { createAttention, updateAttention, markSeen, nextAttention, windowTitle, newlyWaiting } = await import('../src/attention.mjs');
 const { onKey, fixFocus } = await import('../src/keys.mjs');
 
 const view = { data: null, selectedId: null, showDetail: true, showEnded: args.has('--all'), frame: 0, filter: '', searching: false, help: false, focus: null, filePath: null, diffScroll: 0, tab: 'now' };
@@ -62,6 +62,9 @@ const TICK_BUDGET = 24 * 1024 * 1024;
 
 const attention = createAttention();
 let tools = null;
+// --bell: 첫 갱신에서 이미 응답 대기인 세션에는 울리지 않는다.
+const waitingSeen = new Set();
+let bellReady = false;
 
 function refresh() {
   const data = collect({ showEnded: view.showEnded, selectedId: view.selectedId, budgetBytes: once ? Infinity : TICK_BUDGET });
@@ -76,6 +79,10 @@ function refresh() {
   if (!tools || Date.now() - tools.at > 30_000) tools = { at: Date.now(), result: checkTools() };
   data.tools = tools.result;
   view.data = data;
+  if (!once && args.has('--bell')) {
+    if (newlyWaiting(waitingSeen, data.sessions) && bellReady) process.stdout.write('\x07');
+    bellReady = true;
+  }
   if (view.filter) keepSelectionVisible();
   fixFocus(view);
 }
@@ -101,23 +108,31 @@ if (once) {
 const out = process.stdout;
 const stdin = process.stdin;
 let last = '';
+let lastTitle = '';
 
 function draw() {
   const frame = render(view, out.columns, out.rows).join('\r\n');
+  const title = windowTitle(view.data?.sessions ?? []);
+  if (title !== lastTitle) {
+    lastTitle = title;
+    out.write(`\x1b]0;${title}\x07`);
+  }
   if (frame === last) return;
   last = frame;
   out.write('\x1b[?2026h\x1b[H' + frame + '\x1b[?2026l');
 }
 
 function enterScreen() {
-  out.write('\x1b[?1049h\x1b[?25l\x1b[2J');
+  // 창 제목을 저장해 두었다가 끝낼 때 되돌린다 (지원하지 않는 터미널은 무시한다).
+  out.write('\x1b[22;0t\x1b[?1049h\x1b[?25l\x1b[2J');
+  lastTitle = '';
   stdin.setRawMode(true);
   stdin.resume();
   last = '';
 }
 
 function leaveScreen() {
-  out.write('\x1b[0m\x1b[?25h\x1b[?1049l');
+  out.write('\x1b[0m\x1b[?25h\x1b[?1049l\x1b[23;0t');
   if (stdin.isTTY) stdin.setRawMode(false);
 }
 
