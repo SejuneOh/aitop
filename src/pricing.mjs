@@ -68,3 +68,21 @@ export function claudeCost(model, u) {
   const cache = (u.cache_read_input_tokens ?? 0) * (p.cacheRead ?? p.input * 0.1) * m + write5m * input * 1.25 + write1h * input * 2;
   return { total: (base + cache) / 1e6, noCache: base / 1e6 };
 }
+
+// Codex(OpenAI) API 정가 기준 환산 비용 (USD / 100만 토큰). Claude 와 같이 "API 로 썼다면" 기준이다.
+// 출처: 2026-11 가격 비교 사이트(pricepertoken.com, computeprices.com)의 OpenAI 정가. 추정값이라 README 에 적어 둔다.
+const OPENAI_PRICES = {
+  'gpt-5.3-codex': { input: 1.75, cacheRead: 0.175, output: 14 },
+  'gpt-5.1-codex-mini': { input: 0.25, cacheRead: 0.025, output: 2 },
+  'gpt-5.1-codex': { input: 1.25, cacheRead: 0.125, output: 10 },
+  'codex-mini': { input: 1.5, cacheRead: 0.375, output: 6 },
+  'gpt-4o-mini': { input: 0.15, cacheRead: 0.075, output: 0.6 },
+};
+
+// Codex 세션 누적 토큰(tokens: input 은 캐시 제외, cacheRead, output)의 환산 비용. 가격표에 없는 모델이면 null.
+export function codexCost(model, t) {
+  const p = lookup(OPENAI_PRICES, model);
+  if (!p || !t) return null;
+  const base = (t.input ?? 0) * p.input + (t.output ?? 0) * p.output;
+  return { total: (base + (t.cacheRead ?? 0) * p.cacheRead) / 1e6, noCache: base / 1e6 };
+}

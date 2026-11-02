@@ -7,6 +7,7 @@ import { loadCache, markDirty } from '../cache.mjs';
 import { findProcesses, isCodex } from '../procs.mjs';
 import { emptyTokens, pushEvent, describeTool, isNoisePrompt } from './common.mjs';
 import { addChange, mergeFiles } from './files.mjs';
+import { codexCost } from '../pricing.mjs';
 import { parsePatch, extractPatch, patchSucceeded } from './patch.mjs';
 
 // 지시 탭에 쓰는 지시 목록은 최근 것만 남긴다.
@@ -189,6 +190,9 @@ export function collectCodex({ showEnded, budget }) {
     const pid = liveByPath.get(f.path);
     const live = pid !== undefined;
     if (!live && !showEnded) continue;
+    // 가격표에 없는 모델은 비용을 ? 로 보인다.
+    const cost = codexCost(st.model, st.tokens);
+    const used = st.tokens.total > 0;
     out.push({
       tool: 'codex',
       id: st.id,
@@ -202,7 +206,9 @@ export function collectCodex({ showEnded, budget }) {
       live,
       status: !live ? 'ended' : st.busy ? 'busy' : 'idle',
       phase: phaseOf(st, live),
-      cost: null,
+      cost: cost?.total ?? (used ? 0 : null),
+      costNoCache: cost?.noCache ?? null,
+      costUnknown: used && !cost,
       waitingFor: null,
       now: st.lastTool ?? st.events.at(-1)?.text ?? '',
       startedAt: st.startedAt,
