@@ -1,23 +1,42 @@
 #!/usr/bin/env node
-import { collect } from '../src/collect.mjs';
-import { render, filterSessions } from '../src/ui.mjs';
-import { flushCache } from '../src/cache.mjs';
-import { toJson } from '../src/json.mjs';
-import { createAttention, updateAttention, markSeen, nextAttention } from '../src/attention.mjs';
-import { onKey, fixFocus } from '../src/keys.mjs';
+import { readFileSync } from 'node:fs';
 
-const args = new Set(process.argv.slice(2));
-if (args.has('-h') || args.has('--help')) {
-  console.log(`aitop - 터미널에서 Claude Code · Codex · Gemini 세션을 실시간으로 본다
+const HELP = `aitop - 터미널에서 Claude Code · Codex · Gemini 세션을 실시간으로 본다
 
   aitop            실시간 화면
   aitop --once     현재 상태를 한 번 출력하고 끝낸다
   aitop --all      종료된 세션(24시간 이내)도 함께 본다
   aitop --json     세션 목록과 사용량 합계를 JSON 으로 한 번 출력한다 (--all 과 함께 쓸 수 있다)
+  aitop --version  설치된 버전을 보인다
 
-  키: / 검색 · ↑↓/jk 선택 · n 다음 볼 세션 · f 변경 파일 · d 상세 · e 종료 세션 토글 · Esc 뒤로 · ? 도움말 · q 나가기`);
+  키: / 검색 · ↑↓/jk 선택 · n 다음 볼 세션 · f 변경 파일 · d 상세 · e 종료 세션 토글 · Esc 뒤로 · ? 도움말 · q 나가기`;
+const KNOWN = new Set(['-h', '--help', '-v', '--version', '--once', '--all', '--json']);
+
+const args = new Set(process.argv.slice(2));
+const unknown = [...args].filter((a) => !KNOWN.has(a));
+if (unknown.length) {
+  process.stderr.write(`aitop: 모르는 옵션 ${unknown.join(' ')}\n\n${HELP}\n`);
+  process.exit(2);
+}
+if (args.has('-h') || args.has('--help')) {
+  console.log(HELP);
   process.exit(0);
 }
+if (args.has('-v') || args.has('--version')) {
+  console.log(JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version);
+  process.exit(0);
+}
+
+// 파이프나 파일로 받을 때는 색 코드를 넣지 않는다. 화면 모듈이 불러올 때 NO_COLOR 를 읽으므로 그 전에 정한다.
+const forced = process.env.FORCE_COLOR != null && !['', '0', 'false'].includes(process.env.FORCE_COLOR);
+if (!process.stdout.isTTY && !forced && !process.env.NO_COLOR) process.env.NO_COLOR = '1';
+
+const { collect } = await import('../src/collect.mjs');
+const { render, filterSessions } = await import('../src/ui.mjs');
+const { flushCache } = await import('../src/cache.mjs');
+const { toJson } = await import('../src/json.mjs');
+const { createAttention, updateAttention, markSeen, nextAttention } = await import('../src/attention.mjs');
+const { onKey, fixFocus } = await import('../src/keys.mjs');
 
 const view = { data: null, selectedId: null, showDetail: true, showEnded: args.has('--all'), frame: 0, filter: '', searching: false, help: false, focus: null, filePath: null, diffScroll: 0, tab: 'now' };
 const once = args.has('--once') || args.has('--json') || !process.stdout.isTTY;
@@ -52,13 +71,14 @@ function select(id) {
 if (once) {
   refresh();
   flushCache();
-  if (args.has('--json')) {
-    process.stdout.write(JSON.stringify(toJson(view.data), null, 2) + '\n');
-    process.exit(0);
-  }
-  const W = process.stdout.columns || 140;
-  const H = process.stdout.rows || 40;
-  process.stdout.write(render(view, W, H).join('\n') + '\n');
+  const size = (v) => (Number(v) > 0 ? Math.floor(Number(v)) : 0);
+  const W = process.stdout.columns || size(process.env.COLUMNS) || 140;
+  const H = process.stdout.rows || size(process.env.LINES) || 40;
+  // 받는 쪽(| head 등)이 먼저 닫으면 조용히 끝낸다.
+  process.stdout.on('error', (err) => process.exit(err.code === 'EPIPE' ? 0 : 1));
+  const text = args.has('--json') ? JSON.stringify(toJson(view.data), null, 2) : render(view, W, H).join('\n');
+  // 파이프로 넘길 때 64KB 넘는 출력이 잘리지 않도록, 다 쓴 뒤에 끝낸다.
+  await new Promise((resolve) => process.stdout.write(text + '\n', resolve));
   process.exit(0);
 }
 

@@ -15,7 +15,7 @@ export const CACHE_DIR = DIR;
 const dirty = new Map();
 let cleaned = false;
 
-// 다른 버전의 aitop 이 같이 쓰고 있을 수 있으니, 일주일 넘게 손대지 않은 예전 캐시 폴더만 지운다.
+// 다른 버전의 aitop 이 같이 쓰고 있을 수 있으니, 같은 형식의 다른 폴더는 일주일 넘게 손대지 않았을 때만 지운다.
 const STALE_DIR_MS = 7 * 24 * 3600 * 1000;
 
 function removeOldDirs() {
@@ -24,7 +24,9 @@ function removeOldDirs() {
     for (const d of readdirSync(ROOT)) {
       if (d === NAME) continue;
       const p = join(ROOT, d);
-      if (Date.now() - statSync(p).mtimeMs > STALE_DIR_MS) rmSync(p, { recursive: true, force: true });
+      // 이 버전보다 낮은 형식(v2, v6-… 등)은 더 이상 어떤 버전도 쓰지 않으므로 바로 지운다.
+      const ver = Number(/^v(\d+)(?:-|$)/.exec(d)?.[1]);
+      if (ver < VERSION || Date.now() - statSync(p).mtimeMs > STALE_DIR_MS) rmSync(p, { recursive: true, force: true });
     }
   } catch {}
 }
