@@ -118,6 +118,7 @@ export function onKey(view, key, act) {
   } else if (isUp(key)) act.move(-1);
   else if (isDown(key)) act.move(1);
   else if (key === 'n') act.next();
+  else if (key === 'c') view.costMode = view.costMode === 'net' ? 'api' : 'net';
   else if (key === 'd') {
     view.showDetail = !view.showDetail;
     if (!view.showDetail) view.focus = null;

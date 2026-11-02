@@ -25,7 +25,8 @@ export const HELP = [
   ['열', null],
   ['STATUS', '지금 단계. 큰 기록을 처음 읽는 동안은 기록 읽는 중 N%'],
   ['TOKENS', '세션 누적 토큰 (서브에이전트 포함, 캐시 읽기 포함)'],
-  ['COST', 'Claude API 정가로 환산한 비용. ? 는 가격표에 없는 모델 포함'],
+  ['COST', 'API 정가로 환산한 비용 (Codex 는 OpenAI 정가 추정). ? 는 가격표에 없는 모델 포함'],
+  ['c', '비용 기준 전환: API 환산(캐시 포함, 기본) ↔ 캐시 제외(입력·출력만). 표·헤더·상세가 같이 바뀐다'],
   ['CONTEXT', '마지막 요청의 컨텍스트 사용률 (모델별 창 크기 기준)'],
   ['IDLE', '마지막 활동 후 지난 시간. 작업 중이면 now'],
   ['오늘 / 7일', '헤더 오른쪽. 최근 7일 Claude 기록의 날짜별 합계. API 정가 환산이며 구독 요금제의 청구액이 아니다'],
@@ -84,6 +85,7 @@ export function footer(view, W, matched, sel) {
     ...(sel?.files?.length ? [{ k: 'f', t: '파일' }] : []),
     { k: 'd', t: view.showDetail ? '상세 닫기' : '상세 열기' },
     { k: 'e', t: view.showEnded ? '종료 숨김' : '종료 포함' },
+    { k: 'c', t: view.costMode === 'net' ? '비용 API 환산' : '비용 캐시 제외' },
     ...tail,
   ];
   return hintBar(items, W, '⊘ 읽기전용');

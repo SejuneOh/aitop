@@ -52,9 +52,9 @@ export function render(view, W, H) {
   const lastOfSel = selRow + (sel?.members.length ?? 0);
   const start = Math.min(Math.max(0, lastOfSel - shown + 1), Math.max(0, rows.length - shown), selRow);
   const visible = rows.slice(start, start + shown);
-  const hot = topCost(visible.filter((r) => !r.m).map((r) => r.s));
+  const hot = topCost(visible.filter((r) => !r.m).map((r) => r.s), view.costMode);
   if (!sessions.length) table.push(...(view.filter ? [line([{ t: `   '${view.filter}' 에 맞는 세션이 없습니다.`, fg: PALETTE.muted, italic: true }], TW)] : emptyLines(view, TW)));
-  for (const r of visible) table.push(r.m ? memberRow(r.m, r.last, c, TW, view.frame) : sessionRow(r.s, c, TW, r.s === sel, view.frame, hot));
+  for (const r of visible) table.push(r.m ? memberRow(r.m, r.last, c, TW, view.frame, r.s.model, view.costMode) : sessionRow(r.s, c, TW, r.s === sel, view.frame, hot, view.costMode));
   if (clipped) {
     const onScreen = new Set(visible.filter((r) => !r.m).map((r) => r.s));
     const hidden = sessions.filter((s) => !onScreen.has(s));

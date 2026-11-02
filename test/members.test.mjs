@@ -26,7 +26,8 @@ test('팀원 행은 하는 일로 구분되고, 첫 응답 전에는 시작 중�
   const rowA = lines.find((l) => l.includes('CTO 검토'));
   const rowB = lines.find((l) => l.includes('디자인 검토'));
   assert.match(rowA, /haiku-5-5/);
-  assert.match(rowA, /CTO 검토 · general-purpo/);
+  assert.match(rowA, /CTO 검토 /);
+  assert.doesNotMatch(rowA, /general-purpose/, 'general-purpose 타입 꼬리는 붙이지 않는다');
   assert.match(rowA, /도구 실행 · Read/);
   assert.match(rowB, /시작 중/);
   assert.doesNotMatch(rowB, /\$0\.00| 0 | - /);
