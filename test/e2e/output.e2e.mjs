@@ -47,6 +47,16 @@ test('FORCE_COLOR 이면 파이프로 받아도 색을 넣는다', () => {
   assert.match(run(['--once'], { FORCE_COLOR: '1' }).stdout, /\x1b\[/);
 });
 
+test('FORCE_COLOR=0 은 색을 넣지 않는다', () => {
+  assert.doesNotMatch(run(['--once'], { FORCE_COLOR: '0' }).stdout, /\x1b\[/);
+});
+
+test('받는 쪽이 먼저 닫아도 오류 없이 0 으로 끝난다', () => {
+  const r = spawnSync('bash', ['-c', `"${process.execPath}" "${BIN}" --json | head -c 10 >/dev/null; exit \${PIPESTATUS[0]}`], { env: process.env, encoding: 'utf8', timeout: 20_000 });
+  assert.equal(r.status, 0, r.stderr);
+  assert.doesNotMatch(r.stderr, /EPIPE/);
+});
+
 test('--version 은 package.json 버전을 보인다', () => {
   const { version } = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
   const r = run(['--version']);

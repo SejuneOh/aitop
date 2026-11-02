@@ -28,7 +28,8 @@ if (args.has('-v') || args.has('--version')) {
 }
 
 // 파이프나 파일로 받을 때는 색 코드를 넣지 않는다. 화면 모듈이 불러올 때 NO_COLOR 를 읽으므로 그 전에 정한다.
-if (!process.stdout.isTTY && !process.env.FORCE_COLOR && !process.env.NO_COLOR) process.env.NO_COLOR = '1';
+const forced = process.env.FORCE_COLOR != null && !['', '0', 'false'].includes(process.env.FORCE_COLOR);
+if (!process.stdout.isTTY && !forced && !process.env.NO_COLOR) process.env.NO_COLOR = '1';
 
 const { collect } = await import('../src/collect.mjs');
 const { render, filterSessions } = await import('../src/ui.mjs');
@@ -70,8 +71,11 @@ function select(id) {
 if (once) {
   refresh();
   flushCache();
-  const W = process.stdout.columns || Number(process.env.COLUMNS) || 140;
-  const H = process.stdout.rows || Number(process.env.LINES) || 40;
+  const size = (v) => (Number(v) > 0 ? Math.floor(Number(v)) : 0);
+  const W = process.stdout.columns || size(process.env.COLUMNS) || 140;
+  const H = process.stdout.rows || size(process.env.LINES) || 40;
+  // 받는 쪽(| head 등)이 먼저 닫으면 조용히 끝낸다.
+  process.stdout.on('error', (err) => process.exit(err.code === 'EPIPE' ? 0 : 1));
   const text = args.has('--json') ? JSON.stringify(toJson(view.data), null, 2) : render(view, W, H).join('\n');
   // 파이프로 넘길 때 64KB 넘는 출력이 잘리지 않도록, 다 쓴 뒤에 끝낸다.
   await new Promise((resolve) => process.stdout.write(text + '\n', resolve));

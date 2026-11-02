@@ -22,23 +22,27 @@ function dayDirs() {
   return dirs;
 }
 
-// 날짜 폴더를 매초 다시 훑지 않도록 목록을 잠깐 재사용한다.
+// 날짜 폴더를 매초 다시 훑지 않도록 파일 이름 목록만 잠깐 재사용한다. 수정 시각은 매번 확인한다.
 const LIST_TTL_MS = 5000;
-let listed = { at: 0, files: [] };
+let listed = { at: 0, paths: [] };
 
 function recentFiles() {
-  if (Date.now() - listed.at < LIST_TTL_MS) return listed.files;
-  const out = [];
-  for (const dir of dayDirs()) {
-    for (const n of readdirSync(dir)) {
-      if (!n.endsWith('.jsonl')) continue;
-      const p = join(dir, n);
-      const m = statSync(p).mtimeMs;
-      if (Date.now() - m < RECENT_MS) out.push({ path: p, mtime: m });
-    }
+  if (Date.now() - listed.at >= LIST_TTL_MS) {
+    const paths = [];
+    for (const dir of dayDirs()) for (const n of readdirSync(dir)) if (n.endsWith('.jsonl')) paths.push(join(dir, n));
+    listed = { at: Date.now(), paths };
   }
-  listed = { at: Date.now(), files: out.sort((a, b) => b.mtime - a.mtime) };
-  return listed.files;
+  const out = [];
+  for (const p of listed.paths) {
+    let m;
+    try {
+      m = statSync(p).mtimeMs;
+    } catch {
+      continue;
+    }
+    if (Date.now() - m < RECENT_MS) out.push({ path: p, mtime: m });
+  }
+  return out.sort((a, b) => b.mtime - a.mtime);
 }
 
 const SAVED = ['id', 'cwd', 'branch', 'model', 'busy', 'tokens', 'context', 'window', 'events', 'lastTool', 'startedAt', 'lastKind'];
