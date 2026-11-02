@@ -44,24 +44,25 @@ export function glyph(s, frame) {
   return { t: SPIN[frame % SPIN.length], fg: PHASE_COLOR[k] ?? PALETTE.busy, bold: true };
 }
 
-// 막대 끝은 1/8 칸 단위로 그려 작은 변화도 보이게 한다.
-export const EIGHTHS = '▏▎▍▌▋▊▉';
+// 막대는 같은 높이의 얇은 블록(▃)으로 그리고 채운 칸과 빈칸은 색으로 나눈다. 칸 높이가 모두 같아 끝이 튀어나오지 않는다.
+// 색이 없으면 빈칸을 가장 얇은 ▁ 로 그려 모양으로 구분한다.
+export const BAR = { fill: '▃', empty: NO_COLOR ? '▁' : '▃' };
+
+// 0% 보다 크면 최소 1칸, 100% 가 아니면 마지막 칸은 비워 둔다.
+export function filledCells(r, cells) {
+  if (r <= 0) return 0;
+  if (r >= 1) return cells;
+  return Math.min(cells - 1, Math.max(1, Math.round(r * cells)));
+}
 
 export function gauge(used, total, cells) {
-  if (!total) return [{ t: '─'.repeat(cells) + '     ', fg: PALETTE.faint }];
+  if (!total) return [{ t: BAR.empty.repeat(cells) + '     ', fg: PALETTE.line }];
   const r = Math.min(1, used / total);
-  const exact = r * cells;
-  let full = Math.floor(exact);
-  let part = Math.round((exact - full) * 8);
-  if (part === 8) {
-    full++;
-    part = 0;
-  }
-  const tip = part && full < cells ? EIGHTHS[part - 1] : '';
+  const full = filledCells(r, cells);
   const color = r >= 0.85 ? PALETTE.alert : r >= 0.6 ? PALETTE.waiting : PALETTE.busy;
   return [
-    { t: '━'.repeat(full) + tip, fg: color },
-    { t: '─'.repeat(cells - full - (tip ? 1 : 0)), fg: PALETTE.faint },
+    { t: BAR.fill.repeat(full), fg: color },
+    { t: BAR.empty.repeat(cells - full), fg: PALETTE.line },
     // 85% 이상은 색이 없어도 보이게 ! 를 붙인다.
     { t: pad(`${r >= 0.85 ? '!' : ''}${Math.round(r * 100)}%`, 5, 'right'), fg: r >= 0.85 ? PALETTE.alert : PALETTE.muted },
   ];
