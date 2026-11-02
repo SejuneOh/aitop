@@ -10,7 +10,7 @@ test('도움말은 단축키·상태 기호·열 설명을 보이고 하단에 ?
   const lines = render(view({ help: true }), 120, 40).map(strip);
   const all = lines.join('\n');
   for (const word of ['검색', '다음 볼 세션', '응답 대기', '완료 · 확인 전', 'IDLE', 'CONTEXT']) assert.ok(all.includes(word), word);
-  assert.match(lines.at(-1), /\?\s+도움말/);
+  assert.match(lines.at(-1), /\?\s+도움/);
 });
 
 test('작은 화면에서도 도움말이 화면 크기를 넘지 않는다', () => {

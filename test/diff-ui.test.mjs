@@ -34,7 +34,7 @@ test('고친 파일이 있으면 위쪽에 목록, 아래쪽에 최근 활동을
   const fileLine = lines.findIndex((l) => l.includes('── 변경 파일'));
   const actLine = lines.findIndex((l) => l.includes('── 최근 활동'));
   assert.ok(actLine > fileLine);
-  assert.match(lines.at(-1), /f\s+변경 파일/);
+  assert.match(lines.at(-1), /f\s+파일/);
 });
 
 test('목록과 diff 는 어느 화면 크기에서도 패널을 넘지 않는다', () => {

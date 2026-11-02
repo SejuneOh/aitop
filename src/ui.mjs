@@ -141,35 +141,49 @@ function header(view, W) {
   const unseen = count((s) => s.unseen);
   const idle = count((s) => (s.status === 'idle' || s.status === 'live') && !s.unseen);
   const B = PALETTE.bar;
-  const left = [
+  // 0 인 상태는 흐리게 둔다. 좁으면 이름을 줄인다.
+  const stat = (glyph, n, long, short, color, bold, narrow) => [
+    { t: `  ${glyph} `, fg: n ? color : PALETTE.faint, bg: B },
+    { t: `${n} ${narrow ? short : long}`, fg: n ? (bold ? color : PALETTE.text) : PALETTE.faint, bg: B, bold: bold && n > 0 },
+  ];
+  const leftOf = (narrow) => [
     { t: ' ◆ aitop ', fg: '#0b0e14', bg: PALETTE.brand, bold: true },
     { t: '  ', bg: B },
     { t: `${live.length} live`, fg: PALETTE.text, bg: B, bold: true },
-    { t: '   ⠿ ', fg: working ? PALETTE.busy : PALETTE.faint, bg: B },
-    { t: `${working} 작업 중`, fg: working ? PALETTE.text : PALETTE.faint, bg: B },
-    { t: '   ◆ ', fg: waiting ? PALETTE.waiting : PALETTE.faint, bg: B },
-    { t: `${waiting} 응답 대기`, fg: waiting ? PALETTE.waiting : PALETTE.faint, bg: B, bold: waiting > 0 },
-    { t: '   ● ', fg: unseen ? PALETTE.busy : PALETTE.faint, bg: B },
-    { t: `${unseen} 확인 전`, fg: unseen ? PALETTE.busy : PALETTE.faint, bg: B, bold: unseen > 0 },
-    { t: '   ○ ', fg: idle ? PALETTE.idle : PALETTE.faint, bg: B },
-    { t: `${idle} 대기`, fg: idle ? PALETTE.text : PALETTE.faint, bg: B },
+    ...stat('⠿', working, '작업 중', '작업', PALETTE.busy, false, narrow),
+    ...stat('◆', waiting, '응답 대기', '응답', PALETTE.waiting, true, narrow),
+    ...stat('●', unseen, '확인 전', '확인', PALETTE.busy, true, narrow),
+    ...stat('○', idle, '대기', '대기', PALETTE.idle, false, narrow),
   ];
-  // 오늘·최근 7일 사용량 (Claude, API 환산). 처음 집계 중에는 진행률을 보인다.
+  // 오른쪽: 오늘 $52 132M · 7일 $644 1.2B · 12:42:05. 폭이 모자라면 토큰 수, 7일, 오늘 순으로 뺀다.
   const u = view.data.usage;
-  const period = (label, p) => [
+  const dot = { t: ' · ', fg: PALETTE.faint, bg: B };
+  const period = (label, p, tok) => [
     { t: `${label} `, fg: PALETTE.muted, bg: B },
     { t: money(p.cost, p.unknown), fg: PALETTE.money, bg: B, bold: true },
-    { t: ` ${fmtTokens(p.tokens)}`, fg: PALETTE.muted, bg: B },
+    ...(tok ? [{ t: ` ${fmtTokens(p.tokens)}`, fg: PALETTE.faint, bg: B }] : []),
   ];
+  const week = (tok) => (u.loading != null ? [{ t: `7일 집계 중 ${Math.floor(u.loading * 100)}%`, fg: PALETTE.faint, bg: B }] : period('7일', u.week, tok));
   // 장부를 못 읽었으면 화면에 있는 세션(모든 도구)의 누적 토큰이라도 보인다.
-  const fallback = [{ t: `Σ ${fmtTokens(view.data.sessions.reduce((a, s) => a + (s.tokens?.total ?? 0), 0))} tok`, fg: PALETTE.muted, bg: B }];
-  const right = [
-    ...(u ? [...period('오늘', u.today), { t: '   ', bg: B }, ...(u.loading != null ? [{ t: `7일 집계 중 ${Math.floor(u.loading * 100)}%`, fg: PALETTE.faint, bg: B }] : period('7일', u.week))] : fallback),
-    { t: `   ${clock(view.data.at)} `, fg: PALETTE.muted, bg: B },
-  ];
-  const lw = left.reduce((a, s) => a + width(s.t), 0);
-  const rw = right.reduce((a, s) => a + width(s.t), 0);
-  return line([...left, { t: ' '.repeat(Math.max(1, W - lw - rw)), bg: B }, ...right], W, B);
+  const fallback = [{ t: `Σ ${fmtTokens(sessions.reduce((a, s) => a + (s.tokens?.total ?? 0), 0))} tok`, fg: PALETTE.muted, bg: B }];
+  const clockSeg = { t: clock(view.data.at), fg: PALETTE.muted, bg: B };
+  const rights = u
+    ? [
+        [...period('오늘', u.today, true), dot, ...week(true), dot, clockSeg],
+        [...period('오늘', u.today, false), dot, ...week(false), dot, clockSeg],
+        [...period('오늘', u.today, false), dot, clockSeg],
+        [clockSeg],
+      ]
+    : [[...fallback, dot, clockSeg], [clockSeg]];
+  const wOf = (segs) => segs.reduce((a, x) => a + width(x.t), 0);
+  for (const narrow of [false, true]) {
+    const left = leftOf(narrow);
+    for (const r of rights) {
+      const right = [...r, { t: ' ', bg: B }];
+      if (wOf(left) + wOf(right) + 2 <= W) return line([...left, { t: ' '.repeat(W - wOf(left) - wOf(right)), bg: B }, ...right], W, B);
+    }
+  }
+  return line(leftOf(true), W, B);
 }
 
 function toolStrip(view, W) {
@@ -178,11 +192,12 @@ function toolStrip(view, W) {
     const list = view.data.sessions.filter((s) => s.tool === tool);
     const live = list.filter((s) => s.live).length;
     const tok = list.reduce((a, s) => a + (s.tokens?.total ?? 0), 0);
-    const on = live > 0;
-    segs.push({ t: '▍', fg: on ? PALETTE.tools[tool] : PALETTE.faint });
-    segs.push({ t: tool, fg: on ? PALETTE.tools[tool] : PALETTE.faint, bold: on });
-    segs.push({ t: `  ${live} 세션 · ${fmtTokens(tok)}`, fg: on ? PALETTE.muted : PALETTE.faint });
-    segs.push({ t: '     ' });
+    // 세션이 없는 도구는 이름만 흐리게 둔다.
+    if (!live) {
+      segs.push({ t: ` ${tool}`, fg: PALETTE.faint }, { t: '     ' });
+      continue;
+    }
+    segs.push({ t: '▍', fg: PALETTE.tools[tool] }, { t: tool, fg: PALETTE.tools[tool], bold: true }, { t: ` ${live}`, fg: PALETTE.text }, { t: ` · ${fmtTokens(tok)}`, fg: PALETTE.muted }, { t: '     ' });
   }
   if (view.showEnded) segs.push({ t: '종료된 세션 포함 (24시간)', fg: PALETTE.waiting, italic: true });
   return line(segs, W);
@@ -514,22 +529,51 @@ function help(W, H) {
   return box('도움말  ·  ? 또는 Esc 로 닫기', W, H, left, [], W - 8, PALETTE.brand);
 }
 
+// 키 칩. 색이 없으면 [f] 처럼 괄호로 보인다.
+const keyChip = (k) => (NO_COLOR ? { t: `[${k}]` } : { t: ` ${k} `, fg: '#0b0e14', bg: PALETTE.muted, bold: true });
+const keyLabel = (t) => ({ t: ` ${t}   `, fg: PALETTE.muted });
+
+// items: { k, t, keep } 또는 { segs, keep }. 폭이 모자라면 keep 이 아닌 항목을 오른쪽부터 뺀다.
+function hintBar(items, W, right = '') {
+  const segsOf = (list) => [{ t: ' ' }, ...list.flatMap((i) => i.segs ?? [keyChip(i.k), keyLabel(i.t)])];
+  const wOf = (list) => segsOf(list).reduce((a, x) => a + width(x.t), 0);
+  const list = [...items];
+  while (wOf(list) > W && list.some((i) => !i.keep)) list.splice(list.findLastIndex((i) => !i.keep), 1);
+  const segs = segsOf(list);
+  const used = wOf(list);
+  if (right && W - used >= width(right) + 1) segs.push({ t: ' '.repeat(W - used - width(right)) }, { t: right, fg: PALETTE.faint });
+  return line(segs, W);
+}
+
 function footer(view, W, matched, sel) {
-  const key = (k) => ({ t: ` ${k} `, fg: '#0b0e14', bg: PALETTE.muted, bold: true });
-  const lab = (t) => ({ t: ` ${t}   `, fg: PALETTE.muted });
+  const tail = [
+    { k: '?', t: '도움', keep: true },
+    { k: 'q', t: '나가기', keep: true },
+  ];
   if (view.searching) {
-    return line([{ t: ' / ', fg: '#0b0e14', bg: PALETTE.brand, bold: true }, { t: ` ${view.filter ?? ''}`, fg: PALETTE.text, bold: true }, { t: '▏', fg: PALETTE.brand }, { t: `  ${matched}개   `, fg: PALETTE.muted }, key('⏎'), lab('적용'), key('Esc'), lab('지우기')], W);
+    const input = NO_COLOR ? [{ t: '[/]' }] : [{ t: ' / ', fg: '#0b0e14', bg: PALETTE.brand, bold: true }];
+    return hintBar([{ segs: [...input, { t: ` ${view.filter ?? ''}`, fg: PALETTE.text, bold: true }, { t: '▏', fg: PALETTE.brand }, { t: `  ${matched}개   `, fg: PALETTE.muted }], keep: true }, { k: '⏎', t: '적용', keep: true }, { k: 'Esc', t: '지우기', keep: true }], W);
   }
   if (view.focus) {
-    const keys = view.focus === 'diff' ? [key('↑↓'), lab('스크롤'), key('space'), lab('페이지'), key('[ ]'), lab('이전·다음 파일'), key('Esc'), lab('파일 목록으로')] : [key('←→'), lab('지시'), key('↑↓'), lab('파일 선택'), key('⏎'), lab('diff 보기'), key('Esc'), lab('세션으로')];
-    return line([{ t: ' ' }, ...keys, key('?'), lab('도움말'), key('q'), lab('나가기')], W);
+    const keys =
+      view.focus === 'diff'
+        ? [{ k: '↑↓', t: '스크롤' }, { k: 'space', t: '페이지' }, { k: '[ ]', t: '이전·다음 파일' }, { k: 'Esc', t: '파일 목록으로', keep: true }]
+        : [{ k: '←→', t: '지시' }, { k: '↑↓', t: '파일 선택' }, { k: '⏎', t: 'diff 보기' }, { k: 'Esc', t: '세션으로', keep: true }];
+    return hintBar([...keys, ...tail], W, '⊘ 읽기전용');
   }
-  const search = view.filter ? [{ t: ` /${view.filter} `, fg: '#0b0e14', bg: PALETTE.brand, bold: true }, { t: ` ${matched}개 `, fg: PALETTE.muted }, key('Esc'), lab('검색 지우기')] : [key('/'), lab('검색')];
-  const segs = [{ t: ' ' }, ...search, key('↑↓'), lab('선택'), key('n'), lab('다음 볼 세션'), ...(sel?.files?.length ? [key('f'), lab('변경 파일')] : []), key('d'), lab(view.showDetail ? '상세 닫기' : '상세 열기'), key('e'), lab(view.showEnded ? '종료 숨기기' : '종료 포함'), key('?'), lab('도움말'), key('q'), lab('나가기')];
-  const right = '읽기 전용 · 네트워크 없음 ';
-  const used = segs.reduce((a, s) => a + width(s.t), 0);
-  segs.push({ t: ' '.repeat(Math.max(1, W - used - width(right))) }, { t: right, fg: PALETTE.faint });
-  return line(segs, W);
+  const search = view.filter
+    ? { segs: [{ t: ` /${view.filter} `, fg: '#0b0e14', bg: PALETTE.brand, bold: true }, { t: ` ${matched}개 `, fg: PALETTE.muted }, keyChip('Esc'), keyLabel('검색 지우기')], keep: true }
+    : { k: '/', t: '검색' };
+  const items = [
+    search,
+    { k: '↑↓', t: '선택' },
+    { k: 'n', t: '다음' },
+    ...(sel?.files?.length ? [{ k: 'f', t: '파일' }] : []),
+    { k: 'd', t: view.showDetail ? '상세 닫기' : '상세 열기' },
+    { k: 'e', t: view.showEnded ? '종료 숨김' : '종료 포함' },
+    ...tail,
+  ];
+  return hintBar(items, W, '⊘ 읽기전용');
 }
 
 export function render(view, W, H) {
