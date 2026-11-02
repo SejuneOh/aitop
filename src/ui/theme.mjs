@@ -40,7 +40,7 @@ const DARK = {
 const LIGHT = {
   text: '#1f2328',
   muted: '#57606a',
-  faint: '#8c959f',
+  faint: '#6e7781',
   line: '#d0d7de',
   rowSel: '#eaeef2',
   rowFocus: '#dbe7f7',
@@ -52,7 +52,7 @@ const LIGHT = {
   tool: '#0550ae',
   team: '#8250df',
   idle: '#57606a',
-  ended: '#8c959f',
+  ended: '#6e7781',
   alert: '#cf222e',
   money: '#9a6700',
   addBg: '#dafbe1',

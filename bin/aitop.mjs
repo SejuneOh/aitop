@@ -24,11 +24,15 @@ const rest = [];
 for (let i = 0; i < argv.length; i++) {
   const m = /^--theme(?:=(.*))?$/.exec(argv[i]);
   if (!m) rest.push(argv[i]);
-  else theme = m[1] ?? argv[++i] ?? '';
+  else theme = m[1] ?? (argv[i + 1]?.startsWith('-') ? '' : (argv[++i] ?? ''));
+}
+if (theme === '') {
+  process.stderr.write(`aitop: --theme 값이 없습니다 (light 또는 dark)\n`);
+  process.exit(2);
 }
 const args = new Set(rest);
 const unknown = [...args].filter((a) => !KNOWN.has(a));
-if (theme != null && !THEMES.includes(theme)) unknown.push(`--theme ${theme}`.trim());
+if (theme != null && !THEMES.includes(theme)) unknown.push(`--theme ${theme}`);
 if (unknown.length) {
   process.stderr.write(`aitop: 모르는 옵션 ${unknown.join(' ')}\n\n${HELP}\n`);
   process.exit(2);

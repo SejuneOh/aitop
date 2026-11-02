@@ -54,7 +54,7 @@ aitop --json     세션 목록과 오늘·7일 사용량을 JSON 으로 한 번 
                  0.6.1 부터 비용(cost 등)은 소수 넷째 자리까지 반올림
 aitop --version  설치된 버전
 aitop --doctor   도구별 연결 점검 (기록 폴더, 기록 수, 마지막 기록, 실행 수). --json 과 함께 가능
-aitop --theme light|dark  밝은 배경 / 어두운 배경 색. 없으면 COLORFGBG 로 고르고, 모르면 어두운 배경
+aitop --theme light|dark  밝은 배경 / 어두운 배경 색. 없으면 AITOP_THEME 환경변수, 그다음 COLORFGBG 로 고르고, 모르면 어두운 배경
 ```
 
 동료 PC 에서 Codex · Gemini 가 잡히는지 볼 때는 `aitop --doctor` 결과를 그대로 붙여 넣으면 된다. 기록 내용은 나오지 않는다 (Gemini 는 형식 확인용 JSON 키 이름만).

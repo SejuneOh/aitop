@@ -36,6 +36,7 @@ test('밝은 팔레트는 흰 배경과 배경 띠 위에서 읽힌다', () => {
     for (const k of ['muted', 'busy', 'waiting', 'tool', 'alert', 'money', 'brand']) assert.ok(contrast(P[k], bg) >= 3, `${k} on ${bg}: ${contrast(P[k], bg).toFixed(2)}`);
     for (const [k, c] of Object.entries(P.tools)) assert.ok(contrast(c, bg) >= 3, `${k} on ${bg}`);
   }
+  for (const bg of ['#ffffff', P.bar]) for (const k of ['faint', 'ended']) assert.ok(contrast(P[k], bg) >= 4, `${k} on ${bg}: ${contrast(P[k], bg).toFixed(2)}`);
   assert.ok(contrast(P.chipText, P.brand) >= 4.5, '로고 칩');
   assert.ok(contrast(P.chipText, P.muted) >= 4.5, '키 칩');
   assert.ok(contrast(P.text, P.addBg) >= 7 && contrast(P.text, P.delBg) >= 7, 'diff 배경');
@@ -44,6 +45,13 @@ test('밝은 팔레트는 흰 배경과 배경 띠 위에서 읽힌다', () => {
 test('두 팔레트는 같은 색 이름을 가진다', () => {
   assert.deepEqual(Object.keys(PALETTES.light).sort(), Object.keys(PALETTES.dark).sort());
   assert.deepEqual(Object.keys(PALETTES.light.tools).sort(), Object.keys(PALETTES.dark.tools).sort());
+});
+
+test('▲ 가 붙어도 큰 금액과 ? 가 잘리지 않는다', () => {
+  const at = Date.now();
+  const s = { tool: 'claude', id: 'big', name: 'big', cwd: '/w', status: 'idle', live: true, phase: { kind: 'idle', text: '대기' }, updatedAt: at, tokens: { total: 1000 }, cost: 12345, costUnknown: true, context: {}, members: [], events: [] };
+  const row = render({ data: { sessions: [s], usage: null, errors: [], at }, selectedId: 'big', showDetail: false, frame: 0 }, 140, 20).map((l) => l.replace(/\x1b\[[0-9;]*m/g, '')).find((l) => l.includes(' big '));
+  assert.match(row, /▲\$12,345\?/);
 });
 
 test('비용 상위에는 ▲, 컨텍스트 85% 이상에는 ! 를 붙인다 (색 없이도 보이게)', () => {
@@ -67,4 +75,9 @@ test('aitop --theme light 는 밝은 팔레트로 그리고, 모르는 값은 �
   const bad = run('--theme', 'blue');
   assert.equal(bad.status, 2);
   assert.match(bad.stderr, /모르는 옵션 --theme blue/);
+  for (const args of [['--theme'], ['--theme='], ['--theme', '--all']]) {
+    const r = run(...args);
+    assert.equal(r.status, 2, args.join(' '));
+    assert.match(r.stderr, /--theme 값이 없습니다/);
+  }
 });
