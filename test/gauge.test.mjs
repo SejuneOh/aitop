@@ -23,6 +23,8 @@ test('막대는 늘 같은 폭이고 채움과 빈칸 모두 ▃ (색으로 구�
   assert.equal(BAR.fill, '▃');
   assert.match(gauge(900, 1000, 11).at(-1).t, /!90%/);
   assert.equal(width(gauge(0, 0, 11)[0].t), 16, '컨텍스트 크기를 모를 때도 같은 폭');
+  for (const used of [NaN, -5, 5000]) assert.equal(width(gauge(used, 1000, 11).map((x) => x.t).join('')), 16, `used=${used}`);
+  assert.match(gauge(-5, 1000, 11).at(-1).t, / 0%/);
 });
 
 test('NO_COLOR 에서는 빈칸을 ▁ 로 그려 모양으로 구분한다', () => {

@@ -56,13 +56,13 @@ export function filledCells(r, cells) {
 }
 
 export function gauge(used, total, cells) {
-  if (!total) return [{ t: BAR.empty.repeat(cells) + '     ', fg: PALETTE.line }];
-  const r = Math.min(1, used / total);
+  if (!total) return [{ t: BAR.empty.repeat(cells) + '     ', fg: PALETTE.faint }];
+  const r = Math.min(1, Math.max(0, used / total || 0));
   const full = filledCells(r, cells);
   const color = r >= 0.85 ? PALETTE.alert : r >= 0.6 ? PALETTE.waiting : PALETTE.busy;
   return [
     { t: BAR.fill.repeat(full), fg: color },
-    { t: BAR.empty.repeat(cells - full), fg: PALETTE.line },
+    { t: BAR.empty.repeat(cells - full), fg: PALETTE.faint },
     // 85% 이상은 색이 없어도 보이게 ! 를 붙인다.
     { t: pad(`${r >= 0.85 ? '!' : ''}${Math.round(r * 100)}%`, 5, 'right'), fg: r >= 0.85 ? PALETTE.alert : PALETTE.muted },
   ];
