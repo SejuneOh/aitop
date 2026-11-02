@@ -58,6 +58,9 @@ function line(segs, W, bg) {
   return out + style({ bg }) + ' '.repeat(Math.max(0, W - used)) + RESET;
 }
 
+// 조각들의 화면 폭 합계.
+const segsWidth = (segs) => segs.reduce((a, x) => a + width(x.t ?? ''), 0);
+
 function clip(segs, max) {
   const out = [];
   let used = 0;
@@ -185,12 +188,12 @@ function header(view, W) {
         [clockSeg],
       ]
     : [[...fallback, dot, clockSeg], [clockSeg]];
-  const wOf = (segs) => segs.reduce((a, x) => a + width(x.t), 0);
-  for (const narrow of [false, true]) {
-    const left = leftOf(narrow);
-    for (const r of rights) {
+  // 사용량 숫자가 상태 이름보다 중요하므로, 이름을 먼저 줄이고 그래도 모자라면 오른쪽을 줄인다.
+  for (const r of rights) {
+    for (const narrow of [false, true]) {
+      const left = leftOf(narrow);
       const right = [...r, { t: ' ', bg: B }];
-      if (wOf(left) + wOf(right) + 2 <= W) return line([...left, { t: ' '.repeat(W - wOf(left) - wOf(right)), bg: B }, ...right], W, B);
+      if (segsWidth(left) + segsWidth(right) + 2 <= W) return line([...left, { t: ' '.repeat(W - segsWidth(left) - segsWidth(right)), bg: B }, ...right], W, B);
     }
   }
   return line(leftOf(true), W, B);
@@ -204,7 +207,8 @@ function toolStrip(view, W) {
     const tok = list.reduce((a, s) => a + (s.tokens?.total ?? 0), 0);
     // 세션이 없는 도구는 이름만 흐리게 둔다.
     if (!live) {
-      segs.push({ t: ` ${tool}`, fg: PALETTE.faint }, { t: '     ' });
+      // 종료 세션을 함께 볼 때는 그 도구의 누적 토큰을 흐리게 남긴다.
+      segs.push({ t: ` ${tool}`, fg: PALETTE.faint }, ...(view.showEnded && list.length ? [{ t: ` · ${fmtTokens(tok)}`, fg: PALETTE.faint }] : []), { t: '     ' });
       continue;
     }
     segs.push({ t: '▍', fg: PALETTE.tools[tool] }, { t: tool, fg: PALETTE.tools[tool], bold: true }, { t: ` ${live}`, fg: PALETTE.text }, { t: ` · ${fmtTokens(tok)}`, fg: PALETTE.muted }, { t: '     ' });
@@ -305,7 +309,7 @@ function box(title, W, H, leftLines, rightLines, leftW, accent, focused = false)
   const fg = focused ? PALETTE.brand : PALETTE.line;
   const out = [];
   const titleSegs = typeof title === 'string' ? [{ t: title, fg: accent, bold: true }] : title;
-  const titleW = titleSegs.reduce((a, x) => a + width(x.t), 0) + 2;
+  const titleW = segsWidth(titleSegs) + 2;
   out.push(line([{ t: e.tl + e.h, fg }, { t: ' ' }, ...titleSegs, { t: ' ' }, { t: e.h.repeat(Math.max(0, W - 3 - titleW)) + e.tr, fg }], W));
   // '│ ' + 왼쪽 + ' │ ' + 오른쪽 + ' │' = W
   const rightW = W - leftW - 7;
@@ -424,18 +428,35 @@ function activity(s, n, dim = false) {
 // 이전 지시 탭은 3개까지만 보이고 나머지는 … +N 으로 접는다. 고른 탭이 들어가게 창을 옮긴다.
 const TAB_WINDOW = 3;
 
+// 숨긴 탭 수는 숨긴 쪽에 따로 붙인다: 이번 지시  … +2  T4  T3  ‹T2›  … +1  전체.
+// 폭이 모자라면 가운데 탭 → … +N → '이번 지시' 이름 → 고르지 않은 양끝 탭 순으로 줄여, 고른 탭은 늘 남긴다.
 function tabsLine(tabs, tab, w) {
-  const seg = (t) => (t.key === tab.key ? { t: `‹${t.label}›`, fg: PALETTE.text, bg: PALETTE.rowSel, bold: true } : { t: t.label, fg: PALETTE.muted });
+  const seg = (t, short) => (t.key === tab.key ? { t: `‹${t.label}›`, fg: PALETTE.text, bg: PALETTE.rowSel, bold: true } : { t: short && t.key === 'now' ? '이번' : t.label, fg: PALETTE.muted });
   const turns = tabs.slice(1, -1);
   const at = turns.findIndex((t) => t.key === tab.key);
   const start = at >= TAB_WINDOW ? at - TAB_WINDOW + 1 : 0;
-  const keep = [tabs[0], ...turns.slice(start, start + TAB_WINDOW), tabs.at(-1)];
-  const more = () => turns.length - (keep.length - 2);
-  const barW = () => keep.reduce((a, t) => a + width(seg(t).t) + 2, 0) + (more() ? 6 : 0);
-  for (let i = keep.length - 2; i > 0 && barW() > w; i--) if (keep[i].key !== tab.key) keep.splice(i, 1);
-  const segs = keep.flatMap((t) => [seg(t), { t: '  ' }]);
-  if (more()) segs.splice(segs.length - 2, 0, { t: `… +${more()}`, fg: PALETTE.faint }, { t: '  ' });
-  return segs;
+  let shown = turns.slice(start, start + TAB_WINDOW);
+  let ends = [tabs[0], tabs.at(-1)];
+  let marks = true;
+  let short = false;
+  const build = () => {
+    const first = turns.indexOf(shown[0]);
+    const before = shown.length ? first : 0;
+    const after = turns.length - before - shown.length;
+    const parts = [];
+    if (ends.includes(tabs[0])) parts.push(seg(tabs[0], short));
+    if (marks && before) parts.push({ t: `… +${before}`, fg: PALETTE.faint });
+    parts.push(...shown.map((t) => seg(t, short)));
+    if (marks && after) parts.push({ t: `… +${after}`, fg: PALETTE.faint });
+    if (ends.includes(tabs.at(-1))) parts.push(seg(tabs.at(-1), short));
+    return parts.flatMap((x) => [x, { t: '  ' }]);
+  };
+  const fits = () => segsWidth(build()) <= w;
+  while (!fits() && shown.some((t) => t.key !== tab.key)) shown.splice(shown.findIndex((t) => t.key !== tab.key), 1);
+  if (!fits()) marks = false;
+  if (!fits()) short = true;
+  for (const end of [tabs[0], tabs.at(-1)]) if (!fits() && end.key !== tab.key) ends = ends.filter((t) => t !== end);
+  return build();
 }
 
 // 탭 아래 설명: 지시면 시각과 첫 줄, 전체면 편집 수.
@@ -516,7 +537,8 @@ function detail(s, W, H, frame, view) {
   if (t.subCount) more([{ t: `메인 ${fmtTokens(t.main)} + 서브 ${t.subCount}개 ${fmtTokens(t.sub)}`, fg: PALETTE.faint }]);
   more([{ t: `입력 ${fmtTokens(t.input)} · 출력 ${fmtTokens(t.output)}`, fg: PALETTE.faint }]);
   more([{ t: `캐시 읽기 ${fmtTokens(t.cacheRead)} · 쓰기 ${fmtTokens(t.cacheWrite)}`, fg: PALETTE.faint }]);
-  if (s.cost != null || s.context?.window) section('비용');
+  if (s.cost != null) section('비용');
+  else if (s.context?.window) section('컨텍스트');
   if (s.cost != null) {
     L.push([INDENT, { t: pad('API 환산', 9), fg: PALETTE.muted }, { t: money(s.cost, s.costUnknown), fg: PALETTE.money, bold: true }]);
     more([{ t: `캐시 제외 ${money(s.costNoCache, s.costUnknown)}`, fg: PALETTE.faint }, ...(s.costUnknown ? [{ t: '  ? 가격표에 없는 모델 포함', fg: PALETTE.waiting }] : [])]);
@@ -574,7 +596,7 @@ const keyLabel = (t) => ({ t: ` ${t}   `, fg: PALETTE.muted });
 // items: { k, t, keep } 또는 { segs, keep }. 폭이 모자라면 keep 이 아닌 항목을 오른쪽부터 뺀다.
 function hintBar(items, W, right = '') {
   const segsOf = (list) => [{ t: ' ' }, ...list.flatMap((i) => i.segs ?? [keyChip(i.k), keyLabel(i.t)])];
-  const wOf = (list) => segsOf(list).reduce((a, x) => a + width(x.t), 0);
+  const wOf = (list) => segsWidth(segsOf(list));
   const list = [...items];
   while (wOf(list) > W && list.some((i) => !i.keep)) list.splice(list.findLastIndex((i) => !i.keep), 1);
   const segs = segsOf(list);
@@ -622,10 +644,11 @@ function topCost(sessions) {
 
 // 표를 둥근 상자로 감싼다. 안쪽 줄은 이미 폭 W-4 로 그려져 있다.
 function tableBox(inner, W, count) {
+  const e = EDGE.normal;
   const ln = (t) => style({ fg: PALETTE.line }) + t + RESET;
   const title = ` 세션 ${count} `;
-  const top = line([{ t: '╭─', fg: PALETTE.line }, { t: title, fg: PALETTE.muted }, { t: '─'.repeat(Math.max(0, W - 3 - width(title))) + '╮', fg: PALETTE.line }], W);
-  return [top, ...inner.map((l) => ln('│ ') + l + ln(' │')), line([{ t: '╰' + '─'.repeat(W - 2) + '╯', fg: PALETTE.line }], W)];
+  const top = line([{ t: e.tl + e.h, fg: PALETTE.line }, { t: title, fg: PALETTE.muted }, { t: e.h.repeat(Math.max(0, W - 3 - width(title))) + e.tr, fg: PALETTE.line }], W);
+  return [top, ...inner.map((l) => ln(`${e.v} `) + l + ln(` ${e.v}`)), line([{ t: e.bl + e.h.repeat(W - 2) + e.br, fg: PALETTE.line }], W)];
 }
 
 // 이 높이 이상이면 세션 표를 상자로 감싼다 (상자 테두리에 두 줄이 든다).

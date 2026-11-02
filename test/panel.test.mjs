@@ -38,7 +38,17 @@ test('패널 제목은 세션 이름과 도구·모델, 왼쪽 칸은 가로줄 
 test('이전 지시 탭은 3개까지 보이고 나머지는 … +N 으로 접으며, 고른 탭은 늘 보인다', () => {
   const tabLine = (v) => render(v, 140, 30).map(strip).find((l) => l.includes('‹'));
   assert.match(tabLine(view()), /‹이번 지시›  T7  T6  T5  … \+4  전체/);
-  assert.match(tabLine(view({ tab: 2 })), /이번 지시  T4  T3  ‹T2›  … \+4  전체/);
+  // 숨긴 탭 수는 숨긴 쪽에 따로 붙는다.
+  assert.match(tabLine(view({ tab: 2 })), /이번 지시  … \+3  T4  T3  ‹T2›  … \+1  전체/);
+});
+
+test('좁은 화면에서도 고른 탭은 잘리지 않는다', () => {
+  for (const W of [60, 70, 80]) {
+    for (const tab of ['all', 2, 'now']) {
+      const line = render(view({ tab }), W, 24).map(strip).find((l) => l.includes('‹'));
+      assert.match(line, /‹(전체|T2|이번 지시)›/, `${W} ${tab}`);
+    }
+  }
 });
 
 test('컨텍스트 막대 끝을 1/8 칸 단위로 그린다', () => {

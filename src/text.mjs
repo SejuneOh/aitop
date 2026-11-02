@@ -58,11 +58,23 @@ export function cleanLine(s) {
 export function plainText(s) {
   const out = [];
   for (const raw of String(s ?? '').split('\n')) {
-    let l = raw.trim().replace(/^(>\s*)+/, '').replace(/^#{1,6}\s+/, '');
-    if (!l || /^```/.test(l) || /^([-*_]\s*){3,}$/.test(l) || /^\|?\s*:?-{2,}/.test(l)) continue;
+    // 인용 표시는 '> ' 처럼 뒤에 공백이 올 때만 지운다 ('>= 3' 은 그대로).
+    let l = raw.trim().replace(/^(>(\s|$))+/, '').replace(/^#{1,6}\s+/, '');
+    if (!l || /^```/.test(l) || /^([-*_]\s*){3,}$/.test(l)) continue;
+    // 표 구분 줄: | : - 와 공백만 있는 줄.
+    if (/^[|:\-\s]+$/.test(l) && l.includes('|') && l.includes('--')) continue;
     if (/^(\*\*|__)[^*_]+(\*\*|__):?$/.test(l) && /:(\*\*|__)?$/.test(l)) continue;
+    // 코드 조각은 떼어 두었다가 기호 정리가 끝난 뒤 백틱만 빼고 되돌린다.
+    // __dirname, __main__ 처럼 밑줄 두 개로 시작하는 이름도 같은 방법으로 지킨다.
+    const code = [];
+    l = l.replace(/`([^`]*)`/g, (_, c) => `\u0000${code.push(c) - 1}\u0000`).replace(/(?<![\w/])__\w+(?:__)?(?![\w/])/g, (c) => `\u0000${code.push(c) - 1}\u0000`);
     if (l.startsWith('|')) l = l.replace(/^\||\|$/g, '').split('|').map((c) => c.trim()).filter(Boolean).join(' · ');
-    l = l.replace(/\*\*(.+?)\*\*/g, '$1').replace(/__(.+?)__/g, '$1').replace(/`([^`]*)`/g, '$1').trim();
+    // 강조 기호는 앞뒤가 글자·/·* 에 붙지 않았을 때만 지운다 (__init__, src/**/x, 2**10 은 그대로).
+    // 밑줄 두 개로 감싼 한 단어(__main__, __dirname)는 이름으로 보고 그대로 둔다.
+    l = l
+      .replace(/(^|[^\w/*])\*\*(?=\S)(.+?)(?<=\S)\*\*(?![\w/*])/g, '$1$2')
+      .replace(/(^|[^\w/])__(?=\S)(.+?)(?<=\S)__(?![\w/])/g, (m, pre, inner) => (/^\w+$/.test(inner) ? m : pre + inner));
+    l = l.replace(/\u0000(\d+)\u0000/g, (_, i) => code[i]).trim();
     if (l) out.push(l);
   }
   return out.join(' ');

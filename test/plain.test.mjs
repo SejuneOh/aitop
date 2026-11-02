@@ -14,6 +14,14 @@ test('머리·굵게·백틱·표를 평문으로 바꾼다', () => {
   assert.equal(plainText('```js\nconst a = 1;\n```'), 'const a = 1;');
 });
 
+test('코드 이름·경로·수식·플래그 줄은 망가뜨리지 않는다', () => {
+  assert.equal(plainText('`__init__.py` 와 __dirname, __main__ 수정'), '__init__.py 와 __dirname, __main__ 수정');
+  assert.equal(plainText('a__b__c 와 src/**/*.mjs 와 2**10'), 'a__b__c 와 src/**/*.mjs 와 2**10');
+  assert.equal(plainText('--verbose 옵션을 켭니다\n-- 주석'), '--verbose 옵션을 켭니다 -- 주석');
+  assert.equal(plainText('>= 3 이면 통과\n> 인용'), '>= 3 이면 통과 인용');
+  assert.equal(plainText('`**bold**` 는 코드라 그대로'), '**bold** 는 코드라 그대로');
+});
+
 test('이름에 흔한 밑줄·별표 하나는 그대로 둔다', () => {
   assert.equal(plainText('snake_case 와 *.mjs 와 a*b'), 'snake_case 와 *.mjs 와 a*b');
   assert.equal(plainText('**주의:** 실제로 확인함'), '주의: 실제로 확인함');
