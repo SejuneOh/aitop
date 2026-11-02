@@ -75,12 +75,13 @@ export class UsageTracker {
     const tokensOf = (o) => n(o, 'input_tokens') + n(o, 'output_tokens') + n(o, 'cache_read_input_tokens') + n(o, 'cache_creation_input_tokens');
     const prev = this.recent.get(m.id);
     const cost = claudeCost(m.model, u);
-    const day = (this.days[dayKey(Date.parse(x.timestamp) || Date.now())] ??= { tokens: 0, cost: 0, unknown: false });
+    const day = (this.days[dayKey(Date.parse(x.timestamp) || Date.now())] ??= { tokens: 0, cost: 0, costNoCache: 0, unknown: false });
     day.tokens += tokensOf(u) - tokensOf(prev?.u);
     day.cost += (cost?.total ?? 0) - (prev?.cost ?? 0);
+    day.costNoCache = (day.costNoCache ?? 0) + (cost?.noCache ?? 0) - (prev?.costNoCache ?? 0);
     if (!cost && tokensOf(u) > 0) day.unknown = true;
     this.recent.delete(m.id);
-    this.recent.set(m.id, { u, cost: cost?.total ?? 0 });
+    this.recent.set(m.id, { u, cost: cost?.total ?? 0, costNoCache: cost?.noCache ?? 0 });
     if (this.recent.size > RECENT_IDS) this.recent.delete(this.recent.keys().next().value);
   }
 }
@@ -139,13 +140,14 @@ export function collectLedger({ budget, now = Date.now() } = {}) {
     size += t.tail.size;
   }
   const sum = (keys) => {
-    const out = { tokens: 0, cost: 0, unknown: false };
+    const out = { tokens: 0, cost: 0, costNoCache: 0, unknown: false };
     for (const t of trackers.values())
       for (const k of keys) {
         const d = t.days[k];
         if (!d) continue;
         out.tokens += d.tokens;
         out.cost += d.cost;
+        out.costNoCache += d.costNoCache ?? 0;
         out.unknown ||= d.unknown;
       }
     return out;

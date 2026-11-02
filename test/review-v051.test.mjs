@@ -22,9 +22,10 @@ test('좁은 화면의 diff 머리에서도 파일 위치는 남는다', () => {
   assert.match(out, /── ‹ .*f7\.mjs.* 1\/1 ─/);
 });
 
-test('고친 파일이 없는 지시에서는 다른 지시로 가는 방법을 알린다', () => {
+test('고친 파일이 없는 지시에서는 한 줄로 접고, 목록에 들어가면 다른 지시로 가는 방법을 알린다', () => {
   const later = { ...s, turns: [...turns, { n: 9, at: min(100), text: '질문만' }] };
-  assert.match(screen(120, 30, {}, later), /이 지시에서는 고친 파일 없음 +f 다음 ←\/→ 다른 지시/);
+  assert.match(screen(120, 30, {}, later), /── 변경 파일 · 이번 지시 0개 ─+ 전체 \d+개 · f ─/);
+  assert.doesNotMatch(screen(120, 30, {}, later), /이 지시에서는 고친 파일 없음/);
   assert.match(screen(120, 30, { focus: 'files', filePath: null }, later), /이 지시에서는 고친 파일 없음 +←\/→ 다른 지시/);
 });
 

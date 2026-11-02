@@ -127,6 +127,7 @@ function readMembers(transcript, parent, budget) {
       now: t.lastTool,
       tokens: t.tokens.total,
       cost: t.cost,
+      costNoCache: t.costNoCache,
       costUnknown: t.costUnknown,
       startedAt: t.events[0]?.at,
     });
