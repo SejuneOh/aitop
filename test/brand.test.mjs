@@ -40,15 +40,15 @@ test('WezTerm user var 는 base64 값으로 내보내고, null 이면 지운다'
   assert.equal(userVarsSeq(null), '\x1b]1337;SetUserVar=aitop=\x07\x1b]1337;SetUserVar=aitop_waiting=\x07\x1b]1337;SetUserVar=aitop_unseen=\x07');
 });
 
-test('헤더 칩과 시작 화면에 로고가 보인다', () => {
+test('헤더 칩은 로고만, 시작 화면에도 로고가 보인다', () => {
   const strip = (x) => x.replace(/\x1b\[[0-9;]*m/g, '');
   const at = Date.now();
-  assert.match(strip(render({ data: { sessions: [], usage: null, errors: [], at }, showDetail: true, frame: 0 }, 100, 10)[0]), /^ ⣠⣴⣾ aitop /);
+  assert.match(strip(render({ data: { sessions: [], usage: null, errors: [], at }, showDetail: true, frame: 0 }, 100, 10)[0]), /^ ⣠⣴⣾  +\d+ live/);
   assert.match(render({ data: null, frame: 0 }, 60, 5).map(strip).join('\n'), /⣠⣴⣾  세션 기록을 읽는 중/);
 });
 
-test('AITOP_ICONS=ascii 면 도움말·헤더 로고가 >_ai', () => {
+test('AITOP_ICONS=ascii 면 도움말은 >_ai aitop, 헤더 칩은 >_ai', () => {
   const run = (...a) => spawnSync(process.execPath, [BIN, ...a], { env: { ...process.env, AITOP_ICONS: 'ascii', NO_COLOR: '1' }, encoding: 'utf8' });
   assert.match(run('--help').stdout, /^>_ai aitop - /);
-  assert.match(run('--once').stdout, /^ >_ai aitop /);
+  assert.match(run('--once').stdout, /^ >_ai  +\d+ live/);
 });
