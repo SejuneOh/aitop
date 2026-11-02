@@ -52,7 +52,7 @@ test('f → ←/→ → Enter → Esc 로 오가고, Esc 로는 끝나지 않고
     await press(KEY.esc);
     await waitFor(/파일 선택/, 'diff 에서 Esc');
     await press(KEY.esc);
-    await waitFor(/다음 볼 세션/, '목록에서 Esc');
+    await waitFor(/n +다음/, '목록에서 Esc');
     await press(KEY.esc);
     await sleep(1_500);
     assert.equal(child.exitCode, null, 'Esc 로는 끝나지 않는다');

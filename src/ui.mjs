@@ -58,6 +58,9 @@ function line(segs, W, bg) {
   return out + style({ bg }) + ' '.repeat(Math.max(0, W - used)) + RESET;
 }
 
+// 조각들의 화면 폭 합계.
+const segsWidth = (segs) => segs.reduce((a, x) => a + width(x.t ?? ''), 0);
+
 function clip(segs, max) {
   const out = [];
   let used = 0;
@@ -83,14 +86,24 @@ function glyph(s, frame) {
   return { t: SPIN[frame % SPIN.length], fg: PHASE_COLOR[k] ?? PALETTE.busy, bold: true };
 }
 
+// 막대 끝은 1/8 칸 단위로 그려 작은 변화도 보이게 한다.
+const EIGHTHS = '▏▎▍▌▋▊▉';
+
 function gauge(used, total, cells) {
   if (!total) return [{ t: '─'.repeat(cells) + '     ', fg: PALETTE.faint }];
   const r = Math.min(1, used / total);
-  const filled = Math.round(r * cells);
+  const exact = r * cells;
+  let full = Math.floor(exact);
+  let part = Math.round((exact - full) * 8);
+  if (part === 8) {
+    full++;
+    part = 0;
+  }
+  const tip = part && full < cells ? EIGHTHS[part - 1] : '';
   const color = r >= 0.85 ? PALETTE.alert : r >= 0.6 ? PALETTE.waiting : PALETTE.busy;
   return [
-    { t: '━'.repeat(filled), fg: color },
-    { t: '─'.repeat(cells - filled), fg: PALETTE.faint },
+    { t: '━'.repeat(full) + tip, fg: color },
+    { t: '─'.repeat(cells - full - (tip ? 1 : 0)), fg: PALETTE.faint },
     { t: pad(`${Math.round(r * 100)}%`, 5, 'right'), fg: r >= 0.85 ? PALETTE.alert : PALETTE.muted },
   ];
 }
@@ -141,35 +154,49 @@ function header(view, W) {
   const unseen = count((s) => s.unseen);
   const idle = count((s) => (s.status === 'idle' || s.status === 'live') && !s.unseen);
   const B = PALETTE.bar;
-  const left = [
+  // 0 인 상태는 흐리게 둔다. 좁으면 이름을 줄인다.
+  const stat = (glyph, n, long, short, color, bold, narrow) => [
+    { t: `  ${glyph} `, fg: n ? color : PALETTE.faint, bg: B },
+    { t: `${n} ${narrow ? short : long}`, fg: n ? (bold ? color : PALETTE.text) : PALETTE.faint, bg: B, bold: bold && n > 0 },
+  ];
+  const leftOf = (narrow) => [
     { t: ' ◆ aitop ', fg: '#0b0e14', bg: PALETTE.brand, bold: true },
     { t: '  ', bg: B },
     { t: `${live.length} live`, fg: PALETTE.text, bg: B, bold: true },
-    { t: '   ⠿ ', fg: working ? PALETTE.busy : PALETTE.faint, bg: B },
-    { t: `${working} 작업 중`, fg: working ? PALETTE.text : PALETTE.faint, bg: B },
-    { t: '   ◆ ', fg: waiting ? PALETTE.waiting : PALETTE.faint, bg: B },
-    { t: `${waiting} 응답 대기`, fg: waiting ? PALETTE.waiting : PALETTE.faint, bg: B, bold: waiting > 0 },
-    { t: '   ● ', fg: unseen ? PALETTE.busy : PALETTE.faint, bg: B },
-    { t: `${unseen} 확인 전`, fg: unseen ? PALETTE.busy : PALETTE.faint, bg: B, bold: unseen > 0 },
-    { t: '   ○ ', fg: idle ? PALETTE.idle : PALETTE.faint, bg: B },
-    { t: `${idle} 대기`, fg: idle ? PALETTE.text : PALETTE.faint, bg: B },
+    ...stat('⠿', working, '작업 중', '작업', PALETTE.busy, false, narrow),
+    ...stat('◆', waiting, '응답 대기', '응답', PALETTE.waiting, true, narrow),
+    ...stat('●', unseen, '확인 전', '확인', PALETTE.busy, true, narrow),
+    ...stat('○', idle, '대기', '대기', PALETTE.idle, false, narrow),
   ];
-  // 오늘·최근 7일 사용량 (Claude, API 환산). 처음 집계 중에는 진행률을 보인다.
+  // 오른쪽: 오늘 $52 132M · 7일 $644 1.2B · 12:42:05. 폭이 모자라면 토큰 수, 7일, 오늘 순으로 뺀다.
   const u = view.data.usage;
-  const period = (label, p) => [
+  const dot = { t: ' · ', fg: PALETTE.faint, bg: B };
+  const period = (label, p, tok) => [
     { t: `${label} `, fg: PALETTE.muted, bg: B },
     { t: money(p.cost, p.unknown), fg: PALETTE.money, bg: B, bold: true },
-    { t: ` ${fmtTokens(p.tokens)}`, fg: PALETTE.muted, bg: B },
+    ...(tok ? [{ t: ` ${fmtTokens(p.tokens)}`, fg: PALETTE.faint, bg: B }] : []),
   ];
+  const week = (tok) => (u.loading != null ? [{ t: `7일 집계 중 ${Math.floor(u.loading * 100)}%`, fg: PALETTE.faint, bg: B }] : period('7일', u.week, tok));
   // 장부를 못 읽었으면 화면에 있는 세션(모든 도구)의 누적 토큰이라도 보인다.
-  const fallback = [{ t: `Σ ${fmtTokens(view.data.sessions.reduce((a, s) => a + (s.tokens?.total ?? 0), 0))} tok`, fg: PALETTE.muted, bg: B }];
-  const right = [
-    ...(u ? [...period('오늘', u.today), { t: '   ', bg: B }, ...(u.loading != null ? [{ t: `7일 집계 중 ${Math.floor(u.loading * 100)}%`, fg: PALETTE.faint, bg: B }] : period('7일', u.week))] : fallback),
-    { t: `   ${clock(view.data.at)} `, fg: PALETTE.muted, bg: B },
-  ];
-  const lw = left.reduce((a, s) => a + width(s.t), 0);
-  const rw = right.reduce((a, s) => a + width(s.t), 0);
-  return line([...left, { t: ' '.repeat(Math.max(1, W - lw - rw)), bg: B }, ...right], W, B);
+  const fallback = [{ t: `Σ ${fmtTokens(sessions.reduce((a, s) => a + (s.tokens?.total ?? 0), 0))} tok`, fg: PALETTE.muted, bg: B }];
+  const clockSeg = { t: clock(view.data.at), fg: PALETTE.muted, bg: B };
+  const rights = u
+    ? [
+        [...period('오늘', u.today, true), dot, ...week(true), dot, clockSeg],
+        [...period('오늘', u.today, false), dot, ...week(false), dot, clockSeg],
+        [...period('오늘', u.today, false), dot, clockSeg],
+        [clockSeg],
+      ]
+    : [[...fallback, dot, clockSeg], [clockSeg]];
+  // 사용량 숫자가 상태 이름보다 중요하므로, 이름을 먼저 줄이고 그래도 모자라면 오른쪽을 줄인다.
+  for (const r of rights) {
+    for (const narrow of [false, true]) {
+      const left = leftOf(narrow);
+      const right = [...r, { t: ' ', bg: B }];
+      if (segsWidth(left) + segsWidth(right) + 2 <= W) return line([...left, { t: ' '.repeat(W - segsWidth(left) - segsWidth(right)), bg: B }, ...right], W, B);
+    }
+  }
+  return line(leftOf(true), W, B);
 }
 
 function toolStrip(view, W) {
@@ -178,18 +205,20 @@ function toolStrip(view, W) {
     const list = view.data.sessions.filter((s) => s.tool === tool);
     const live = list.filter((s) => s.live).length;
     const tok = list.reduce((a, s) => a + (s.tokens?.total ?? 0), 0);
-    const on = live > 0;
-    segs.push({ t: '▍', fg: on ? PALETTE.tools[tool] : PALETTE.faint });
-    segs.push({ t: tool, fg: on ? PALETTE.tools[tool] : PALETTE.faint, bold: on });
-    segs.push({ t: `  ${live} 세션 · ${fmtTokens(tok)}`, fg: on ? PALETTE.muted : PALETTE.faint });
-    segs.push({ t: '     ' });
+    // 세션이 없는 도구는 이름만 흐리게 둔다.
+    if (!live) {
+      // 종료 세션을 함께 볼 때는 그 도구의 누적 토큰을 흐리게 남긴다.
+      segs.push({ t: ` ${tool}`, fg: PALETTE.faint }, ...(view.showEnded && list.length ? [{ t: ` · ${fmtTokens(tok)}`, fg: PALETTE.faint }] : []), { t: '     ' });
+      continue;
+    }
+    segs.push({ t: '▍', fg: PALETTE.tools[tool] }, { t: tool, fg: PALETTE.tools[tool], bold: true }, { t: ` ${live}`, fg: PALETTE.text }, { t: ` · ${fmtTokens(tok)}`, fg: PALETTE.muted }, { t: '     ' });
   }
   if (view.showEnded) segs.push({ t: '종료된 세션 포함 (24시간)', fg: PALETTE.waiting, italic: true });
   return line(segs, W);
 }
 
 function tableHeader(c, W) {
-  const h = (t, n, align) => ({ t: pad(t, n, align) + ' ', fg: PALETTE.faint, bold: true });
+  const h = (t, n, align) => ({ t: pad(t, n, align) + ' ', fg: PALETTE.faint });
   const segs = [{ t: ' '.repeat(c.mark + c.glyph) }, h('TOOL', c.tool)];
   if (c.showModel) segs.push(h('MODEL', c.model));
   segs.push(h('SESSION', c.name));
@@ -200,18 +229,21 @@ function tableHeader(c, W) {
   return line(segs, W);
 }
 
-function sessionRow(s, c, W, selected, frame) {
+// 표에서는 세션 이름과 상태가 먼저 보이도록 나머지 열은 흐리게 둔다.
+// hot: 화면에서 비용이 가장 큰 세션들. 그 비용만 돈 색으로 칠한다.
+function sessionRow(s, c, W, selected, frame, hot) {
   const waiting = s.status === 'waiting';
-  const bg = selected ? PALETTE.rowSel : waiting ? PALETTE.rowWaiting : undefined;
+  const bg = selected ? PALETTE.rowFocus : waiting ? PALETTE.rowWaiting : undefined;
   // IDLE: 마지막 활동 후 지난 시간. 지금 일하고 있는 세션은 'now'.
   const working = s.status === 'busy' || s.status === 'shell';
   const idle = working ? 'now' : fmtAgo(NOW - (s.updatedAt ?? 0));
   const ended = s.status === 'ended';
   const tc = PALETTE.tools[s.tool];
   const g = glyph(s, frame);
-  const pc = PHASE_COLOR[s.phase?.kind] ?? PALETTE.muted;
+  // 다음 지시를 기다리는 세션은 상태 글자만 흐리게 한다.
+  const pc = s.phase?.kind === 'idle' ? PALETTE.faint : PHASE_COLOR[s.phase?.kind] ?? PALETTE.muted;
   const segs = [
-    { t: selected ? '▌' : ' ', fg: tc },
+    { t: selected ? '▌' : ' ', fg: PALETTE.brand, bold: true },
     { ...g, t: g.t + ' ' },
     { t: pad(s.tool, c.tool) + ' ', fg: ended ? PALETTE.ended : tc, bold: !ended },
   ];
@@ -220,9 +252,9 @@ function sessionRow(s, c, W, selected, frame) {
   if (c.showProject) segs.push({ t: pad(s.project ?? '', c.project) + ' ', fg: PALETTE.muted });
   segs.push(
     { t: pad(s.phase?.text ?? '', c.status) + ' ', fg: pc, bold: s.status === 'waiting' },
-    { t: pad(s.lazy ? '' : fmtTokens(s.tokens?.total ?? 0), c.tokens, 'right') + ' ', fg: ended ? PALETTE.ended : PALETTE.text },
+    { t: pad(s.lazy ? '' : fmtTokens(s.tokens?.total ?? 0), c.tokens, 'right') + ' ', fg: ended ? PALETTE.ended : PALETTE.muted },
   );
-  if (c.showCost) segs.push({ t: pad(s.lazy ? '' : money(s.cost, s.costUnknown), c.cost, 'right') + ' ', fg: s.cost == null || ended ? PALETTE.faint : PALETTE.money });
+  if (c.showCost) segs.push({ t: pad(s.lazy ? '' : money(s.cost, s.costUnknown), c.cost, 'right') + ' ', fg: s.cost == null || ended ? PALETTE.faint : hot?.has(s.id) ? PALETTE.money : PALETTE.muted, bold: Boolean(hot?.has(s.id)) });
   segs.push(...gauge(s.context?.used ?? 0, s.context?.window ?? 0, 11), { t: ' ' }, { t: pad(idle, c.age, 'right'), fg: waiting ? PALETTE.waiting : PALETTE.faint });
   return line(segs, W, bg);
 }
@@ -265,16 +297,26 @@ function fill(segs, n, bg) {
   return bg ? out.map((x) => ({ bg, ...x })) : out;
 }
 
-function box(title, W, H, leftLines, rightLines, leftW, accent, divider = PALETTE.line) {
+// 상자 테두리. 포커스가 있으면 강조색으로, 색이 없으면 굵은 선으로 구분한다.
+const EDGE = {
+  normal: { tl: '╭', tr: '╮', bl: '╰', br: '╯', h: '─', v: '│' },
+  heavy: { tl: '┏', tr: '┓', bl: '┗', br: '┛', h: '━', v: '┃' },
+};
+
+// title: 조각 배열 또는 문자열.
+function box(title, W, H, leftLines, rightLines, leftW, accent, focused = false) {
+  const e = focused && NO_COLOR ? EDGE.heavy : EDGE.normal;
+  const fg = focused ? PALETTE.brand : PALETTE.line;
   const out = [];
-  const titleText = ` ${title} `;
-  out.push(line([{ t: '╭─', fg: PALETTE.line }, { t: titleText, fg: accent, bold: true }, { t: '─'.repeat(Math.max(0, W - 3 - width(titleText))) + '╮', fg: PALETTE.line }], W));
+  const titleSegs = typeof title === 'string' ? [{ t: title, fg: accent, bold: true }] : title;
+  const titleW = segsWidth(titleSegs) + 2;
+  out.push(line([{ t: e.tl + e.h, fg }, { t: ' ' }, ...titleSegs, { t: ' ' }, { t: e.h.repeat(Math.max(0, W - 3 - titleW)) + e.tr, fg }], W));
   // '│ ' + 왼쪽 + ' │ ' + 오른쪽 + ' │' = W
   const rightW = W - leftW - 7;
   for (let i = 0; i < H - 2; i++) {
-    out.push(line([{ t: '│ ', fg: PALETTE.line }, ...fill(leftLines[i] ?? [], leftW), { t: ' │ ', fg: divider }, ...fill(rightLines[i] ?? [], rightW), { t: ' │', fg: PALETTE.line }], W));
+    out.push(line([{ t: `${e.v} `, fg }, ...fill(leftLines[i] ?? [], leftW), { t: ` ${e.v} `, fg }, ...fill(rightLines[i] ?? [], rightW), { t: ` ${e.v}`, fg }], W));
   }
-  out.push(line([{ t: '╰' + '─'.repeat(W - 2) + '╯', fg: PALETTE.line }], W));
+  out.push(line([{ t: e.bl + e.h.repeat(W - 2) + e.br, fg }], W));
   return out;
 }
 
@@ -383,12 +425,38 @@ function activity(s, n, dim = false) {
 }
 
 // ‹이번 지시›  T5  T3  전체. 색을 꺼도 보이게 고른 탭은 ‹ › 로 감싼다. 폭이 모자라면 가운데 지시 탭부터 줄인다.
+// 이전 지시 탭은 3개까지만 보이고 나머지는 … +N 으로 접는다. 고른 탭이 들어가게 창을 옮긴다.
+const TAB_WINDOW = 3;
+
+// 숨긴 탭 수는 숨긴 쪽에 따로 붙인다: 이번 지시  … +2  T4  T3  ‹T2›  … +1  전체.
+// 폭이 모자라면 가운데 탭 → … +N → '이번 지시' 이름 → 고르지 않은 양끝 탭 순으로 줄여, 고른 탭은 늘 남긴다.
 function tabsLine(tabs, tab, w) {
-  const seg = (t) => (t.key === tab.key ? { t: `‹${t.label}›`, fg: PALETTE.text, bg: PALETTE.rowSel, bold: true } : { t: t.label, fg: PALETTE.muted });
-  const keep = [...tabs];
-  const barW = () => keep.reduce((a, t) => a + width(seg(t).t) + 2, 0);
-  for (let i = keep.length - 2; i > 0 && barW() > w; i--) if (keep[i].key !== tab.key) keep.splice(i, 1);
-  return keep.flatMap((t) => [seg(t), { t: '  ' }]);
+  const seg = (t, short) => (t.key === tab.key ? { t: `‹${t.label}›`, fg: PALETTE.text, bg: PALETTE.rowSel, bold: true } : { t: short && t.key === 'now' ? '이번' : t.label, fg: PALETTE.muted });
+  const turns = tabs.slice(1, -1);
+  const at = turns.findIndex((t) => t.key === tab.key);
+  const start = at >= TAB_WINDOW ? at - TAB_WINDOW + 1 : 0;
+  let shown = turns.slice(start, start + TAB_WINDOW);
+  let ends = [tabs[0], tabs.at(-1)];
+  let marks = true;
+  let short = false;
+  const build = () => {
+    const first = turns.indexOf(shown[0]);
+    const before = shown.length ? first : 0;
+    const after = turns.length - before - shown.length;
+    const parts = [];
+    if (ends.includes(tabs[0])) parts.push(seg(tabs[0], short));
+    if (marks && before) parts.push({ t: `… +${before}`, fg: PALETTE.faint });
+    parts.push(...shown.map((t) => seg(t, short)));
+    if (marks && after) parts.push({ t: `… +${after}`, fg: PALETTE.faint });
+    if (ends.includes(tabs.at(-1))) parts.push(seg(tabs.at(-1), short));
+    return parts.flatMap((x) => [x, { t: '  ' }]);
+  };
+  const fits = () => segsWidth(build()) <= w;
+  while (!fits() && shown.some((t) => t.key !== tab.key)) shown.splice(shown.findIndex((t) => t.key !== tab.key), 1);
+  if (!fits()) marks = false;
+  if (!fits()) short = true;
+  for (const end of [tabs[0], tabs.at(-1)]) if (!fits() && end.key !== tab.key) ends = ends.filter((t) => t !== end);
+  return build();
 }
 
 // 탭 아래 설명: 지시면 시각과 첫 줄, 전체면 편집 수.
@@ -448,34 +516,41 @@ function detail(s, W, H, frame, view) {
   const tc = PALETTE.tools[s.tool];
   const leftW = Math.min(46, Math.max(30, Math.floor((W - 4) * 0.38)));
   const L = [];
-  const kv = (k, v, fg = PALETTE.text) => L.push([{ t: pad(k, 9), fg: PALETTE.muted }, { t: v ?? '-', fg }]);
+  // 왼쪽 칸도 오른쪽 칸처럼 라벨 가로줄로 나누고 내용은 1칸 들여 쓴다.
+  const section = (name) => L.push(rule([{ t: name, fg: PALETTE.text, bold: true }], '', leftW));
+  const kv = (k, v, fg = PALETTE.text) => L.push([INDENT, { t: pad(k, 9), fg: PALETTE.muted }, { t: v ?? '-', fg }]);
+  const more = (segs) => L.push([INDENT, { t: ' '.repeat(9) }, ...segs]);
 
   const g = glyph(s, frame);
   L.push([{ ...g, t: g.t + ' ' }, { t: s.phase?.text ?? s.status, fg: PHASE_COLOR[s.phase?.kind] ?? PALETTE.text, bold: true }]);
+  section('세션');
   kv('폴더', tilde(s.cwd));
   if (s.branch) kv('브랜치', s.branch);
   kv('모델', s.model ?? '-');
   kv('종류', `${s.kind ?? '-'}${s.pid ? ` · pid ${s.pid}` : ''}`);
   if (s.startedAt) kv('시작', `${clock(s.startedAt)}  (${fmtAgo(NOW - s.startedAt)} 전)`);
-  L.push([]);
 
   // 합계 = 메인 + 서브 = 입력 + 출력 + 캐시 읽기 + 캐시 쓰기 가 화면에서 그대로 맞아떨어지게 보인다.
   const t = s.tokens ?? {};
-  L.push([{ t: pad('토큰', 9), fg: PALETTE.muted, bold: true }, { t: fmtTokens(t.total), fg: PALETTE.text, bold: true }]);
-  if (t.subCount) L.push([{ t: ' '.repeat(9) }, { t: `메인 ${fmtTokens(t.main)} + 서브 ${t.subCount}개 ${fmtTokens(t.sub)}`, fg: PALETTE.faint }]);
-  L.push([{ t: ' '.repeat(9) }, { t: `입력 ${fmtTokens(t.input)} · 출력 ${fmtTokens(t.output)}`, fg: PALETTE.faint }]);
-  L.push([{ t: ' '.repeat(9) }, { t: `캐시 읽기 ${fmtTokens(t.cacheRead)} · 쓰기 ${fmtTokens(t.cacheWrite)}`, fg: PALETTE.faint }]);
+  section('토큰');
+  kv('합계', fmtTokens(t.total));
+  if (t.subCount) more([{ t: `메인 ${fmtTokens(t.main)} + 서브 ${t.subCount}개 ${fmtTokens(t.sub)}`, fg: PALETTE.faint }]);
+  more([{ t: `입력 ${fmtTokens(t.input)} · 출력 ${fmtTokens(t.output)}`, fg: PALETTE.faint }]);
+  more([{ t: `캐시 읽기 ${fmtTokens(t.cacheRead)} · 쓰기 ${fmtTokens(t.cacheWrite)}`, fg: PALETTE.faint }]);
+  if (s.cost != null) section('비용');
+  else if (s.context?.window) section('컨텍스트');
   if (s.cost != null) {
-    L.push([{ t: pad('비용', 9), fg: PALETTE.muted, bold: true }, { t: money(s.cost, s.costUnknown), fg: PALETTE.money, bold: true }, { t: ' API 환산', fg: PALETTE.faint }]);
-    L.push([{ t: ' '.repeat(9) }, { t: `캐시 제외 ${money(s.costNoCache, s.costUnknown)}`, fg: PALETTE.faint }, ...(s.costUnknown ? [{ t: '  ? 가격표에 없는 모델 포함', fg: PALETTE.waiting }] : [])]);
+    L.push([INDENT, { t: pad('API 환산', 9), fg: PALETTE.muted }, { t: money(s.cost, s.costUnknown), fg: PALETTE.money, bold: true }]);
+    more([{ t: `캐시 제외 ${money(s.costNoCache, s.costUnknown)}`, fg: PALETTE.faint }, ...(s.costUnknown ? [{ t: '  ? 가격표에 없는 모델 포함', fg: PALETTE.waiting }] : [])]);
   }
   if (s.context?.window) {
-    L.push([{ t: pad('컨텍스트', 9), fg: PALETTE.muted }, { t: pad(`${fmtTokens(s.context.used)}/${fmtTokens(s.context.window)}`, 11) + ' ', fg: PALETTE.text }, ...gauge(s.context.used, s.context.window, Math.max(4, leftW - 26))]);
+    L.push([INDENT, { t: pad('컨텍스트', 9), fg: PALETTE.muted }, { t: pad(`${fmtTokens(s.context.used)}/${fmtTokens(s.context.window)}`, 11) + ' ', fg: PALETTE.text }, ...gauge(s.context.used, s.context.window, Math.max(4, leftW - 26))]);
   }
 
   const R = rightColumn(s, W - leftW - 7, H - 2, view);
-  const title = `${s.name ?? s.tool}  ·  ${s.tool}${s.model ? ' · ' + s.model : ''}`;
-  return box(title, W, H, L, R, leftW, tc, view?.focus ? tc : PALETTE.line);
+  // 제목: 세션 이름은 진하게, 도구·모델은 도구 색으로.
+  const title = [{ t: s.name ?? s.tool, fg: PALETTE.text, bold: true }, { t: `  ${s.tool}${s.model ? ' · ' + s.model : ''}`, fg: tc }];
+  return box(title, W, H, L, R, leftW, tc, Boolean(view?.focus));
 }
 
 const HELP = [
@@ -514,23 +589,70 @@ function help(W, H) {
   return box('도움말  ·  ? 또는 Esc 로 닫기', W, H, left, [], W - 8, PALETTE.brand);
 }
 
-function footer(view, W, matched, sel) {
-  const key = (k) => ({ t: ` ${k} `, fg: '#0b0e14', bg: PALETTE.muted, bold: true });
-  const lab = (t) => ({ t: ` ${t}   `, fg: PALETTE.muted });
-  if (view.searching) {
-    return line([{ t: ' / ', fg: '#0b0e14', bg: PALETTE.brand, bold: true }, { t: ` ${view.filter ?? ''}`, fg: PALETTE.text, bold: true }, { t: '▏', fg: PALETTE.brand }, { t: `  ${matched}개   `, fg: PALETTE.muted }, key('⏎'), lab('적용'), key('Esc'), lab('지우기')], W);
-  }
-  if (view.focus) {
-    const keys = view.focus === 'diff' ? [key('↑↓'), lab('스크롤'), key('space'), lab('페이지'), key('[ ]'), lab('이전·다음 파일'), key('Esc'), lab('파일 목록으로')] : [key('←→'), lab('지시'), key('↑↓'), lab('파일 선택'), key('⏎'), lab('diff 보기'), key('Esc'), lab('세션으로')];
-    return line([{ t: ' ' }, ...keys, key('?'), lab('도움말'), key('q'), lab('나가기')], W);
-  }
-  const search = view.filter ? [{ t: ` /${view.filter} `, fg: '#0b0e14', bg: PALETTE.brand, bold: true }, { t: ` ${matched}개 `, fg: PALETTE.muted }, key('Esc'), lab('검색 지우기')] : [key('/'), lab('검색')];
-  const segs = [{ t: ' ' }, ...search, key('↑↓'), lab('선택'), key('n'), lab('다음 볼 세션'), ...(sel?.files?.length ? [key('f'), lab('변경 파일')] : []), key('d'), lab(view.showDetail ? '상세 닫기' : '상세 열기'), key('e'), lab(view.showEnded ? '종료 숨기기' : '종료 포함'), key('?'), lab('도움말'), key('q'), lab('나가기')];
-  const right = '읽기 전용 · 네트워크 없음 ';
-  const used = segs.reduce((a, s) => a + width(s.t), 0);
-  segs.push({ t: ' '.repeat(Math.max(1, W - used - width(right))) }, { t: right, fg: PALETTE.faint });
+// 키 칩. 색이 없으면 [f] 처럼 괄호로 보인다.
+const keyChip = (k) => (NO_COLOR ? { t: `[${k}]` } : { t: ` ${k} `, fg: '#0b0e14', bg: PALETTE.muted, bold: true });
+const keyLabel = (t) => ({ t: ` ${t}   `, fg: PALETTE.muted });
+
+// items: { k, t, keep } 또는 { segs, keep }. 폭이 모자라면 keep 이 아닌 항목을 오른쪽부터 뺀다.
+function hintBar(items, W, right = '') {
+  const segsOf = (list) => [{ t: ' ' }, ...list.flatMap((i) => i.segs ?? [keyChip(i.k), keyLabel(i.t)])];
+  const wOf = (list) => segsWidth(segsOf(list));
+  const list = [...items];
+  while (wOf(list) > W && list.some((i) => !i.keep)) list.splice(list.findLastIndex((i) => !i.keep), 1);
+  const segs = segsOf(list);
+  const used = wOf(list);
+  if (right && W - used >= width(right) + 1) segs.push({ t: ' '.repeat(W - used - width(right)) }, { t: right, fg: PALETTE.faint });
   return line(segs, W);
 }
+
+function footer(view, W, matched, sel) {
+  const tail = [
+    { k: '?', t: '도움', keep: true },
+    { k: 'q', t: '나가기', keep: true },
+  ];
+  if (view.searching) {
+    const input = NO_COLOR ? [{ t: '[/]' }] : [{ t: ' / ', fg: '#0b0e14', bg: PALETTE.brand, bold: true }];
+    return hintBar([{ segs: [...input, { t: ` ${view.filter ?? ''}`, fg: PALETTE.text, bold: true }, { t: '▏', fg: PALETTE.brand }, { t: `  ${matched}개   `, fg: PALETTE.muted }], keep: true }, { k: '⏎', t: '적용', keep: true }, { k: 'Esc', t: '지우기', keep: true }], W);
+  }
+  if (view.focus) {
+    const keys =
+      view.focus === 'diff'
+        ? [{ k: '↑↓', t: '스크롤' }, { k: 'space', t: '페이지' }, { k: '[ ]', t: '이전·다음 파일' }, { k: 'Esc', t: '파일 목록으로', keep: true }]
+        : [{ k: '←→', t: '지시' }, { k: '↑↓', t: '파일 선택' }, { k: '⏎', t: 'diff 보기' }, { k: 'Esc', t: '세션으로', keep: true }];
+    return hintBar([...keys, ...tail], W, '⊘ 읽기전용');
+  }
+  const search = view.filter
+    ? { segs: [{ t: ` /${view.filter} `, fg: '#0b0e14', bg: PALETTE.brand, bold: true }, { t: ` ${matched}개 `, fg: PALETTE.muted }, keyChip('Esc'), keyLabel('검색 지우기')], keep: true }
+    : { k: '/', t: '검색' };
+  const items = [
+    search,
+    { k: '↑↓', t: '선택' },
+    { k: 'n', t: '다음' },
+    ...(sel?.files?.length ? [{ k: 'f', t: '파일' }] : []),
+    { k: 'd', t: view.showDetail ? '상세 닫기' : '상세 열기' },
+    { k: 'e', t: view.showEnded ? '종료 숨김' : '종료 포함' },
+    ...tail,
+  ];
+  return hintBar(items, W, '⊘ 읽기전용');
+}
+
+// 화면에서 비용이 가장 큰 세션 두 개 (0 보다 클 때만).
+function topCost(sessions) {
+  const top = sessions.filter((s) => s.cost > 0 && s.status !== 'ended').sort((a, b) => b.cost - a.cost).slice(0, 2);
+  return new Set(top.map((s) => s.id));
+}
+
+// 표를 둥근 상자로 감싼다. 안쪽 줄은 이미 폭 W-4 로 그려져 있다.
+function tableBox(inner, W, count) {
+  const e = EDGE.normal;
+  const ln = (t) => style({ fg: PALETTE.line }) + t + RESET;
+  const title = ` 세션 ${count} `;
+  const top = line([{ t: e.tl + e.h, fg: PALETTE.line }, { t: title, fg: PALETTE.muted }, { t: e.h.repeat(Math.max(0, W - 3 - width(title))) + e.tr, fg: PALETTE.line }], W);
+  return [top, ...inner.map((l) => ln(`${e.v} `) + l + ln(` ${e.v}`)), line([{ t: e.bl + e.h.repeat(W - 2) + e.br, fg: PALETTE.line }], W)];
+}
+
+// 이 높이 이상이면 세션 표를 상자로 감싼다 (상자 테두리에 두 줄이 든다).
+const TABLE_BOX_H = 30;
 
 export function render(view, W, H) {
   NOW = Date.now();
@@ -542,14 +664,18 @@ export function render(view, W, H) {
   }
   const { errors } = view.data;
   const sessions = filterSessions(view.data.sessions, view.filter);
-  const c = columns(W);
+  const boxed = H >= TABLE_BOX_H && W >= 60;
+  const TW = boxed ? W - 4 : W;
+  const c = columns(TW);
   if (view.help) {
     lines.push(header(view, W), ...help(W, Math.max(3, H - 2)));
     lines.length = H - 1;
     lines.push(footer(view, W, sessions.length));
     return lines;
   }
-  lines.push(header(view, W), toolStrip(view, W), line([], W), tableHeader(c, W));
+  lines.push(header(view, W), toolStrip(view, W));
+  if (!boxed) lines.push(line([], W));
+  const table = [tableHeader(c, TW)];
 
   const rows = [];
   for (const s of sessions) {
@@ -559,7 +685,8 @@ export function render(view, W, H) {
   const sel = sessions.find((s) => s.id === view.selectedId) ?? sessions[0];
   const wantDetail = view.showDetail && Boolean(sel);
   const minDetail = wantDetail ? 12 : 0;
-  const room = Math.max(1, Math.min(Math.max(1, rows.length), H - lines.length - minDetail - 2));
+  const used = lines.length + table.length + (boxed ? 2 : 0);
+  const room = Math.max(1, Math.min(Math.max(1, rows.length), H - used - minDetail - 2));
   // 표가 다 들어가지 않으면 마지막 줄에 몇 개가 가려졌는지 알린다.
   const clipped = rows.length > room && room > 1;
   const shown = clipped ? room - 1 : room;
@@ -567,14 +694,16 @@ export function render(view, W, H) {
   const lastOfSel = selRow + (sel?.members.length ?? 0);
   const start = Math.min(Math.max(0, lastOfSel - shown + 1), Math.max(0, rows.length - shown), selRow);
   const visible = rows.slice(start, start + shown);
-  if (!sessions.length) lines.push(line([{ t: view.filter ? `   '${view.filter}' 에 맞는 세션이 없습니다.` : '   실행 중인 AI 세션이 없습니다.', fg: PALETTE.muted, italic: true }], W));
-  for (const r of visible) lines.push(r.m ? memberRow(r.m, r.last, c, W, view.frame) : sessionRow(r.s, c, W, r.s === sel, view.frame));
+  const hot = topCost(sessions);
+  if (!sessions.length) table.push(line([{ t: view.filter ? `   '${view.filter}' 에 맞는 세션이 없습니다.` : '   실행 중인 AI 세션이 없습니다.', fg: PALETTE.muted, italic: true }], TW));
+  for (const r of visible) table.push(r.m ? memberRow(r.m, r.last, c, TW, view.frame) : sessionRow(r.s, c, TW, r.s === sel, view.frame, hot));
   if (clipped) {
     const onScreen = new Set(visible.filter((r) => !r.m).map((r) => r.s));
     const hidden = sessions.filter((s) => !onScreen.has(s));
     const waitingHidden = hidden.filter((s) => s.status === 'waiting').length;
-    lines.push(line([{ t: `   … +${hidden.length} 세션`, fg: PALETTE.muted }, ...(waitingHidden ? [{ t: ` (응답 대기 ${waitingHidden})`, fg: PALETTE.waiting, bold: true }] : []), { t: '  ↑↓ 로 이동', fg: PALETTE.faint }], W));
+    table.push(line([{ t: `   … +${hidden.length} 세션`, fg: PALETTE.muted }, ...(waitingHidden ? [{ t: ` (응답 대기 ${waitingHidden})`, fg: PALETTE.waiting, bold: true }] : []), { t: '  ↑↓ 로 이동', fg: PALETTE.faint }], TW));
   }
+  lines.push(...(boxed ? tableBox(table, W, sessions.length) : table));
   if (wantDetail) {
     lines.push(line([], W));
     lines.push(...detail(sel, W, Math.max(minDetail, H - lines.length - 1), view.frame, view));

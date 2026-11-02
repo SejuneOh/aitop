@@ -52,6 +52,34 @@ export function cleanLine(s) {
   return stripControl(String(s ?? '').replace(/\t/g, '  ').replace(/[\r\n]/g, ''));
 }
 
+// 마크다운 답변을 활동 한 줄용 평문으로 바꾼다. 구분선·표 구분 줄·코드 펜스와
+// `**질문:**` 처럼 굵은 이름표만 있는 줄은 건너뛰고, 굵게·인용·머리·백틱 기호를 지운다.
+// 밑줄 하나(a_b)나 별표 하나(*.mjs)처럼 이름에 흔한 글자는 건드리지 않는다.
+export function plainText(s) {
+  const out = [];
+  for (const raw of String(s ?? '').split('\n')) {
+    // 인용 표시는 '> ' 처럼 뒤에 공백이 올 때만 지운다 ('>= 3' 은 그대로).
+    let l = raw.trim().replace(/^(>(\s|$))+/, '').replace(/^#{1,6}\s+/, '');
+    if (!l || /^```/.test(l) || /^([-*_]\s*){3,}$/.test(l)) continue;
+    // 표 구분 줄: | : - 와 공백만 있는 줄.
+    if (/^[|:\-\s]+$/.test(l) && l.includes('|') && l.includes('--')) continue;
+    if (/^(\*\*|__)[^*_]+(\*\*|__):?$/.test(l) && /:(\*\*|__)?$/.test(l)) continue;
+    // 코드 조각은 떼어 두었다가 기호 정리가 끝난 뒤 백틱만 빼고 되돌린다.
+    // __dirname, __main__ 처럼 밑줄 두 개로 시작하는 이름도 같은 방법으로 지킨다.
+    const code = [];
+    l = l.replace(/`([^`]*)`/g, (_, c) => `\u0000${code.push(c) - 1}\u0000`).replace(/(?<![\w/])__\w+(?:__)?(?![\w/])/g, (c) => `\u0000${code.push(c) - 1}\u0000`);
+    if (l.startsWith('|')) l = l.replace(/^\||\|$/g, '').split('|').map((c) => c.trim()).filter(Boolean).join(' · ');
+    // 강조 기호는 앞뒤가 글자·/·* 에 붙지 않았을 때만 지운다 (__init__, src/**/x, 2**10 은 그대로).
+    // 밑줄 두 개로 감싼 한 단어(__main__, __dirname)는 이름으로 보고 그대로 둔다.
+    l = l
+      .replace(/(^|[^\w/*])\*\*(?=\S)(.+?)(?<=\S)\*\*(?![\w/*])/g, '$1$2')
+      .replace(/(^|[^\w/])__(?=\S)(.+?)(?<=\S)__(?![\w/])/g, (m, pre, inner) => (/^\w+$/.test(inner) ? m : pre + inner));
+    l = l.replace(/\u0000(\d+)\u0000/g, (_, i) => code[i]).trim();
+    if (l) out.push(l);
+  }
+  return out.join(' ');
+}
+
 export function oneLine(s) {
   return stripControl(String(s ?? '').replace(/\s+/g, ' ')).trim();
 }

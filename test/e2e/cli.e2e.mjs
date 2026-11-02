@@ -27,6 +27,12 @@ test('--once 는 세션 표와 변경 파일·최근 활동 구획을 한 번 �
   assert.match(out, /footer 정리해줘/);
 });
 
+test('NO_COLOR 이면 색 없이 키를 [q] 처럼 괄호로 보인다', () => {
+  const out = execFileSync(process.execPath, [BIN, '--once'], { env: { ...process.env, NO_COLOR: '1' }, encoding: 'utf8', timeout: 20_000 });
+  assert.doesNotMatch(out, /\x1b\[/, '색 코드가 없다');
+  assert.match(out, /\[\?\] 도움\s+\[q\] 나가기/);
+});
+
 test('--help 는 키 안내를 보이고 0 으로 끝난다', () => {
   assert.match(run('--help'), /키: .*f 변경 파일.*Esc 뒤로.*q 나가기/);
 });
