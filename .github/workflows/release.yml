@@ -27,6 +27,7 @@ jobs:
       # e2e 가 실패하면 아래 배포 단계까지 가지 않는다.
       - name: e2e 테스트
         run: npm run test:e2e
+        timeout-minutes: 5
       - name: 실행 확인 (세션 없는 환경)
         run: node bin/aitop.mjs --once > /dev/null
 

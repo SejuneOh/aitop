@@ -10,18 +10,24 @@ const hasScript = spawnSync('script', ['--version'], { encoding: 'utf8' }).stdou
 
 const KEY = { right: '\x1b[C', left: '\x1b[D', enter: '\r', esc: '\x1b' };
 
-test('f → ←/→ → Enter → Esc 로 오가고, Esc 로는 끝나지 않고 q 로 끝난다', { skip: !hasScript && 'util-linux script 없음', timeout: 60_000 }, async () => {
+// 화면 하나를 기다리는 최대 시간. 기다림 7번을 다 써도 테스트 제한 시간 안에 끝나야 finally 의 정리가 돈다.
+const WAIT_MS = 8_000;
+
+test('f → ←/→ → Enter → Esc 로 오가고, Esc 로는 끝나지 않고 q 로 끝난다', { skip: !hasScript && 'util-linux script 없음', timeout: 120_000 }, async () => {
   makeSession();
-  const cmd = `stty cols 140 rows 45; exec '${process.execPath}' '${BIN}'`;
-  const child = spawn('script', ['-qfec', cmd, '/dev/null'], { env: process.env });
+  // 경로는 환경 변수로 넘겨 따옴표가 든 경로에서도 명령이 깨지지 않게 한다.
+  const cmd = 'stty cols 140 rows 45; exec "$AITOP_NODE" "$AITOP_BIN"';
+  const child = spawn('script', ['-qfec', cmd, '/dev/null'], { env: { ...process.env, AITOP_NODE: process.execPath, AITOP_BIN: BIN } });
   let out = '';
+  // 한글이 출력 조각 경계에서 잘려도 깨지지 않게 문자열 스트림으로 받는다.
+  child.stdout.setEncoding('utf8');
   child.stdout.on('data', (d) => (out += d));
   const exited = new Promise((resolve) => child.on('exit', (code) => resolve(code)));
 
   // 마지막으로 그린 한 화면(커서를 맨 위로 옮긴 뒤의 내용)만 본다.
   const screen = () => out.split('\x1b[H').at(-1).replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
   const waitFor = async (re, what) => {
-    const end = Date.now() + 10_000;
+    const end = Date.now() + WAIT_MS;
     while (Date.now() < end) {
       if (re.test(screen())) return;
       await sleep(50);
@@ -48,7 +54,7 @@ test('f → ←/→ → Enter → Esc 로 오가고, Esc 로는 끝나지 않고
     await press(KEY.esc);
     await waitFor(/다음 볼 세션/, '목록에서 Esc');
     await press(KEY.esc);
-    await sleep(500);
+    await sleep(1_500);
     assert.equal(child.exitCode, null, 'Esc 로는 끝나지 않는다');
     await press('q');
     const code = await Promise.race([exited, sleep(5_000).then(() => 'timeout')]);
