@@ -59,17 +59,19 @@ test('목록에서 ←/→ 로 탭을 바꾸고, 바꾼 탭의 첫 파일을 고
   assert.equal(view.focus, 'files', 'diff 에서 ← 는 목록으로');
 });
 
-test('이번 지시에 고친 파일이 없으면 안내를 보이고, 목록에 들어가 다른 지시로 갈 수 있다', () => {
+test('이번 지시에 고친 파일이 없으면 한 줄로 접고, 목록에 들어가면 안내와 다른 지시로 가는 길이 보인다', () => {
   const s = session();
   s.turns = [...s.turns, { n: 4, at: t0 + 20 * 60_000, text: '테스트 돌려줘' }];
   const view = { data: { sessions: [s], usage: null, errors: [], at: Date.now() }, selectedId: s.id, showDetail: true, frame: 0, focus: null, tab: 'now', filePath: null };
   const out = render(view, 120, 30).map(strip).join('\n');
-  assert.match(out, /편집 기록 · Bash 제외 · 0개/);
-  assert.match(out, /"테스트 돌려줘"/);
-  assert.match(out, /· 이 지시에서는 고친 파일 없음/);
+  assert.match(out, /변경 파일 · 이번 지시 0개/);
+  assert.doesNotMatch(out, /편집 기록 · Bash 제외/);
   const act = { quit() {}, refresh() {}, move() {}, next() {}, keepVisible() {} };
   onKey(view, 'f', act);
   assert.deepEqual([view.focus, view.filePath], ['files', null]);
+  const opened = render(view, 120, 30).map(strip).join('\n');
+  assert.match(opened, /"테스트 돌려줘"/);
+  assert.match(opened, /· 이 지시에서는 고친 파일 없음/);
   onKey(view, KEY.enter, act);
   assert.equal(view.focus, 'files', '고를 파일이 없으면 diff 를 열지 않는다');
   onKey(view, KEY.right, act);

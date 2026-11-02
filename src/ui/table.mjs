@@ -3,7 +3,7 @@ import { describe } from '../doctor.mjs';
 import { BRAND } from '../brand.mjs';
 import { fmtAgo, fmtTokens, pad, truncate, width } from '../text.mjs';
 import { EDGE, PALETTE, PHASE_COLOR, RESET, style } from './theme.mjs';
-import { NOW, SPIN, clock, gauge, glyph, line, money, segsWidth, shortModel } from './draw.mjs';
+import { NOW, SPIN, clock, costOf, gauge, glyph, line, money, segsWidth, shortModel } from './draw.mjs';
 
 // 검색어가 세션 이름·폴더·모델 중 하나에 들어 있으면 남긴다 (대소문자 무시).
 export function filterSessions(sessions, query) {
@@ -42,18 +42,21 @@ export function header(view, W) {
   const leftOf = (narrow) => [
     { t: ` ${BRAND.logo} `, fg: PALETTE.chipText, bg: PALETTE.brand, bold: true },
     { t: '  ', bg: B },
+    // 응답 대기가 있으면 사람이 할 일이므로 맨 앞에 둔다.
+    ...(waiting ? [...stat('◆', waiting, '응답 대기', '응답', PALETTE.waiting, true, narrow).map((x, i) => (i === 0 ? { ...x, t: x.t.trimStart() } : x)), { t: '  ', bg: B }] : []),
     { t: `${live.length} live`, fg: PALETTE.text, bg: B, bold: true },
     ...stat('⠿', working, '작업 중', '작업', PALETTE.busy, false, narrow),
-    ...stat('◆', waiting, '응답 대기', '응답', PALETTE.waiting, true, narrow),
+    ...(waiting ? [] : stat('◆', waiting, '응답 대기', '응답', PALETTE.waiting, true, narrow)),
     ...stat('●', unseen, '확인 전', '확인', PALETTE.busy, true, narrow),
     ...stat('○', idle, '대기', '대기', PALETTE.idle, false, narrow),
   ];
   // 오른쪽: 오늘 $52 132M · 7일 $644 1.2B · 12:42:05. 폭이 모자라면 토큰 수, 7일, 오늘 순으로 뺀다.
   const u = view.data.usage;
   const dot = { t: ' · ', fg: PALETTE.faint, bg: B };
+  const net = view.costMode === 'net';
   const period = (label, p, tok) => [
     { t: `${label} `, fg: PALETTE.muted, bg: B },
-    { t: money(p.cost, p.unknown), fg: PALETTE.money, bg: B, bold: true },
+    { t: money(net ? p.costNoCache ?? null : p.cost, p.unknown), fg: PALETTE.money, bg: B, bold: true },
     ...(tok ? [{ t: ` ${fmtTokens(p.tokens)}`, fg: PALETTE.faint, bg: B }] : []),
   ];
   const week = (tok) => (u.loading != null ? [{ t: `7일 집계 중 ${Math.floor(u.loading * 100)}%`, fg: PALETTE.faint, bg: B }] : period('7일', u.week, tok));
@@ -61,8 +64,8 @@ export function header(view, W) {
   const fallback = [{ t: `Σ ${fmtTokens(sessions.reduce((a, s) => a + (s.tokens?.total ?? 0), 0))} tok`, fg: PALETTE.muted, bg: B }];
   const clockSeg = { t: clock(view.data.at), fg: PALETTE.muted, bg: B };
   // 비용은 API 정가 환산이다 (구독 요금제의 실제 청구액이 아님). 폭이 되면 그렇다고 적는다.
-  const api = { t: 'API 환산  ', fg: PALETTE.faint, bg: B };
-  const apiShort = { t: 'API ', fg: PALETTE.faint, bg: B };
+  const api = { t: net ? '캐시 제외  ' : 'API 환산  ', fg: net ? PALETTE.brand : PALETTE.faint, bg: B };
+  const apiShort = { t: net ? '캐시제외 ' : 'API ', fg: net ? PALETTE.brand : PALETTE.faint, bg: B };
   const rights = u
     ? [
         [api, ...period('오늘', u.today, true), dot, ...week(true), dot, clockSeg],
@@ -72,7 +75,7 @@ export function header(view, W) {
         [apiShort, ...period('오늘', u.today, false), dot, clockSeg],
         [...period('오늘', u.today, false), dot, clockSeg],
         [clockSeg],
-      ]
+      ].filter((r) => !net || r[0] === api || r[0] === apiShort || r.length === 1)
     : [[...fallback, dot, clockSeg], [clockSeg]];
   // 사용량 숫자가 상태 이름보다 중요하므로, 이름을 먼저 줄이고 그래도 모자라면 오른쪽을 줄인다.
   for (const r of rights) {
@@ -118,7 +121,7 @@ export function tableHeader(c, W) {
 
 // 표에서는 세션 이름과 상태가 먼저 보이도록 나머지 열은 흐리게 둔다.
 // hot: 화면에서 비용이 가장 큰 세션들. 그 비용만 돈 색으로 칠한다.
-export function sessionRow(s, c, W, selected, frame, hot) {
+export function sessionRow(s, c, W, selected, frame, hot, costMode = 'api') {
   const waiting = s.status === 'waiting';
   const bg = selected ? PALETTE.rowFocus : waiting ? PALETTE.rowWaiting : undefined;
   // IDLE: 마지막 활동 후 지난 시간. 지금 일하고 있는 세션은 'now'.
@@ -144,13 +147,14 @@ export function sessionRow(s, c, W, selected, frame, hot) {
     { t: pad(phaseText, c.status) + ' ', fg: pc, bold: s.status === 'waiting' },
     { t: pad(blank ? '' : fmtTokens(s.tokens.total), c.tokens, 'right') + ' ', fg: ended ? PALETTE.ended : PALETTE.muted },
   );
-  if (c.showCost) segs.push({ t: pad(blank ? '' : (hot?.has(s.id) ? '▲' : '') + money(s.cost, s.costUnknown), c.cost, 'right') + ' ', fg: s.cost == null || ended ? PALETTE.faint : hot?.has(s.id) ? PALETTE.money : PALETTE.muted, bold: Boolean(hot?.has(s.id)) });
+  if (c.showCost) segs.push({ t: pad(blank ? '' : (hot?.has(s.id) ? '▲' : '') + money(costOf(s, costMode), s.costUnknown), c.cost, 'right') + ' ', fg: s.cost == null || ended ? PALETTE.faint : hot?.has(s.id) ? PALETTE.money : PALETTE.muted, bold: Boolean(hot?.has(s.id)) });
   segs.push(...gauge(s.context?.used ?? 0, s.context?.window ?? 0, 11), { t: ' ' }, { t: pad(idle, c.age, 'right'), fg: waiting ? PALETTE.waiting : PALETTE.faint });
   return line(segs, W, bg);
 }
 
 // 메인 세션 아래에 붙는 팀원(서브에이전트) 행. 끝나면 잠깐 "완료"로 보였다가 사라진다.
-export function memberRow(m, last, c, W, frame) {
+// parentModel: 부모와 같은 모델이면 모델 칸을 비운다. costMode: 'api' | 'net'.
+export function memberRow(m, last, c, W, frame, parentModel, costMode = 'api') {
   const done = m.status === 'done';
   const g = done ? { t: '✓', fg: PALETTE.faint } : { t: SPIN[(frame + 3) % SPIN.length], fg: PALETTE.team, bold: true };
   const branch = last ? '└─ ' : '├─ ';
@@ -159,23 +163,24 @@ export function memberRow(m, last, c, W, frame) {
     { t: pad('  ' + branch, c.tool) + ' ', fg: PALETTE.line },
   ];
   // 같은 타입의 팀원이 여럿이어도 구분되도록, 하는 일(description)을 앞에 두고 타입은 흐리게 붙인다.
-  const nameW = c.name - 2;
-  const suffix = m.task ? ` · ${m.name}` : '';
-  const label = truncate(m.task || m.name, suffix ? nameW - 6 : nameW);
-  const showSuffix = suffix && nameW - width(label) >= 6;
+  // 팀원 행은 PROJECT 칸이 비므로 그 자리까지 하는 일 글을 이어 쓴다. general-purpose 타입은 정보가 없어 붙이지 않는다.
+  const nameW = c.name - 2 + (c.showProject ? c.project + 1 : 0);
+  const suffix = m.task && m.name !== 'general-purpose' ? ` · ${m.name}` : '';
+  const label = truncate(m.task || m.name, nameW);
+  const showSuffix = suffix && nameW - width(label) >= width(suffix);
   const started = m.started !== false;
-  if (c.showModel) segs.push({ t: pad(started ? shortModel(m.model) : '', c.model) + ' ', fg: PALETTE.faint });
+  const sameModel = parentModel && shortModel(m.model) === shortModel(parentModel);
+  if (c.showModel) segs.push({ t: pad(started && !sameModel ? shortModel(m.model) : '', c.model) + ' ', fg: PALETTE.faint });
   segs.push(
     { ...g, t: g.t + ' ' },
     { t: label, fg: done ? PALETTE.faint : PALETTE.team },
     { t: pad(showSuffix ? suffix : '', nameW - width(label)) + ' ', fg: PALETTE.faint },
   );
-  if (c.showProject) segs.push({ t: ' '.repeat(c.project + 1) });
   segs.push(
     { t: pad(m.phase?.text ?? '', c.status) + ' ', fg: done ? PALETTE.faint : PHASE_COLOR[m.phase?.kind] ?? PALETTE.muted },
     { t: pad(started ? fmtTokens(m.tokens ?? 0) : '', c.tokens, 'right') + ' ', fg: PALETTE.faint },
   );
-  if (c.showCost) segs.push({ t: pad(started ? money(m.cost, m.costUnknown) : '', c.cost, 'right') + ' ', fg: PALETTE.faint });
+  if (c.showCost) segs.push({ t: pad(started ? money(costOf(m, costMode), m.costUnknown) : '', c.cost, 'right') + ' ', fg: PALETTE.faint });
   return line(segs, W);
 }
 
@@ -196,8 +201,9 @@ export function emptyLines(view, W) {
 }
 
 // 화면에 보이는 세션 중 비용이 가장 큰 두 개 (0 보다 클 때만).
-export function topCost(sessions) {
-  const top = sessions.filter((s) => s.cost > 0 && s.status !== 'ended').sort((a, b) => b.cost - a.cost).slice(0, 2);
+export function topCost(sessions, costMode = 'api') {
+  const v = (s) => costOf(s, costMode) ?? 0;
+  const top = sessions.filter((s) => v(s) > 0 && s.status !== 'ended').sort((a, b) => v(b) - v(a)).slice(0, 2);
   return new Set(top.map((s) => s.id));
 }
 

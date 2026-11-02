@@ -76,10 +76,15 @@ const { toJson } = await import('../src/json.mjs');
 const { createAttention, updateAttention, markSeen, nextAttention, windowTitle, newlyWaiting, attentionCounts } = await import('../src/attention.mjs');
 const { onKey, fixFocus } = await import('../src/keys.mjs');
 
-const view = { data: null, selectedId: null, showDetail: true, showEnded: args.has('--all'), frame: 0, filter: '', searching: false, help: false, focus: null, filePath: null, diffScroll: 0, tab: 'now' };
+const view = { data: null, selectedId: null, showDetail: true, showEnded: args.has('--all'), frame: 0, filter: '', searching: false, help: false, focus: null, filePath: null, diffScroll: 0, tab: 'now', costMode: 'api' };
 const once = args.has('--once') || args.has('--json') || !process.stdout.isTTY;
-// 실시간 화면에서 한 번 갱신할 때 읽는 기록 양. 큰 기록은 여러 번에 나눠 읽어서 키 입력이 막히지 않게 한다.
+// 실시간 화면에서 한 번 갱신할 때 읽는 기록 양과 시간. 큰 기록은 여러 번에 나눠 읽어서 키 입력이 막히지 않게 한다.
 const TICK_BUDGET = 24 * 1024 * 1024;
+const TICK_MS = 60;
+// 덜 읽은 기록이 있으면 1초를 기다리지 않고 이만큼 쉰 뒤 이어 읽는다 (그 사이 키 입력과 그리기가 돈다).
+const CATCH_UP_MS = 15;
+// 처음 읽는 동안은 캐시를 자주 저장해, 도중에 끝내도 읽은 만큼은 남게 한다.
+const LOADING_FLUSH_MS = 3000;
 
 const attention = createAttention();
 let tools = null;
@@ -88,7 +93,7 @@ const waitingSeen = new Set();
 let bellReady = false;
 
 function refresh() {
-  const data = collect({ showEnded: view.showEnded, selectedId: view.selectedId, budgetBytes: once ? Infinity : TICK_BUDGET });
+  const data = collect({ showEnded: view.showEnded, selectedId: view.selectedId, budgetBytes: once ? Infinity : TICK_BUDGET, budgetMs: once ? Infinity : TICK_MS });
   if (!data.sessions.some((s) => s.id === view.selectedId)) {
     view.selectedId = data.sessions[0]?.id ?? null;
     view.focus = null;
@@ -175,6 +180,9 @@ process.on('SIGCONT', () => {
 });
 process.on('uncaughtException', (err) => {
   leaveScreen();
+  try {
+    flushCache();
+  } catch {}
   console.error(err);
   process.exit(1);
 });
@@ -220,14 +228,20 @@ stdin.on('data', (key) => {
   draw();
 });
 
-setTimeout(() => {
+let lastFlush = 0;
+function tick() {
   refresh();
-  flushCache();
+  const more = view.data?.more;
+  if (more ? Date.now() - lastFlush > LOADING_FLUSH_MS : Date.now() - lastFlush > 15_000) {
+    flushCache();
+    lastFlush = Date.now();
+  }
   draw();
-  setInterval(refresh, 1000);
-  setInterval(flushCache, 15_000);
-  setInterval(() => {
-    view.frame++;
-    draw();
-  }, 120);
-}, 30);
+  setTimeout(tick, more ? CATCH_UP_MS : 1000);
+}
+
+setTimeout(tick, 30);
+setInterval(() => {
+  view.frame++;
+  draw();
+}, 120);

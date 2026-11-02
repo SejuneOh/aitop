@@ -156,6 +156,11 @@ export function rightColumn(s, w, rows, view) {
   const files = filesForTab(s, tab);
   const open = view?.focus === 'diff' && files.find((f) => f.path === view.filePath);
   if (open) return diffView(s, files, open, w, rows, view);
+  // 이번 지시에 고친 파일이 없으면 한 줄로 접고 남는 줄을 최근 활동에 준다. 목록에 들어가면(f) 다시 펼친다.
+  if (!files.length && !focused) {
+    const folded = rule([{ t: '변경 파일', fg: PALETTE.text, bold: true }, { t: ` · ${tab.label} 0개`, fg: PALETTE.muted }], `전체 ${all.length}개 · f`, w);
+    return [folded, activityRule(), ...activity(s, rows - 2)];
+  }
 
   // 목록에 들어가 있으면 구획 왼쪽에 ▌ 막대를 세우고 가로줄을 강조색으로 바꾼다.
   const gutter = focused ? [{ t: '▌', fg: PALETTE.brand }] : [];
@@ -218,8 +223,9 @@ export function detail(s, W, H, frame, view) {
   if (s.cost != null) section('비용');
   else if (s.context?.window) section('컨텍스트');
   if (s.cost != null) {
-    L.push([INDENT, { t: pad('API 환산', 9), fg: PALETTE.muted }, { t: money(s.cost, s.costUnknown), fg: PALETTE.money, bold: true }]);
-    more([{ t: `캐시 제외 ${money(s.costNoCache, s.costUnknown)}`, fg: PALETTE.faint }, ...(s.costUnknown ? [{ t: '  ? 가격표에 없는 모델 포함', fg: PALETTE.waiting }] : [])]);
+    const net = view?.costMode === 'net';
+    L.push([INDENT, { t: pad(net ? '캐시제외' : 'API 환산', 9), fg: PALETTE.muted }, { t: money(net ? s.costNoCache : s.cost, s.costUnknown), fg: PALETTE.money, bold: true }]);
+    more([{ t: net ? `API 환산 ${money(s.cost, s.costUnknown)}` : `캐시 제외 ${money(s.costNoCache, s.costUnknown)}`, fg: PALETTE.faint }, ...(s.costUnknown ? [{ t: '  ? 가격표에 없는 모델 포함', fg: PALETTE.waiting }] : [])]);
   }
   if (s.context?.window) {
     L.push([INDENT, { t: pad('컨텍스트', 9), fg: PALETTE.muted }, { t: pad(`${fmtTokens(s.context.used)}/${fmtTokens(s.context.window)}`, 11) + ' ', fg: PALETTE.text }, ...gauge(s.context.used, s.context.window, Math.max(4, leftW - width(INDENT.t) - 26))]);
