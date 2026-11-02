@@ -13,10 +13,10 @@ test('헤더는 상태 이름을 먼저 줄이고, 그래도 모자라면 토큰
   const head = (W) => screen(W)[0];
   assert.match(head(160), /1 작업 중 .*오늘 \$51\.96 132M · 7일 \$644 1\.20B · \d\d:\d\d:\d\d/);
   assert.match(head(115), /1 작업 .*오늘 \$51\.96 132M · 7일 \$644 1\.20B/, '이름을 줄여 숫자를 지킨다');
-  assert.match(head(100), /오늘 \$51\.96 · 7일 \$644 · \d\d:\d\d:\d\d/);
-  assert.doesNotMatch(head(100), /132M/);
-  assert.match(head(90), /오늘 \$51\.96 · \d\d:\d\d:\d\d/);
-  for (const W of [60, 80, 90, 100, 115, 140, 160]) assert.ok(width(head(W)) <= W, `${W}`);
+  assert.match(head(94), /오늘 \$51\.96 · 7일 \$644 · \d\d:\d\d:\d\d/);
+  assert.doesNotMatch(head(94), /132M/);
+  assert.match(head(84), /오늘 \$51\.96 · \d\d:\d\d:\d\d/);
+  for (const W of [60, 80, 84, 90, 94, 100, 115, 140, 160]) assert.ok(width(head(W)) <= W, `${W}`);
 });
 
 test('세션이 없는 도구는 이름만 보인다', () => {

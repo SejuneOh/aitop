@@ -40,7 +40,7 @@ export function header(view, W) {
     { t: `${n} ${narrow ? short : long}`, fg: n ? (bold ? color : PALETTE.text) : PALETTE.faint, bg: B, bold: bold && n > 0 },
   ];
   const leftOf = (narrow) => [
-    { t: ` ${BRAND.logo} aitop `, fg: PALETTE.chipText, bg: PALETTE.brand, bold: true },
+    { t: ` ${BRAND.logo} `, fg: PALETTE.chipText, bg: PALETTE.brand, bold: true },
     { t: '  ', bg: B },
     { t: `${live.length} live`, fg: PALETTE.text, bg: B, bold: true },
     ...stat('⠿', working, '작업 중', '작업', PALETTE.busy, false, narrow),

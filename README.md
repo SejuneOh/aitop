@@ -70,9 +70,9 @@ aitop --theme light|dark  밝은 배경 / 어두운 배경 색. 없으면 AITOP_
 
 | `AITOP_ICONS` | 헤더 로고 | 창·탭 제목 | WezTerm user var |
 |---|---|---|---|
-| (기본) | `⣠⣴⣾ aitop` | `󰚩 (2◆) aitop` (Nerd Font 로봇 U+F06A9) | 내보냄 |
-| `plain` | `⣠⣴⣾ aitop` | `⣾ (2◆) aitop` | 끔 |
-| `ascii` | `>_ai aitop` | `(2◆) aitop` | 끔 |
+| (기본) | `⣠⣴⣾` | `󰚩 (2◆) aitop` (Nerd Font 로봇 U+F06A9) | 내보냄 |
+| `plain` | `⣠⣴⣾` | `⣾ (2◆) aitop` | 끔 |
+| `ascii` | `>_ai` | `(2◆) aitop` | 끔 |
 
 Nerd Font 를 쓰지 않는 터미널에서는 탭 제목 아이콘이 빈 네모로 보일 수 있다. 그때는 `export AITOP_ICONS=plain` 으로 끈다.
 
