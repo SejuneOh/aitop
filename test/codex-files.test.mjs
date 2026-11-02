@@ -38,6 +38,18 @@ test('apply_patch 본문을 파일별 변경으로 바꾼다 (상대 경로는 c
   assert.deepEqual(parsePatch('그냥 글', '/w'), []);
 });
 
+test('본문에 *** End Patch 글자가 있어도 뒤 파일까지 읽는다', () => {
+  const p = ['*** Begin Patch', '*** Add File: a.mjs', '+const s = "*** End Patch";', '*** Update File: b.mjs', '@@', '-1', '+2', '*** End Patch'].join('\n');
+  assert.deepEqual(parsePatch(p, '/w').map((c) => c.filePath), ['/w/a.mjs', '/w/b.mjs']);
+});
+
+test('CRLF 패치와 앞 공백 없는 빈 문맥 줄', () => {
+  const p = ['*** Begin Patch', '*** Update File: c.mjs', '@@ x', ' a', '', '-b', '+c', '*** End Patch'].join('\r\n');
+  const h = parsePatch(p, '/w')[0].structuredPatch[0];
+  assert.deepEqual(h.lines, [' a', ' ', '-b', '+c']);
+  assert.deepEqual([h.oldLines, h.newLines], [3, 3]);
+});
+
 test('apply_patch 결과가 실패면 false', () => {
   assert.equal(patchSucceeded(JSON.stringify({ output: 'Success.', metadata: { exit_code: 0 } })), true);
   assert.equal(patchSucceeded(JSON.stringify({ output: 'Error', metadata: { exit_code: 2 } })), false);
@@ -67,6 +79,21 @@ test('Codex 세션은 성공한 패치만 변경 파일에 넣고 지시 목록�
   assert.equal(st.files.find((f) => f.path === '/w/src/gone.mjs').deleted, true);
   assert.deepEqual(st.turns.map((t) => [t.n, t.text]), [[1, '고쳐줘'], [2, '하나 더']]);
   assert.deepEqual(st.patches, {});
+});
+
+test('빈 지시는 건너뛰고, 패치 본문은 캐시 스냅샷에 남기지 않는다', () => {
+  const st = session([meta, prompt(1, '   '), prompt(2, '진짜 지시'), call(3, 'p9', PATCH)]);
+  assert.deepEqual(st.turns.map((t) => [t.n, t.text]), [[1, '진짜 지시']]);
+  assert.ok(st.patches.p9, '결과를 기다리는 중');
+  assert.ok(!('patches' in _test.snapshot(st)), '캐시에는 저장하지 않는다');
+  _test.applyLine(st, { type: 'event_msg', timestamp: ts(4), payload: { type: 'turn_aborted' } });
+  assert.deepEqual(st.patches, {});
+});
+
+test('apply_patch 가 아닌 shell 명령의 글은 패치로 보지 않는다', () => {
+  const args = JSON.stringify({ command: ['bash', '-lc', "rg '*** Begin Patch'\n*** Begin Patch\n*** Update File: x\n@@\n-a\n+b\n*** End Patch"] });
+  const st = session([meta, { type: 'response_item', timestamp: ts(1), payload: { type: 'function_call', name: 'shell', call_id: 'r1', arguments: args } }, { type: 'response_item', timestamp: ts(2), payload: { type: 'function_call_output', call_id: 'r1', output: '{"output":"","metadata":{"exit_code":0}}' } }]);
+  assert.deepEqual(st.files, []);
 });
 
 test('예전 shell 형식의 apply_patch 도 해석한다', () => {

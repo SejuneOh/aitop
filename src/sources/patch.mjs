@@ -9,12 +9,14 @@
 import { isAbsolute, join } from 'node:path';
 
 // 글 안에서 패치 부분만 꺼낸다 (예전 shell 호출은 명령 인자 안에 들어 있다).
+// 시작·끝 표시는 줄 전체가 그 표시일 때만 본다. 본문 글에 '*** End Patch' 가 들어 있어도 끊기지 않게 한다.
 export function extractPatch(text) {
-  const s = String(text ?? '');
-  const a = s.indexOf('*** Begin Patch');
-  if (a < 0) return null;
-  const b = s.indexOf('*** End Patch', a);
-  return s.slice(a, b < 0 ? undefined : b + '*** End Patch'.length);
+  const s = String(text ?? '').replace(/\r\n/g, '\n');
+  const begin = /^\*\*\* Begin Patch[ \t]*$/m.exec(s);
+  if (!begin) return null;
+  const rest = s.slice(begin.index);
+  const end = /^\*\*\* End Patch[ \t]*$/m.exec(rest);
+  return end ? rest.slice(0, end.index + end[0].length) : rest;
 }
 
 export function parsePatch(text, cwd) {
@@ -28,7 +30,7 @@ export function parsePatch(text, cwd) {
     hunk = { unnumbered: true, context, oldStart: 0, oldLines: 0, newStart: 0, newLines: 0, lines: [] };
     cur.structuredPatch.push(hunk);
   };
-  for (const line of patch.split('\n')) {
+  for (let line of patch.split('\n')) {
     let m;
     if ((m = /^\*\*\* (Update|Add|Delete) File: (.+)$/.exec(line))) {
       const path = abs(m[2].trim());
@@ -43,8 +45,10 @@ export function parsePatch(text, cwd) {
       if (line.startsWith('+')) cur.body.push(line.slice(1));
     } else if (cur?.structuredPatch) {
       if (line.startsWith('@@')) startHunk(line.slice(2).trim());
-      else if (/^[ +-]/.test(line)) {
+      // 앞 공백 없이 비어 있는 줄은 빈 문맥 줄로 본다.
+      else if (/^[ +-]/.test(line) || (line === '' && hunk)) {
         if (!hunk) startHunk('');
+        if (line === '') line = ' ';
         hunk.lines.push(line);
         if (line[0] !== '+') hunk.oldLines++;
         if (line[0] !== '-') hunk.newLines++;

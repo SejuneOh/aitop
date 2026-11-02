@@ -52,7 +52,7 @@ function recentFiles() {
   return out.sort((a, b) => b.mtime - a.mtime);
 }
 
-const SAVED = ['id', 'cwd', 'branch', 'model', 'busy', 'tokens', 'context', 'window', 'events', 'lastTool', 'startedAt', 'lastKind', 'files', 'turns', 'turnCount', 'patches'];
+const SAVED = ['id', 'cwd', 'branch', 'model', 'busy', 'tokens', 'context', 'window', 'events', 'lastTool', 'startedAt', 'lastKind', 'files', 'turns', 'turnCount'];
 
 function newState(path) {
   const st = { tail: new JsonlTail(path), id: basename(path), cwd: null, branch: null, model: null, busy: false, tokens: emptyTokens(), context: 0, window: 0, events: [], lastTool: null, startedAt: null, pending: new Map(), lastKind: null, files: [], turns: [], turnCount: 0, patches: {} };
@@ -99,6 +99,7 @@ function applyLine(st, x) {
       case 'turn_aborted':
         st.busy = false;
         st.pending.clear();
+        st.patches = {};
         break;
       case 'token_count': {
         const t = p.info?.total_token_usage;
@@ -112,10 +113,11 @@ function applyLine(st, x) {
       }
       case 'user_message':
         if (p.message && !isNoisePrompt(p.message)) {
-          pushEvent(st, x.timestamp, 'prompt', p.message);
-          const e = st.events.at(-1);
-          st.turns.push({ n: ++st.turnCount, at: e.at, text: e.text.slice(0, 120) });
-          if (st.turns.length > MAX_TURNS) st.turns.shift();
+          const e = pushEvent(st, x.timestamp, 'prompt', p.message);
+          if (e) {
+            st.turns.push({ n: ++st.turnCount, at: e.at, text: e.text.slice(0, 120) });
+            if (st.turns.length > MAX_TURNS) st.turns.shift();
+          }
         }
         st.lastKind = 'prompt';
         break;
@@ -134,7 +136,7 @@ function applyLine(st, x) {
       what = describeTool(p.name, args);
       // 예전 Codex 는 apply_patch 를 shell 명령 인자로 보냈다 (["apply_patch", "*** Begin Patch…"] 또는 bash -lc 안의 글).
       const cmd = Array.isArray(args.command) ? args.command.join('\n') : String(args.command ?? '');
-      const text = extractPatch(cmd);
+      const text = /\bapply_patch\b/.test(cmd) ? extractPatch(cmd) : null;
       if (p.call_id && text) st.patches[p.call_id] = { at: x.timestamp, text };
     } else if (p.type === 'custom_tool_call') {
       what = describeTool(p.name, p.input ?? '');
@@ -159,7 +161,7 @@ function applyLine(st, x) {
   }
 }
 
-export const _test = { newState, applyLine, phaseOf };
+export const _test = { newState, applyLine, phaseOf, snapshot };
 
 export function collectCodex({ showEnded, budget }) {
   const procs = findProcesses(isCodex);
