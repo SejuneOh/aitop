@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { mask, oneLine } from '../text.mjs';
+import { mask, oneLine, plainText } from '../text.mjs';
 
 export const MAX_EVENTS = 40;
 
@@ -10,8 +10,9 @@ export function emptyTokens() {
 // 기록 줄의 timestamp. 없거나 읽을 수 없으면 지금 시각.
 export const parseTs = (ts) => (ts && Date.parse(ts)) || Date.now();
 
+// 답변(reply)은 마크다운 기호를 지운 평문으로 남긴다.
 export function pushEvent(state, at, kind, text) {
-  const t = mask(oneLine(text));
+  const t = mask(oneLine(kind === 'reply' ? plainText(text) : text));
   if (!t) return null;
   const e = { at: parseTs(at), kind, text: t };
   state.events.push(e);

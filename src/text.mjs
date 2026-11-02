@@ -52,6 +52,22 @@ export function cleanLine(s) {
   return stripControl(String(s ?? '').replace(/\t/g, '  ').replace(/[\r\n]/g, ''));
 }
 
+// 마크다운 답변을 활동 한 줄용 평문으로 바꾼다. 구분선·표 구분 줄·코드 펜스와
+// `**질문:**` 처럼 굵은 이름표만 있는 줄은 건너뛰고, 굵게·인용·머리·백틱 기호를 지운다.
+// 밑줄 하나(a_b)나 별표 하나(*.mjs)처럼 이름에 흔한 글자는 건드리지 않는다.
+export function plainText(s) {
+  const out = [];
+  for (const raw of String(s ?? '').split('\n')) {
+    let l = raw.trim().replace(/^(>\s*)+/, '').replace(/^#{1,6}\s+/, '');
+    if (!l || /^```/.test(l) || /^([-*_]\s*){3,}$/.test(l) || /^\|?\s*:?-{2,}/.test(l)) continue;
+    if (/^(\*\*|__)[^*_]+(\*\*|__):?$/.test(l) && /:(\*\*|__)?$/.test(l)) continue;
+    if (l.startsWith('|')) l = l.replace(/^\||\|$/g, '').split('|').map((c) => c.trim()).filter(Boolean).join(' · ');
+    l = l.replace(/\*\*(.+?)\*\*/g, '$1').replace(/__(.+?)__/g, '$1').replace(/`([^`]*)`/g, '$1').trim();
+    if (l) out.push(l);
+  }
+  return out.join(' ');
+}
+
 export function oneLine(s) {
   return stripControl(String(s ?? '').replace(/\s+/g, ' ')).trim();
 }
