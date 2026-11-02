@@ -14,7 +14,8 @@ const states = new Map();
 
 function dayDirs() {
   const dirs = [];
-  for (let back = 0; back < 2; back++) {
+  // 며칠 동안 켜 둔 세션도 시작한 날짜 폴더에 기록하므로 일주일치 폴더를 본다.
+  for (let back = 0; back < 7; back++) {
     const d = new Date(Date.now() - back * 86400_000);
     const p = join(ROOT, String(d.getFullYear()), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0'));
     if (existsSync(p)) dirs.push(p);

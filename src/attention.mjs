@@ -30,3 +30,20 @@ export function nextAttention(state, sessions, selectedId) {
   const ordered = at < 0 ? sessions : [...sessions.slice(at + 1), ...sessions.slice(0, at)];
   return ordered.find((s) => s.status === 'waiting') ?? ordered.find((s) => state.unseen.has(s.id)) ?? null;
 }
+
+// 창 제목: 응답 대기(◆)와 확인 전(●) 수. 둘 다 없으면 aitop.
+export function windowTitle(sessions) {
+  const waiting = sessions.filter((s) => s.live && s.status === 'waiting').length;
+  const unseen = sessions.filter((s) => s.unseen).length;
+  const marks = [waiting && `${waiting}◆`, unseen && `${unseen}●`].filter(Boolean);
+  return marks.length ? `(${marks.join(' ')}) aitop` : 'aitop';
+}
+
+// 벨: 새로 응답 대기가 된 세션이 있을 때만 true. seen 은 지난번 응답 대기 세션 id 집합이며 여기서 갱신한다.
+export function newlyWaiting(seen, sessions) {
+  const now = new Set(sessions.filter((s) => s.live && s.status === 'waiting').map((s) => s.id));
+  const fresh = [...now].some((id) => !seen.has(id));
+  seen.clear();
+  for (const id of now) seen.add(id);
+  return fresh;
+}
