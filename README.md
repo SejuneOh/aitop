@@ -51,7 +51,12 @@ aitop --all      종료된 세션(24시간 이내)도 함께
 aitop --once     현재 상태를 한 번 출력
 aitop --json     세션 목록과 오늘·7일 사용량을 JSON 으로 한 번 출력 (--all 과 함께 가능)
                  0.5.0 부터 files[] 의 줄 수 필드는 writtenLines·deletedLines (편집 누적, 예전 added·removed)
+                 0.6.1 부터 비용(cost 등)은 소수 넷째 자리까지 반올림
+aitop --version  설치된 버전
 ```
+
+- 모르는 옵션을 주면 오류와 도움말을 보이고 2 로 끝난다.
+- `--once` 를 파이프나 파일로 받으면 색 코드를 넣지 않고(`FORCE_COLOR=1` 이면 넣음), 크기는 `COLUMNS`·`LINES` 를 따른다.
 
 | 키 | 동작 |
 |---|---|
