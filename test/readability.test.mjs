@@ -32,7 +32,7 @@ test('팀원 행: 부모와 같은 모델은 비우고, 하는 일 글을 PROJEC
 
 test('헤더: 응답 대기가 있으면 로고 바로 뒤에 둔다', () => {
   const head = draw(view([sess('w', { status: 'waiting', phase: { kind: 'waiting', text: '응답 대기' } })]))[0];
-  assert.match(head, /^ ⣠⣴⣾  +◆ 1 응답 대기 +1 live/);
+  assert.match(head, /^ ⣠⣴⣾ +◆ 1 응답 대기 +1 live/);
   assert.match(draw(view([sess('a')]))[0], /1 live .*◆ 0 응답 대기/, '없으면 원래 자리');
 });
 
@@ -50,8 +50,17 @@ test('c 키로 비용 기준을 바꾸면 표·헤더·상세가 같이 바뀐�
   assert.match(lines.find((l) => l.includes(' a ')), /▲\$195/);
   assert.match(lines.join("\n"), /캐시제외 +\$195[\s\S]*API 환산 \$2,120/);
   assert.match(lines.at(-1), /c +비용 API 환산/);
+  for (const W of [60, 70, 80, 90, 100, 110, 120]) {
+    const head = draw(v, W, 40)[0];
+    if (/\$/.test(head)) assert.match(head, /캐시 ?제외/, `W=${W} 금액이 보이면 기준도 보인다: ${head}`);
+  }
   onKey(v, 'c', act);
   assert.equal(v.costMode, 'api');
+});
+
+test('응답 대기를 앞에 둘 때 로고 뒤 공백은 두 칸', () => {
+  const head = draw(view([sess('w', { status: 'waiting', phase: { kind: 'waiting', text: '응답 대기' } })]))[0];
+  assert.match(head, /^ ⣠⣴⣾   ◆ 1 응답 대기/);
 });
 
 test('날짜별 합계에 캐시 제외 비용도 더한다', () => {

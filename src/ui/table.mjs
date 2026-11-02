@@ -43,7 +43,7 @@ export function header(view, W) {
     { t: ` ${BRAND.logo} `, fg: PALETTE.chipText, bg: PALETTE.brand, bold: true },
     { t: '  ', bg: B },
     // 응답 대기가 있으면 사람이 할 일이므로 맨 앞에 둔다.
-    ...(waiting ? [...stat('◆', waiting, '응답 대기', '응답', PALETTE.waiting, true, narrow), { t: '  ', bg: B }] : []),
+    ...(waiting ? [...stat('◆', waiting, '응답 대기', '응답', PALETTE.waiting, true, narrow).map((x, i) => (i === 0 ? { ...x, t: x.t.trimStart() } : x)), { t: '  ', bg: B }] : []),
     { t: `${live.length} live`, fg: PALETTE.text, bg: B, bold: true },
     ...stat('⠿', working, '작업 중', '작업', PALETTE.busy, false, narrow),
     ...(waiting ? [] : stat('◆', waiting, '응답 대기', '응답', PALETTE.waiting, true, narrow)),
@@ -75,7 +75,7 @@ export function header(view, W) {
         [apiShort, ...period('오늘', u.today, false), dot, clockSeg],
         [...period('오늘', u.today, false), dot, clockSeg],
         [clockSeg],
-      ]
+      ].filter((r) => !net || r[0] === api || r[0] === apiShort || r.length === 1)
     : [[...fallback, dot, clockSeg], [clockSeg]];
   // 사용량 숫자가 상태 이름보다 중요하므로, 이름을 먼저 줄이고 그래도 모자라면 오른쪽을 줄인다.
   for (const r of rights) {
@@ -166,8 +166,8 @@ export function memberRow(m, last, c, W, frame, parentModel, costMode = 'api') {
   // 팀원 행은 PROJECT 칸이 비므로 그 자리까지 하는 일 글을 이어 쓴다. general-purpose 타입은 정보가 없어 붙이지 않는다.
   const nameW = c.name - 2 + (c.showProject ? c.project + 1 : 0);
   const suffix = m.task && m.name !== 'general-purpose' ? ` · ${m.name}` : '';
-  const label = truncate(m.task || m.name, suffix ? nameW - 6 : nameW);
-  const showSuffix = suffix && nameW - width(label) >= 6;
+  const label = truncate(m.task || m.name, nameW);
+  const showSuffix = suffix && nameW - width(label) >= width(suffix);
   const started = m.started !== false;
   const sameModel = parentModel && shortModel(m.model) === shortModel(parentModel);
   if (c.showModel) segs.push({ t: pad(started && !sameModel ? shortModel(m.model) : '', c.model) + ' ', fg: PALETTE.faint });
