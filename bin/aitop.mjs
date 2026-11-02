@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs';
+import { BRAND, userVarsSeq } from '../src/brand.mjs';
 
-const HELP = `aitop - 터미널에서 Claude Code · Codex · Gemini 세션을 실시간으로 본다
+const HELP = `${BRAND.logo} aitop - 터미널에서 Claude Code · Codex · Gemini 세션을 실시간으로 본다
 
   aitop            실시간 화면
   aitop --once     현재 상태를 한 번 출력하고 끝낸다
@@ -11,6 +12,8 @@ const HELP = `aitop - 터미널에서 Claude Code · Codex · Gemini 세션을 �
   aitop --bell     응답 대기 세션이 새로 생기면 터미널 벨을 울린다
   aitop --theme light|dark  밝은 배경 / 어두운 배경 색 (없으면 COLORFGBG 로 고른다)
   aitop --version  설치된 버전을 보인다
+
+  AITOP_ICONS=plain  창 제목의 Nerd Font 아이콘과 WezTerm 탭 값을 끈다 (ascii 면 로고도 ASCII)
 
   키: / 검색 · ↑↓/jk 선택 · n 다음 볼 세션 · f 변경 파일 · d 상세 · e 종료 세션 토글 · Esc 뒤로 · ? 도움말 · q 나가기`;
 const KNOWN = new Set(['-h', '--help', '-v', '--version', '--once', '--all', '--json', '--doctor', '--bell']);
@@ -70,7 +73,7 @@ const { collect } = await import('../src/collect.mjs');
 const { render, filterSessions } = await import('../src/ui.mjs');
 const { flushCache } = await import('../src/cache.mjs');
 const { toJson } = await import('../src/json.mjs');
-const { createAttention, updateAttention, markSeen, nextAttention, windowTitle, newlyWaiting } = await import('../src/attention.mjs');
+const { createAttention, updateAttention, markSeen, nextAttention, windowTitle, newlyWaiting, attentionCounts } = await import('../src/attention.mjs');
 const { onKey, fixFocus } = await import('../src/keys.mjs');
 
 const view = { data: null, selectedId: null, showDetail: true, showEnded: args.has('--all'), frame: 0, filter: '', searching: false, help: false, focus: null, filePath: null, diffScroll: 0, tab: 'now' };
@@ -130,10 +133,12 @@ let lastTitle = '';
 
 function draw() {
   const frame = render(view, out.columns, out.rows).join('\r\n');
-  const title = windowTitle(view.data?.sessions ?? []);
+  const title = windowTitle(view.data?.sessions ?? [], BRAND.tab);
   if (title !== lastTitle) {
     lastTitle = title;
     out.write(`\x1b]0;${title}\x07`);
+    // WezTerm 탭 제목에서 읽을 수 있게 같은 수를 user var 로도 내보낸다.
+    if (BRAND.userVars) out.write(userVarsSeq(attentionCounts(view.data?.sessions ?? [])));
   }
   if (frame === last) return;
   last = frame;
@@ -150,7 +155,7 @@ function enterScreen() {
 }
 
 function leaveScreen() {
-  out.write('\x1b[0m\x1b[?25h\x1b[?1049l\x1b[23;0t');
+  out.write('\x1b[0m\x1b[?25h\x1b[?1049l\x1b[23;0t' + (BRAND.userVars ? userVarsSeq(null) : ''));
   if (stdin.isTTY) stdin.setRawMode(false);
 }
 

@@ -59,7 +59,9 @@ test('f → ←/→ → Enter → Esc 로 오가고, Esc 로는 끝나지 않고
     await press('q');
     const code = await Promise.race([exited, sleep(5_000).then(() => 'timeout')]);
     assert.equal(code, 0, 'q 로 끝난다');
-    assert.match(out, /\x1b\]0;(\(\d+[◆●][^)]*\) )?aitop\x07/, '창 제목을 쓴다');
+    assert.match(out, /\x1b\]0;\u{F06A9} (\(\d+[◆●][^)]*\) )?aitop\x07/u, '창 제목을 Nerd 아이콘과 함께 쓴다');
+    assert.match(out, /\x1b\]1337;SetUserVar=aitop=MQ==\x07/, 'WezTerm user var 를 내보낸다');
+    assert.ok(out.lastIndexOf('SetUserVar=aitop=\x07') > out.lastIndexOf('SetUserVar=aitop=MQ=='), '끝낼 때 user var 를 지운다');
     assert.ok(out.indexOf('\x1b[22;0t') < out.lastIndexOf('\x1b[23;0t'), '시작할 때 저장한 창 제목을 끝낼 때 되돌린다');
   } finally {
     if (child.exitCode == null) child.kill('SIGKILL');

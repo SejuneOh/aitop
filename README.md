@@ -1,4 +1,4 @@
-# aitop
+# ⣠⣴⣾ aitop
 
 터미널에서 지금 돌고 있는 AI 코딩 세션(Claude Code · Codex CLI · Gemini CLI)과 진행 내용, 토큰을 실시간으로 보는 읽기 전용 모니터.
 
@@ -62,7 +62,35 @@ aitop --theme light|dark  밝은 배경 / 어두운 배경 색. 없으면 AITOP_
 
 색 없이도(NO_COLOR) 보이도록 비용 상위 두 세션에는 `▲`, 컨텍스트 85% 이상에는 `!` 가 붙는다.
 
-실시간 화면은 창(탭) 제목을 `(2◆ 1●) aitop` 처럼 응답 대기·확인 전 수로 바꾼다. `--bell` 을 주면 응답 대기가 새로 생길 때 벨을 한 번 울린다.
+실시간 화면은 창(탭) 제목을 `󰚩 (2◆ 1●) aitop` 처럼 아이콘과 응답 대기·확인 전 수로 바꾼다. `--bell` 을 주면 응답 대기가 새로 생길 때 벨을 한 번 울린다.
+
+### 로고와 탭 아이콘
+
+로고 `⣠⣴⣾` 는 점점 높아지는 막대 세 개다 (top 미터, 도구 셋). 점자 글자라 한글 터미널에서도 폭이 1칸으로 정해져 있다.
+
+| `AITOP_ICONS` | 헤더 로고 | 창·탭 제목 | WezTerm user var |
+|---|---|---|---|
+| (기본) | `⣠⣴⣾ aitop` | `󰚩 (2◆) aitop` (Nerd Font 로봇 U+F06A9) | 내보냄 |
+| `plain` | `⣠⣴⣾ aitop` | `⣾ (2◆) aitop` | 끔 |
+| `ascii` | `>_ai aitop` | `(2◆) aitop` | 끔 |
+
+Nerd Font 를 쓰지 않는 터미널에서는 탭 제목 아이콘이 빈 네모로 보일 수 있다. 그때는 `export AITOP_ICONS=plain` 으로 끈다.
+
+WezTerm 은 aitop 이 내보내는 user var(`aitop`, `aitop_waiting`, `aitop_unseen`)로 탭을 꾸밀 수 있다. `wezterm.lua` 예:
+
+```lua
+local wezterm = require 'wezterm'
+wezterm.on('format-tab-title', function(tab)
+  local v = tab.active_pane.user_vars
+  if v.aitop == '1' then
+    local w = tonumber(v.aitop_waiting or '0') or 0
+    return { { Foreground = { Color = w > 0 and '#fbbf24' or '#7dd3fc' } }, { Text = ' 󰚩 aitop' .. (w > 0 and (' ' .. w .. '◆') or '') .. ' ' } }
+  end
+end)
+```
+
+- `format-tab-title` 핸들러는 하나만 쓰인다. 이미 있으면 그 안에 위 조건을 합친다.
+- tmux 안에서 돌리면 tmux 가 user var 를 전달하지 않아 탭 값이 오지 않는다.
 
 - 모르는 옵션을 주면 오류와 도움말을 보이고 2 로 끝난다.
 - `--once` 를 파이프나 파일로 받으면 색 코드를 넣지 않고(`FORCE_COLOR=1` 이면 넣음), 크기는 `COLUMNS`·`LINES` 를 따른다.
