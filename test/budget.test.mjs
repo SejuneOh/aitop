@@ -11,12 +11,24 @@ const { collect } = await import('../src/collect.mjs');
 const big = join(fx.home, 'big.jsonl');
 writeFileSync(big, Array.from({ length: 40_000 }, (_, i) => JSON.stringify({ i, pad: 'x'.repeat(200) })).join('\n') + '\n');
 
-test('시간 한도에 닿으면 멈추고 exhausted 를 남긴다', () => {
+test('시간 한도가 이미 지났어도 한 청크는 읽고, 그 뒤 파일은 멈춘다', () => {
   const t = new JsonlTail(big);
+  const t2 = new JsonlTail(big);
   const b = createBudget(Infinity, 0);
-  assert.equal(t.read(() => {}, b), 0);
+  assert.ok(t.read(() => {}, b) > 0, '한 청크는 읽는다');
+  assert.equal(t.offset, 1 << 20);
   assert.equal(b.exhausted, true);
-  assert.equal(t.offset, 0);
+  assert.equal(t2.read(() => {}, b), 0, '같은 틱의 다음 파일은 기다린다');
+});
+
+test('한도가 0ms 여도 틱을 거듭하면 끝까지 읽는다 (고정 작업이 한도를 넘는 느린 환경)', () => {
+  const t = new JsonlTail(big);
+  let ticks = 0;
+  while (!t.done && ticks < 100) {
+    t.read(() => {}, createBudget(Infinity, 0));
+    ticks++;
+  }
+  assert.ok(t.done, `${ticks} 틱`);
 });
 
 test('바이트 한도에 닿아도 exhausted, 다 읽으면 그대로 false', () => {
