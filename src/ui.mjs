@@ -83,14 +83,24 @@ function glyph(s, frame) {
   return { t: SPIN[frame % SPIN.length], fg: PHASE_COLOR[k] ?? PALETTE.busy, bold: true };
 }
 
+// 막대 끝은 1/8 칸 단위로 그려 작은 변화도 보이게 한다.
+const EIGHTHS = '▏▎▍▌▋▊▉';
+
 function gauge(used, total, cells) {
   if (!total) return [{ t: '─'.repeat(cells) + '     ', fg: PALETTE.faint }];
   const r = Math.min(1, used / total);
-  const filled = Math.round(r * cells);
+  const exact = r * cells;
+  let full = Math.floor(exact);
+  let part = Math.round((exact - full) * 8);
+  if (part === 8) {
+    full++;
+    part = 0;
+  }
+  const tip = part && full < cells ? EIGHTHS[part - 1] : '';
   const color = r >= 0.85 ? PALETTE.alert : r >= 0.6 ? PALETTE.waiting : PALETTE.busy;
   return [
-    { t: '━'.repeat(filled), fg: color },
-    { t: '─'.repeat(cells - filled), fg: PALETTE.faint },
+    { t: '━'.repeat(full) + tip, fg: color },
+    { t: '─'.repeat(cells - full - (tip ? 1 : 0)), fg: PALETTE.faint },
     { t: pad(`${Math.round(r * 100)}%`, 5, 'right'), fg: r >= 0.85 ? PALETTE.alert : PALETTE.muted },
   ];
 }
@@ -283,16 +293,26 @@ function fill(segs, n, bg) {
   return bg ? out.map((x) => ({ bg, ...x })) : out;
 }
 
-function box(title, W, H, leftLines, rightLines, leftW, accent, divider = PALETTE.line) {
+// 상자 테두리. 포커스가 있으면 강조색으로, 색이 없으면 굵은 선으로 구분한다.
+const EDGE = {
+  normal: { tl: '╭', tr: '╮', bl: '╰', br: '╯', h: '─', v: '│' },
+  heavy: { tl: '┏', tr: '┓', bl: '┗', br: '┛', h: '━', v: '┃' },
+};
+
+// title: 조각 배열 또는 문자열.
+function box(title, W, H, leftLines, rightLines, leftW, accent, focused = false) {
+  const e = focused && NO_COLOR ? EDGE.heavy : EDGE.normal;
+  const fg = focused ? PALETTE.brand : PALETTE.line;
   const out = [];
-  const titleText = ` ${title} `;
-  out.push(line([{ t: '╭─', fg: PALETTE.line }, { t: titleText, fg: accent, bold: true }, { t: '─'.repeat(Math.max(0, W - 3 - width(titleText))) + '╮', fg: PALETTE.line }], W));
+  const titleSegs = typeof title === 'string' ? [{ t: title, fg: accent, bold: true }] : title;
+  const titleW = titleSegs.reduce((a, x) => a + width(x.t), 0) + 2;
+  out.push(line([{ t: e.tl + e.h, fg }, { t: ' ' }, ...titleSegs, { t: ' ' }, { t: e.h.repeat(Math.max(0, W - 3 - titleW)) + e.tr, fg }], W));
   // '│ ' + 왼쪽 + ' │ ' + 오른쪽 + ' │' = W
   const rightW = W - leftW - 7;
   for (let i = 0; i < H - 2; i++) {
-    out.push(line([{ t: '│ ', fg: PALETTE.line }, ...fill(leftLines[i] ?? [], leftW), { t: ' │ ', fg: divider }, ...fill(rightLines[i] ?? [], rightW), { t: ' │', fg: PALETTE.line }], W));
+    out.push(line([{ t: `${e.v} `, fg }, ...fill(leftLines[i] ?? [], leftW), { t: ` ${e.v} `, fg }, ...fill(rightLines[i] ?? [], rightW), { t: ` ${e.v}`, fg }], W));
   }
-  out.push(line([{ t: '╰' + '─'.repeat(W - 2) + '╯', fg: PALETTE.line }], W));
+  out.push(line([{ t: e.bl + e.h.repeat(W - 2) + e.br, fg }], W));
   return out;
 }
 
@@ -401,12 +421,21 @@ function activity(s, n, dim = false) {
 }
 
 // ‹이번 지시›  T5  T3  전체. 색을 꺼도 보이게 고른 탭은 ‹ › 로 감싼다. 폭이 모자라면 가운데 지시 탭부터 줄인다.
+// 이전 지시 탭은 3개까지만 보이고 나머지는 … +N 으로 접는다. 고른 탭이 들어가게 창을 옮긴다.
+const TAB_WINDOW = 3;
+
 function tabsLine(tabs, tab, w) {
   const seg = (t) => (t.key === tab.key ? { t: `‹${t.label}›`, fg: PALETTE.text, bg: PALETTE.rowSel, bold: true } : { t: t.label, fg: PALETTE.muted });
-  const keep = [...tabs];
-  const barW = () => keep.reduce((a, t) => a + width(seg(t).t) + 2, 0);
+  const turns = tabs.slice(1, -1);
+  const at = turns.findIndex((t) => t.key === tab.key);
+  const start = at >= TAB_WINDOW ? at - TAB_WINDOW + 1 : 0;
+  const keep = [tabs[0], ...turns.slice(start, start + TAB_WINDOW), tabs.at(-1)];
+  const more = () => turns.length - (keep.length - 2);
+  const barW = () => keep.reduce((a, t) => a + width(seg(t).t) + 2, 0) + (more() ? 6 : 0);
   for (let i = keep.length - 2; i > 0 && barW() > w; i--) if (keep[i].key !== tab.key) keep.splice(i, 1);
-  return keep.flatMap((t) => [seg(t), { t: '  ' }]);
+  const segs = keep.flatMap((t) => [seg(t), { t: '  ' }]);
+  if (more()) segs.splice(segs.length - 2, 0, { t: `… +${more()}`, fg: PALETTE.faint }, { t: '  ' });
+  return segs;
 }
 
 // 탭 아래 설명: 지시면 시각과 첫 줄, 전체면 편집 수.
@@ -466,34 +495,40 @@ function detail(s, W, H, frame, view) {
   const tc = PALETTE.tools[s.tool];
   const leftW = Math.min(46, Math.max(30, Math.floor((W - 4) * 0.38)));
   const L = [];
-  const kv = (k, v, fg = PALETTE.text) => L.push([{ t: pad(k, 9), fg: PALETTE.muted }, { t: v ?? '-', fg }]);
+  // 왼쪽 칸도 오른쪽 칸처럼 라벨 가로줄로 나누고 내용은 1칸 들여 쓴다.
+  const section = (name) => L.push(rule([{ t: name, fg: PALETTE.text, bold: true }], '', leftW));
+  const kv = (k, v, fg = PALETTE.text) => L.push([INDENT, { t: pad(k, 9), fg: PALETTE.muted }, { t: v ?? '-', fg }]);
+  const more = (segs) => L.push([INDENT, { t: ' '.repeat(9) }, ...segs]);
 
   const g = glyph(s, frame);
   L.push([{ ...g, t: g.t + ' ' }, { t: s.phase?.text ?? s.status, fg: PHASE_COLOR[s.phase?.kind] ?? PALETTE.text, bold: true }]);
+  section('세션');
   kv('폴더', tilde(s.cwd));
   if (s.branch) kv('브랜치', s.branch);
   kv('모델', s.model ?? '-');
   kv('종류', `${s.kind ?? '-'}${s.pid ? ` · pid ${s.pid}` : ''}`);
   if (s.startedAt) kv('시작', `${clock(s.startedAt)}  (${fmtAgo(NOW - s.startedAt)} 전)`);
-  L.push([]);
 
   // 합계 = 메인 + 서브 = 입력 + 출력 + 캐시 읽기 + 캐시 쓰기 가 화면에서 그대로 맞아떨어지게 보인다.
   const t = s.tokens ?? {};
-  L.push([{ t: pad('토큰', 9), fg: PALETTE.muted, bold: true }, { t: fmtTokens(t.total), fg: PALETTE.text, bold: true }]);
-  if (t.subCount) L.push([{ t: ' '.repeat(9) }, { t: `메인 ${fmtTokens(t.main)} + 서브 ${t.subCount}개 ${fmtTokens(t.sub)}`, fg: PALETTE.faint }]);
-  L.push([{ t: ' '.repeat(9) }, { t: `입력 ${fmtTokens(t.input)} · 출력 ${fmtTokens(t.output)}`, fg: PALETTE.faint }]);
-  L.push([{ t: ' '.repeat(9) }, { t: `캐시 읽기 ${fmtTokens(t.cacheRead)} · 쓰기 ${fmtTokens(t.cacheWrite)}`, fg: PALETTE.faint }]);
+  section('토큰');
+  kv('합계', fmtTokens(t.total));
+  if (t.subCount) more([{ t: `메인 ${fmtTokens(t.main)} + 서브 ${t.subCount}개 ${fmtTokens(t.sub)}`, fg: PALETTE.faint }]);
+  more([{ t: `입력 ${fmtTokens(t.input)} · 출력 ${fmtTokens(t.output)}`, fg: PALETTE.faint }]);
+  more([{ t: `캐시 읽기 ${fmtTokens(t.cacheRead)} · 쓰기 ${fmtTokens(t.cacheWrite)}`, fg: PALETTE.faint }]);
+  if (s.cost != null || s.context?.window) section('비용');
   if (s.cost != null) {
-    L.push([{ t: pad('비용', 9), fg: PALETTE.muted, bold: true }, { t: money(s.cost, s.costUnknown), fg: PALETTE.money, bold: true }, { t: ' API 환산', fg: PALETTE.faint }]);
-    L.push([{ t: ' '.repeat(9) }, { t: `캐시 제외 ${money(s.costNoCache, s.costUnknown)}`, fg: PALETTE.faint }, ...(s.costUnknown ? [{ t: '  ? 가격표에 없는 모델 포함', fg: PALETTE.waiting }] : [])]);
+    L.push([INDENT, { t: pad('API 환산', 9), fg: PALETTE.muted }, { t: money(s.cost, s.costUnknown), fg: PALETTE.money, bold: true }]);
+    more([{ t: `캐시 제외 ${money(s.costNoCache, s.costUnknown)}`, fg: PALETTE.faint }, ...(s.costUnknown ? [{ t: '  ? 가격표에 없는 모델 포함', fg: PALETTE.waiting }] : [])]);
   }
   if (s.context?.window) {
-    L.push([{ t: pad('컨텍스트', 9), fg: PALETTE.muted }, { t: pad(`${fmtTokens(s.context.used)}/${fmtTokens(s.context.window)}`, 11) + ' ', fg: PALETTE.text }, ...gauge(s.context.used, s.context.window, Math.max(4, leftW - 26))]);
+    L.push([INDENT, { t: pad('컨텍스트', 9), fg: PALETTE.muted }, { t: pad(`${fmtTokens(s.context.used)}/${fmtTokens(s.context.window)}`, 11) + ' ', fg: PALETTE.text }, ...gauge(s.context.used, s.context.window, Math.max(4, leftW - 26))]);
   }
 
   const R = rightColumn(s, W - leftW - 7, H - 2, view);
-  const title = `${s.name ?? s.tool}  ·  ${s.tool}${s.model ? ' · ' + s.model : ''}`;
-  return box(title, W, H, L, R, leftW, tc, view?.focus ? tc : PALETTE.line);
+  // 제목: 세션 이름은 진하게, 도구·모델은 도구 색으로.
+  const title = [{ t: s.name ?? s.tool, fg: PALETTE.text, bold: true }, { t: `  ${s.tool}${s.model ? ' · ' + s.model : ''}`, fg: tc }];
+  return box(title, W, H, L, R, leftW, tc, Boolean(view?.focus));
 }
 
 const HELP = [

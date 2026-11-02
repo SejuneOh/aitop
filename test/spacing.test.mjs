@@ -16,8 +16,9 @@ function right(H, extra = {}, n = 3, W = 120) {
   // 높은 화면에서는 세션 표도 상자라서, 상세 패널은 마지막 상자다.
   const top = lines.findLastIndex((l) => l.startsWith('╭'));
   const body = lines.slice(top + 1, lines.findIndex((l, i) => i > top && l.startsWith('╰')));
-  const ruled = body.find((l) => l.includes('── 최근 활동')) ?? body[0];
-  const col = width(ruled.slice(0, ruled.indexOf('──', 2)));
+  // 왼쪽 칸에도 가로줄이 있으므로 라벨로 위치를 찾는다.
+  const ruled = body.find((l) => l.includes('── 최근 활동'));
+  const col = ruled ? width(ruled.slice(0, ruled.indexOf('── 최근 활동'))) : width(body[0].slice(0, body[0].indexOf('│', 2) + 2));
   return body.map((l) => {
     let w = 0;
     let i = 0;
