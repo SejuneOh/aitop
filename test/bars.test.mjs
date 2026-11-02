@@ -13,7 +13,6 @@ test('헤더는 상태 이름을 먼저 줄이고, 그래도 모자라면 토큰
   const head = (W) => screen(W)[0];
   assert.match(head(160), /1 작업 중 .*오늘 \$51\.96 132M · 7일 \$644 1\.20B · \d\d:\d\d:\d\d/);
   assert.match(head(115), /1 작업 .*오늘 \$51\.96 132M · 7일 \$644 1\.20B/, '이름을 줄여 숫자를 지킨다');
-  // 헤더 칩이 로고만이라(5칸) 경계 폭은 칩에 aitop 이 있던 때보다 6칸 좁다.
   assert.match(head(94), /오늘 \$51\.96 · 7일 \$644 · \d\d:\d\d:\d\d/);
   assert.doesNotMatch(head(94), /132M/);
   assert.match(head(84), /오늘 \$51\.96 · \d\d:\d\d:\d\d/);

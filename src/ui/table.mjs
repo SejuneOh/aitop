@@ -40,7 +40,6 @@ export function header(view, W) {
     { t: `${n} ${narrow ? short : long}`, fg: n ? (bold ? color : PALETTE.text) : PALETTE.faint, bg: B, bold: bold && n > 0 },
   ];
   const leftOf = (narrow) => [
-    // 이름은 창 제목에 있으니 헤더 칩에는 로고만 둔다.
     { t: ` ${BRAND.logo} `, fg: PALETTE.chipText, bg: PALETTE.brand, bold: true },
     { t: '  ', bg: B },
     { t: `${live.length} live`, fg: PALETTE.text, bg: B, bold: true },
