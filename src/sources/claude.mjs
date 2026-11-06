@@ -7,15 +7,13 @@ import { join, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { isAlive } from '../procs.mjs';
 import { ClaudeTracker } from './claude-tracker.mjs';
-import { emptyTokens } from './common.mjs';
+import { emptyTokens, MEMBER_FADE_MS } from './common.mjs';
 import { mergeFiles } from './files.mjs';
 
 const HOME = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude');
 const SESSIONS = join(HOME, 'sessions');
 const PROJECTS = join(HOME, 'projects');
 const ENDED_WINDOW_MS = 24 * 3600 * 1000;
-// 끝난 팀원은 이 시간 동안 "완료"로 보였다가 목록에서 사라진다.
-const MEMBER_FADE_MS = 6000;
 // finished 표시 없이 중간에 끊긴 팀원 기록이 남기 때문에, 이 시간 넘게 기록이 없으면 실행 중으로 보지 않는다.
 const MEMBER_STALE_MS = 15 * 60_000;
 
