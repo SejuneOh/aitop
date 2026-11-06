@@ -144,12 +144,15 @@ function agy() {
   const last = newest(files.flatMap((f) => [f, `${f}-wal`]).filter((f) => existsSync(f)));
   if (!loadSqlite()) return { tool: 'agy', state: 'limited', path: tilde(AGY_ROOT), records: files.length, lastAt: last?.mtime ?? null, running, readable: null, hint: `Node ${process.versions.node} 에는 node:sqlite 가 없어 프로세스만 감지합니다 (Node 22.13 이상 필요)` };
   let readable = false;
+  let db;
   try {
-    const db = openReadOnly(join(AGY_ROOT, 'conversation_summaries.db'));
+    db = openReadOnly(join(AGY_ROOT, 'conversation_summaries.db'));
     db.prepare('select count(*) n from conversation_summaries').get();
-    db.close();
     readable = true;
-  } catch {}
+  } catch {
+  } finally {
+    db?.close();
+  }
   return { tool: 'agy', state: 'ok', path: tilde(AGY_ROOT), records: files.length, lastAt: last?.mtime ?? null, running, readable, hint: null };
 }
 

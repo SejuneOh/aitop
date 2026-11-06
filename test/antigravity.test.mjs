@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -115,6 +115,18 @@ test('토큰은 호출마다 더하고, 새 줄만 이어 읽는다', { skip: no
   assert.equal(g.prompt, 420, '컨텍스트는 마지막 호출의 입력 + 캐시');
   makeConversation('u1', [{ input: 1, output: 1, cacheRead: 1 }]);
   assert.equal(readUsage('u1', createBudget()).tokens.total, 588);
+});
+
+test('기록을 읽어도 agy 폴더에 -wal·-shm 같은 파일을 만들지 않는다', { skip: noSqlite }, () => {
+  const p = join(root, 'conversations', 'wal-1.db');
+  const w = new sqlite.DatabaseSync(p);
+  w.exec('pragma journal_mode=wal; create table gen_metadata (idx integer primary key, data blob, size integer not null default 0)');
+  w.prepare('insert into gen_metadata (idx, data) values (0, ?)').run(generation({ input: 7, output: 3 }));
+  w.close();
+  const before = readdirSync(join(root, 'conversations')).filter((f) => f.startsWith('wal-1')).sort();
+  assert.deepEqual(before, ['wal-1.db'], 'agy 가 닫히면 -wal·-shm 은 지워진다');
+  assert.equal(readUsage('wal-1', createBudget()).tokens.total, 10);
+  assert.deepEqual(readdirSync(join(root, 'conversations')).filter((f) => f.startsWith('wal-1')).sort(), before);
 });
 
 test('읽기 한도에 닿으면 멈췄다가 다음 갱신에 이어 읽는다', { skip: noSqlite }, () => {

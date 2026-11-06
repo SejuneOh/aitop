@@ -3,7 +3,7 @@
 // - conversations/<id>.db 의 gen_metadata: 모델 호출 한 번에 한 줄. protobuf 안에 모델 이름과 토큰 사용량이 있다.
 // 실행 중인 agy 와 대화는 /proc/<pid>/fd 에 열린 presence/<id>.lock 으로 짝짓는다. /proc 이 없으면 작업 폴더로 짝짓는다.
 // 세션은 Gemini 탭에 보인다 (agy 는 Gemini CLI 의 후속 도구다).
-import { statSync, openSync, readSync, closeSync } from 'node:fs';
+import { statSync, openSync, readSync, closeSync, existsSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -126,35 +126,38 @@ export function readUsage(id, budget) {
     budget.exhausted = true;
     return g;
   }
+  // 복사본에 더하고, 끝까지 탈 없이 읽었을 때만 반영한다.
+  const n = { ...g, tokens: { ...g.tokens } };
   let db;
+  let ok = false;
   try {
     db = openReadOnly(path);
     if (!db) return g;
     const last = db.prepare('select max(idx) m from gen_metadata').get()?.m ?? -1;
     // 마지막 줄 번호가 줄었으면 기록이 새로 쓰인 것이니 처음부터 다시 더한다.
-    if (last < g.idx) Object.assign(g, fresh());
+    if (last < n.idx) Object.assign(n, fresh());
     const q = db.prepare('select idx, data from gen_metadata where idx > ? order by idx limit ?');
     for (;;) {
-      const rows = q.all(g.idx, BATCH);
+      const rows = q.all(n.idx, BATCH);
       for (const r of rows) {
-        g.idx = r.idx;
-        const n = r.data?.length ?? 0;
-        budget.left -= n;
-        budget.read = (budget.read ?? 0) + n;
+        n.idx = r.idx;
+        const size = r.data?.length ?? 0;
+        budget.left -= size;
+        budget.read = (budget.read ?? 0) + size;
         const x = readGeneration(r.data);
-        if (x?.model) g.model = x.model;
+        if (x?.model) n.model = x.model;
         const u = x?.usage;
         if (!u) continue;
-        const t = g.tokens;
+        const t = n.tokens;
         t.input += u.input;
         t.output += u.output;
         t.cacheRead += u.cacheRead;
         t.cacheWrite += u.cacheWrite;
         t.total += u.input + u.output + u.cacheRead + u.cacheWrite;
-        g.prompt = u.input + u.cacheRead + u.cacheWrite;
+        n.prompt = u.input + u.cacheRead + u.cacheWrite;
       }
       if (rows.length < BATCH) {
-        g.sig = sig;
+        n.sig = sig;
         break;
       }
       if (outOf(budget)) {
@@ -162,11 +165,14 @@ export function readUsage(id, budget) {
         break;
       }
     }
+    // immutable 로 읽는 동안 agy 가 쓰기 시작했으면 읽은 내용을 믿을 수 없으니 버리고 다음 갱신에 다시 읽는다.
+    ok = !db.immutable || sigOf(path) === sig;
   } catch {
     // agy 가 쓰는 중이라 잠겨 있으면 다음 갱신에 다시 읽는다.
   } finally {
     db?.close();
   }
+  if (ok) Object.assign(g, n);
   return g;
 }
 
@@ -259,7 +265,8 @@ function member(r, budget) {
     cost: null,
     costNoCache: null,
     costUnknown: g.tokens.total > 0,
-    startedAt: r.updatedAt,
+    // 기록에 시작 시각이 없어 마지막으로 바뀐 시각을 둔다 (정렬용).
+    updatedAt: r.updatedAt,
   };
 }
 
@@ -295,7 +302,8 @@ function placeholder(p, text) {
 
 export function collectAgy({ showEnded, budget }) {
   const procs = findProcesses(isAgy);
-  if (!procs.length && !showEnded) return [];
+  // 기록 폴더가 없으면 agy 를 실행한 적이 없는 것이다 (테스트에서 AITOP_AGY_HOME 으로 실제 기록과 떼어 놓을 때도 쓴다).
+  if (!existsSync(AGY_ROOT) || (!procs.length && !showEnded)) return [];
   if (!loadSqlite()) return procs.map((p) => placeholder(p, '실행 중 (세부 정보는 Node 22.13 이상)'));
 
   const rows = readSummaries();
@@ -315,7 +323,7 @@ export function collectAgy({ showEnded, budget }) {
     const isLive = live.has(r.id);
     const g = readUsage(r.id, budget);
     const kids = children.get(r.id) ?? [];
-    const members = kids.map((c) => member(c, budget)).sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0));
+    const members = kids.map((c) => member(c, budget)).sort((a, b) => (a.updatedAt ?? 0) - (b.updatedAt ?? 0));
     // 메인과 서브에이전트를 항목별로 더한다 (Claude 세션과 같은 방식).
     const tokens = { ...g.tokens, main: g.tokens.total, sub: 0, subCount: kids.length };
     for (const c of kids) {
