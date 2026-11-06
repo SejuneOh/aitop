@@ -12,11 +12,17 @@ import { canListProcesses } from '../src/procs.mjs';
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'aitop-agy-')));
 process.env.AITOP_AGY_HOME = root;
 process.env.XDG_CACHE_HOME = join(root, 'cache');
+process.env.CLAUDE_CONFIG_DIR = join(root, 'claude-empty');
 mkdirSync(join(root, 'conversations'));
 mkdirSync(join(root, 'presence'));
 
 const { pbFields, readGeneration, readConversation, readStep, describeAgyTool, phaseOf, waitingFor, STEP, idFromPath, matchLive, agyRoot, parseTime, cwdOf, collectAgy } = await import('../src/sources/antigravity.mjs');
 const { createBudget } = await import('../src/tail.mjs');
+const { stepTime } = await import('../src/sources/antigravity.mjs');
+const { collectAgyLedger, _test: agyLedger } = await import('../src/sources/agy-ledger.mjs');
+const { collectLedger } = await import('../src/sources/claude-ledger.mjs');
+const { dayKey } = await import('../src/sources/common.mjs');
+const { flushCache } = await import('../src/cache.mjs');
 
 const sqlite = loadSqlite();
 const noSqlite = !sqlite && 'agy 기록을 immutable 로 열 수 없는 Node (22.15 미만)';
@@ -37,10 +43,13 @@ const bytes = (f, v) => {
   const b = Buffer.isBuffer(v) ? v : Buffer.from(v);
   return Buffer.concat([varint(f * 8 + 2), varint(b.length), b]);
 };
-// 실제 기록과 같은 모양: 1 → { 3 모델 번호, 17 → 2 → 사용량, 19 모델 이름 }, 앞뒤에 상관없는 필드.
-function generation({ model = 'gemini-4-argon', input = 0, output = 0, cacheRead = 0, cacheWrite = 0 } = {}) {
+// 실제 기록과 같은 모양: 1 → { 3 모델 번호, 17 → 2 → 사용량, 19 모델 이름, 20 {1 이름, 2 값} 목록 }, 앞뒤에 상관없는 필드.
+// step 을 주면 20 목록에 last_step_index 로 넣는다.
+const kv = (k, v) => bytes(20, Buffer.concat([bytes(1, k), bytes(2, v)]));
+function generation({ model = 'gemini-4-argon', input = 0, output = 0, cacheRead = 0, cacheWrite = 0, step } = {}) {
   const usage = Buffer.concat([num(1, 1417), num(2, input), num(3, output), ...(cacheWrite ? [num(4, cacheWrite)] : []), num(5, cacheRead), num(6, 3), bytes(7, 'bot-x'), num(9, 1), num(10, Math.max(0, output - 1))]);
-  const gen = Buffer.concat([num(3, 1319), bytes(4, 'x'.repeat(30)), bytes(17, bytes(2, usage)), bytes(19, model), bytes(20, 'tool')]);
+  const tail = [bytes(20, 'tool'), kv('trajectory_id', 'x'), ...(step != null ? [kv('last_step_index', String(step))] : []), kv('model_enum', 'M')];
+  const gen = Buffer.concat([num(3, 1319), bytes(4, 'x'.repeat(30)), bytes(17, bytes(2, usage)), bytes(19, model), ...tail]);
   return Buffer.concat([bytes(2, '4'), bytes(4, 'uuid'), bytes(8, bytes(214280, 'cfg')), bytes(1, gen)]);
 }
 
@@ -111,9 +120,19 @@ test('gen_metadata 한 줄에서 모델과 토큰을 꺼낸다', () => {
   assert.deepEqual(readGeneration(generation({ model: 'gemini-3.8-flash', input: 3350, output: 83, cacheRead: 4945, cacheWrite: 2 })), {
     model: 'gemini-3.8-flash',
     usage: { input: 3350, output: 83, cacheWrite: 2, cacheRead: 4945 },
+    step: null,
   });
+  assert.equal(readGeneration(generation({ step: 96 })).step, 96, '호출 직전 단계 번호');
   assert.equal(readGeneration(Buffer.from([0xff])), null, '깨진 기록은 건너뛴다');
-  assert.deepEqual(readGeneration(bytes(1, bytes(19, 'm'))), { model: 'm', usage: null });
+  assert.deepEqual(readGeneration(bytes(1, bytes(19, 'm'))), { model: 'm', usage: null, step: null });
+});
+
+test('단계의 만든 시각은 앞부분만 있어도 읽는다', () => {
+  const full = step({ type: STEP.TOOL, at: T0 + 1500, tool: ['run_command', { CommandLine: 'x'.repeat(5000) }] });
+  assert.equal(stepTime(full), T0 + 1500);
+  assert.equal(stepTime(full.subarray(0, 40)), T0 + 1500, '도구 인자가 잘려도 시각은 앞에 있다');
+  assert.equal(stepTime(full.subarray(0, 8)), null, '시각까지 잘렸으면 모른다');
+  assert.equal(stepTime(Buffer.from([0xff])), null);
 });
 
 test('시각과 작업 폴더를 읽는다', () => {
@@ -390,8 +409,12 @@ test('실행 중인 agy 를 대화와 짝지어 Gemini 세션으로 보인다', 
     assert.equal(s.model, 'gemini-4-argon');
     assert.equal(s.tokens.total, 1550 + 15);
     assert.equal(s.tokens.sub, 15);
-    assert.equal(s.cost, null, 'Gemini 가격표가 없어 비용은 비운다');
-    assert.ok(s.costUnknown);
+    // 단계가 없어 기록 파일의 수정 시각(지금) 가격으로 센다. gemini-4-argon 은 2026-12-01 부터 두 배다.
+    const k = Date.now() >= Date.parse('2026-12-01') ? 2 : 1;
+    assert.equal(Math.round(s.cost * 1e8), Math.round((500 * 2 + 50 * 10 + 1000 * 0.1 + 10 * 2 + 5 * 10) * k * 100), '메인 + 서브에이전트');
+    assert.equal(Math.round(s.costNoCache * 1e8), Math.round((500 * 2 + 50 * 10 + 10 * 2 + 5 * 10) * k * 100));
+    assert.equal(s.costUnknown, false);
+    assert.equal(Math.round(s.members[0].cost * 1e8), (10 * 2 + 5 * 10) * k * 100, '서브에이전트도 자기 비용');
     assert.equal(s.context.window, 1_048_576);
     assert.deepEqual(s.members.map((m) => [m.name, m.task, m.status, m.tokens]), [['article_writer', '하위 작업', 'busy', 15]]);
 
@@ -415,4 +438,60 @@ test('실행 중인 agy 를 대화와 짝지어 Gemini 세션으로 보인다', 
   } finally {
     child.kill();
   }
+});
+
+test('비용은 호출 직전 단계의 시각에 쓰던 가격으로 센다', { skip: noSqlite }, () => {
+  const dec = Date.UTC(2026, 11, 1, 0, 0, 5);
+  makeSteps('cost-1', [prompt('a', T0), reply('b', null, T0 + 1000), prompt('c', dec)]);
+  makeConversation('cost-1', [
+    { model: 'gemini-4-argon', input: 1_000_000, output: 100_000, cacheRead: 2_000_000, step: 0 },
+    { model: 'gemini-4-argon', input: 1_000_000, output: 100_000, cacheRead: 2_000_000, step: 2 },
+  ]);
+  const g = readConversation('cost-1', createBudget());
+  assert.equal(Math.round(g.cost * 1e4) / 1e4, 9.6, '11월 가격(3.2) + 12월 가격(6.4)');
+  assert.equal(Math.round(g.costNoCache * 1e4) / 1e4, 3 + 6);
+  assert.equal(g.costUnknown, false);
+});
+
+test('가격표에 없는 모델이 섞이면 비용에 ? 를 붙일 수 있게 알린다', { skip: noSqlite }, () => {
+  makeSteps('cost-2', [prompt('a', T0)]);
+  makeConversation('cost-2', [
+    { model: 'gemini-3.8-flash', input: 1_000_000, step: 0 },
+    { model: 'gemini-3.5-flash', input: 1_000_000, output: 5, step: 0 },
+  ]);
+  const g = readConversation('cost-2', createBudget());
+  assert.equal(g.cost, 0.75, '아는 모델만 더한다');
+  assert.equal(g.costUnknown, true);
+  makeConversation('cost-3', [{ model: 'gemini-3-flash-preview', input: 10 }]);
+  const u = readConversation('cost-3', createBudget());
+  assert.deepEqual([u.cost, u.costUnknown], [0, true]);
+});
+
+test('날짜별 사용량 장부에 agy 호출을 호출 날짜로 더한다 (Claude 와 함께)', { skip: noSqlite }, () => {
+  agyLedger.reset();
+  const base = collectLedger({ budget: createBudget() });
+  const now = Date.now();
+  const yesterday = now - 86400_000;
+  makeSteps('book-1', [prompt('a', yesterday), reply('b', null, now)]);
+  makeConversation('book-1', [
+    { model: 'gemini-3.5-flash-lite', input: 1_000_000, output: 0, cacheRead: 1_000_000, step: 0 },
+    { model: 'gemini-3.5-flash-lite', input: 0, output: 1_000_000, step: 1 },
+    { model: 'gemini-3-flash-preview', input: 7, step: 1 },
+  ]);
+  agyLedger.reset();
+  const r = collectLedger({ budget: createBudget(), now });
+  assert.equal(r.today.tokens - base.today.tokens, 1_000_007);
+  assert.equal(Math.round((r.today.cost - base.today.cost) * 1e4) / 1e4, 2.5);
+  assert.equal(r.today.unknown, true, '가격표에 없는 모델이 섞인 날');
+  assert.equal(Math.round((r.week.cost - base.week.cost) * 1e4) / 1e4, 0.3 + 0.03 + 2.5);
+  assert.equal(Math.round((r.week.costNoCache - base.week.costNoCache) * 1e4) / 1e4, 0.3 + 2.5);
+  assert.equal(r.loading, null);
+
+  // 캐시에서 이어 읽어 같은 호출을 두 번 세지 않는다.
+  flushCache();
+  agyLedger.reset();
+  makeConversation('book-1', [{ model: 'gemini-3.5-flash-lite', input: 1_000_000, step: 1 }]);
+  const again = collectAgyLedger({ budget: createBudget() });
+  const day = again.days.map((d) => d[dayKey(now)]?.tokens ?? 0);
+  assert.ok(day.includes(2_000_007), '새 호출만 더한다');
 });

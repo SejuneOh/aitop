@@ -33,7 +33,33 @@ test('팀원 행: 부모와 같은 모델은 비우고, 하는 일 글을 PROJEC
 test('헤더: 응답 대기가 있으면 로고 바로 뒤에 둔다', () => {
   const head = draw(view([sess('w', { status: 'waiting', phase: { kind: 'waiting', text: '응답 대기' } })]))[0];
   assert.match(head, /^ ⣠⣴⣾ +◆ 1 응답 대기 +1 live/);
-  assert.match(draw(view([sess('a')]))[0], /1 live .*◆ 0 응답 대기/, '없으면 원래 자리');
+  assert.doesNotMatch(draw(view([sess('a')]))[0], /◆/, '없으면 보이지 않는다');
+});
+
+test('헤더: 0 인 상태 수는 빼고 live 수는 남긴다', () => {
+  const head = draw(view([sess('a'), sess('b')]))[0];
+  assert.match(head, /2 live +○ 2 대기/);
+  assert.doesNotMatch(head, /[⠿◆●] |\b0 /);
+  const busy = draw(view([sess('a', { status: 'busy', phase: { kind: 'think', text: '생각 중' } })]))[0];
+  assert.match(busy, /1 live +⠿ 1 작업 중 /);
+  assert.doesNotMatch(busy, /○|\b0 /);
+});
+
+test('헤더: 80 칸에서 live 7·작업 2·대기 5 여도 7일 비용이 잘리지 않는다', () => {
+  const busy = { status: 'busy', phase: { kind: 'think', text: '생각 중' } };
+  const list = [...Array.from({ length: 2 }, (_, i) => sess(`b${i}`, busy)), ...Array.from({ length: 5 }, (_, i) => sess(`i${i}`))];
+  const big = { today: { cost: 158, costNoCache: 15, tokens: 3.74e8 }, week: { cost: 751, costNoCache: 75, tokens: 2.02e9 }, loading: null };
+  for (const costMode of ['api', 'net']) {
+    const v = view(list, { costMode });
+    v.data.usage = big;
+    const head = draw(v, 80)[0];
+    assert.match(head, /7 live +⠿ 2 작업.*○ 5 대기 .*7일 \$75.* \d\d:\d\d:\d\d/, `${costMode}: ${head}`);
+    assert.ok(width(head) <= 80);
+  }
+  const waiting = sess('w', { status: 'waiting', phase: { kind: 'waiting', text: '응답 대기' } });
+  const v = view([waiting, ...list.slice(1)]);
+  v.data.usage = big;
+  assert.match(draw(v, 80)[0], /◆ 1 응답 +7 live .*7일 \$751/, '응답 대기가 앞에 붙어도 7일은 남는다');
 });
 
 test('c 키로 비용 기준을 바꾸면 표·헤더·상세가 같이 바뀐다', () => {
@@ -49,13 +75,15 @@ test('c 키로 비용 기준을 바꾸면 표·헤더·상세가 같이 바뀐�
   assert.match(lines[0], /캐시 제외 +오늘 \$5\.20/);
   assert.match(lines.find((l) => l.includes(' a ')), /▲\$195/);
   assert.match(lines.join("\n"), /캐시제외 +\$195[\s\S]*API 환산 \$2,120/);
-  assert.match(lines.at(-1), /c +비용 API 환산/);
+  assert.match(lines.at(-1), /c +비용 기준/, '키 안내는 바뀔 상태가 아니라 고정된 이름이다');
   for (const W of [60, 70, 80, 90, 100, 110, 120]) {
     const head = draw(v, W, 40)[0];
     if (/\$/.test(head)) assert.match(head, /캐시 ?제외/, `W=${W} 금액이 보이면 기준도 보인다: ${head}`);
   }
   onKey(v, 'c', act);
   assert.equal(v.costMode, 'api');
+  assert.match(draw(v, 160, 40).at(-1), /c +비용 기준/);
+  assert.doesNotMatch(draw(v, 160, 40).at(-1), /비용 캐시 제외|비용 API 환산/);
 });
 
 test('응답 대기를 앞에 둘 때 로고 뒤 공백은 두 칸', () => {

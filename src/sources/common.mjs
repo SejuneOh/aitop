@@ -7,6 +7,24 @@ export function emptyTokens() {
   return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
 }
 
+const two = (n) => String(n).padStart(2, '0');
+// 사용자가 보는 날짜(로컬 시간대) 기준 날짜 키.
+export function dayKey(ms) {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}`;
+}
+
+// 오늘부터 거꾸로 n 일의 날짜 키.
+export function lastDays(n, now = Date.now()) {
+  const keys = [];
+  const d = new Date(now);
+  for (let i = 0; i < n; i++) {
+    keys.push(dayKey(d.getTime()));
+    d.setDate(d.getDate() - 1);
+  }
+  return keys;
+}
+
 // 기록 줄의 timestamp. 없거나 읽을 수 없으면 지금 시각.
 export const parseTs = (ts) => (ts && Date.parse(ts)) || Date.now();
 
