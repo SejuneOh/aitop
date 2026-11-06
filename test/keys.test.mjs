@@ -79,3 +79,12 @@ test('d 로 상세를 닫으면 포커스도 풀린다', () => {
   press('f', 'd');
   assert.deepEqual([view.showDetail, view.focus], [false, null]);
 });
+
+test("자동('auto') 상태에서 d 는 지금 화면 높이에서 보이는 상태를 뒤집는다", () => {
+  const low = setup({ showDetail: 'auto', rows: 14 });
+  low.press('d');
+  assert.equal(low.view.showDetail, true, '낮은 화면에서 접혀 있던 상세를 연다');
+  const high = setup({ showDetail: 'auto', rows: 30 });
+  high.press('d');
+  assert.equal(high.view.showDetail, false, '높은 화면에서 열려 있던 상세를 닫는다');
+});

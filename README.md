@@ -29,7 +29,7 @@ aitop
 
 | 브랜치 | 하는 일 |
 |---|---|
-| 기능 브랜치 → `dev` | PR 마다 CI(단위 테스트 → e2e → 실행 확인, Node 20/22/24) 실행. 병합 후 로컬에서 `npm install -g .` 로 확인 |
+| 기능 브랜치 → `dev` | PR 마다 CI(단위 테스트 → e2e → 실행 확인, Node 20/22/22.13/22.15/24, macOS 22) 실행. 병합 후 로컬에서 `npm install -g .` 로 확인. `dev` 에 들어오면 `release-pr` 워크플로가 `dev` → `main` release PR 을 만들거나 제목·본문(포함된 PR, 닫는 이슈)을 갱신한다 |
 | `dev` → `main` | 단위 테스트와 e2e 를 통과하고 `package.json` 의 `version` 이 아직 배포되지 않은 값이면 GitHub Packages 에 배포하고 `v<버전>` 태그·릴리스 생성 |
 
 테스트
@@ -132,7 +132,7 @@ end)
 |---|---|---|
 | Claude Code | `~/.claude/sessions/<pid>.json` + pid 가 살아 있는지 | `~/.claude/projects/*/<sessionId>.jsonl`, `…/subagents/agent-*.jsonl` |
 | Codex CLI | `codex` 프로세스와 작업 폴더 (Linux `/proc`, macOS `ps`·`lsof`) | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` |
-| Antigravity CLI (`agy`) | `agy` 프로세스가 열어 둔 `presence/<id>.lock` (Linux `/proc/<pid>/fd`). macOS 는 작업 폴더로 짝짓는다 | `~/.gemini/antigravity-cli/conversation_summaries.db`(제목·상태·서브에이전트), `conversations/<id>.db` 의 `gen_metadata`(모델·토큰) |
+| Antigravity CLI (`agy`) | `agy` 프로세스가 열어 둔 `presence/<id>.lock` (Linux `/proc/<pid>/fd`). macOS 는 작업 폴더로 짝짓는다 | `~/.gemini/antigravity-cli/conversation_summaries.db`(제목·상태·서브에이전트), `conversations/<id>.db` 의 `gen_metadata`(모델·토큰)·`steps`(지시·답변·도구 호출) |
 | Gemini CLI | `gemini` 프로세스 | 아직 미지원 |
 
 ## 알려진 한계
@@ -141,7 +141,8 @@ end)
 - 세션 파일 형식은 각 CLI 의 내부 형식이라, CLI 업데이트로 바뀌면 `src/sources/` 의 해당 파일을 고쳐야 한다.
 - 컨텍스트 창 크기는 기록에 없어서 모델별 표(`src/pricing.mjs`)로 정한다. 표에 없는 모델은 200k 를 넘으면 1M 으로 가정한다.
 - 같은 폴더에서 codex 를 여러 개 띄우면, 최근에 바뀐 세션 파일부터 순서대로 짝짓는다.
-- Antigravity CLI 세션은 Gemini 탭에 보인다. 기록이 SQLite + protobuf 라 진행 단계는 `작업 중 · N단계` / `다음 지시 대기` 만 보이고, 지시 내용·도구 호출·변경 파일은 아직 읽지 않는다. 토큰 필드 번호는 실제 기록에서 확인한 값이라(출력 = 생각 + 답변) agy 업데이트로 바뀔 수 있다. Windows Antigravity 앱(`/mnt/c/…/.gemini/antigravity`)은 읽지 않는다.
+- Antigravity CLI 세션은 Gemini 탭에 보인다. 지시·답변·도구 호출은 `conversations/<id>.db` 의 `steps` 에서 읽지만 변경 파일은 아직 읽지 않는다. 토큰·단계 필드 번호는 실제 기록에서 확인한 값이라(출력 = 생각 + 답변) agy 업데이트로 바뀔 수 있다. Windows Antigravity 앱(`/mnt/c/…/.gemini/antigravity`)은 읽지 않는다.
+- agy 기록은 파일을 하나도 건드리지 않으려고 `-wal` 을 읽지 않는다. 그래서 진행 내용과 응답 대기(도구 허락 대기)는 agy 가 `-wal` 을 본 파일에 합친 뒤에야 보이고, 보통 30초쯤 늦다. 허락한 뒤에는 `-wal` 이 다시 바뀌는 것을 보고 바로 작업 중으로 돌린다.
 - 토큰 합계에는 캐시 읽기 토큰이 포함된다. 세부 구성은 상세 패널에서 본다.
 - 실시간 화면은 한 번 갱신에 기록을 24MB 까지만 읽는다. 아주 큰 기록은 처음 몇 초 동안 합계가 채워지는 중으로 보인다.
 - 캐시 폴더 이름에 가격표 지문이 들어가서, 가격표를 바꾼 버전으로 올리면 첫 실행 때 비용을 다시 계산한다.

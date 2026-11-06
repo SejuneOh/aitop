@@ -12,17 +12,38 @@ export function filterSessions(sessions, query) {
   return sessions.filter((s) => [s.name, s.project, s.cwd, s.model, s.tool].some((v) => String(v ?? '').toLowerCase().includes(q)));
 }
 
-export function columns(W) {
-  const showProject = W >= 110;
-  const showCost = W >= 96;
-  const showModel = W >= 104;
-  const fixed = { mark: 1, glyph: 2, tool: 7, model: showModel ? 10 : 0, tokens: 7, cost: showCost ? 9 : 0, ctx: 16, age: 4 };
-  const gaps = 5 + (showProject ? 1 : 0) + (showCost ? 1 : 0) + (showModel ? 1 : 0);
+// 표 폭이 WIDE 이상이면 COST 와 CONTEXT 막대 11칸을 그대로 두고, 폭에 따라 MODEL(104~)·PROJECT(110~) 를 더한다.
+// 그보다 좁으면 위에서부터 차례로 시도한다: CONTEXT 막대를 4칸으로 줄이고, 막대 없이 % 만 남긴다.
+// 그래도 STATUS 가 12칸이 안 되면 COST 를 빼고, 마지막에 SESSION 을 줄인다.
+// cells 는 CONTEXT 막대 칸 수이고 % 는 늘 5칸을 쓴다. 각 단계는 STATUS 가 minStatus 칸 이상 남을 때만 쓴다.
+const WIDE = 96;
+const NARROW = [
+  { cost: true, cells: 4, minName: 14, minStatus: 20 },
+  { cost: true, cells: 0, minName: 14, minStatus: 12 },
+  { cells: 0, minName: 14, minStatus: 12 },
+  { cells: 0, minName: 10, minStatus: 0 },
+];
+
+function layout(W, l) {
+  const fixed = { mark: 1, glyph: 2, tool: 7, model: l.model ? 10 : 0, tokens: 7, cost: l.cost ? 9 : 0, ctx: l.cells + 5, age: 4 };
+  const gaps = 5 + (l.project ? 1 : 0) + (l.cost ? 1 : 0) + (l.model ? 1 : 0);
   const flex = W - Object.values(fixed).reduce((a, b) => a + b, 0) - gaps - 1;
-  const name = Math.max(14, Math.min(32, Math.floor(flex * 0.36)));
-  const project = showProject ? Math.max(10, Math.min(22, Math.floor(flex * 0.22))) : 0;
-  const status = Math.max(12, flex - name - project);
-  return { ...fixed, name, project, status, showProject, showCost, showModel };
+  const name = Math.max(l.minName, Math.min(32, Math.floor(flex * 0.36)));
+  const project = l.project ? Math.max(10, Math.min(22, Math.floor(flex * 0.22))) : 0;
+  const status = flex - name - project;
+  return { ...fixed, cells: l.cells, name, project, status, showProject: Boolean(l.project), showCost: Boolean(l.cost), showModel: Boolean(l.model) };
+}
+
+export function columns(W) {
+  if (W >= WIDE) return layout(W, { project: W >= 110, model: W >= 104, cost: true, cells: 11, minName: 14 });
+  for (const l of NARROW) {
+    const c = layout(W, l);
+    if (c.status >= l.minStatus) return c;
+  }
+  // 가장 좁은 단계에서도 모자라면 SESSION 을 줄여 IDLE 이 밀려나지 않게 한다.
+  const c = layout(W, NARROW[NARROW.length - 1]);
+  const short = Math.max(0, 4 - c.status);
+  return { ...c, name: Math.max(1, c.name - short), status: Math.max(4, c.status) };
 }
 
 export function header(view, W) {
@@ -115,7 +136,7 @@ export function tableHeader(c, W) {
   if (c.showProject) segs.push(h('PROJECT', c.project));
   segs.push(h('STATUS', c.status), h('TOKENS', c.tokens, 'right'));
   if (c.showCost) segs.push(h('COST', c.cost, 'right'));
-  segs.push(h('CONTEXT', c.ctx), h('IDLE', c.age, 'right'));
+  segs.push(h(c.cells ? 'CONTEXT' : 'CTX', c.ctx, c.cells ? 'left' : 'right'), h('IDLE', c.age, 'right'));
   return line(segs, W);
 }
 
@@ -148,7 +169,7 @@ export function sessionRow(s, c, W, selected, frame, hot, costMode = 'api') {
     { t: pad(blank ? '' : fmtTokens(s.tokens.total), c.tokens, 'right') + ' ', fg: ended ? PALETTE.ended : PALETTE.muted },
   );
   if (c.showCost) segs.push({ t: pad(blank ? '' : (hot?.has(s.id) ? '▲' : '') + money(costOf(s, costMode), s.costUnknown), c.cost, 'right') + ' ', fg: s.cost == null || ended ? PALETTE.faint : hot?.has(s.id) ? PALETTE.money : PALETTE.muted, bold: Boolean(hot?.has(s.id)) });
-  segs.push(...gauge(s.context?.used ?? 0, s.context?.window ?? 0, 11), { t: ' ' }, { t: pad(idle, c.age, 'right'), fg: waiting ? PALETTE.waiting : PALETTE.faint });
+  segs.push(...gauge(s.context?.used ?? 0, s.context?.window ?? 0, c.cells), { t: ' ' }, { t: pad(idle, c.age, 'right'), fg: waiting ? PALETTE.waiting : PALETTE.faint });
   return line(segs, W, bg);
 }
 

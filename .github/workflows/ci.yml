@@ -12,7 +12,8 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest]
-        node: [20, 22, 24]
+        # 22.13.0 은 node:sqlite 는 있지만 file: 주소를 열지 못해 agy 를 프로세스만으로 보여야 하고, 22.15.0 부터 열 수 있다.
+        node: [20, 22, 22.13.0, 22.15.0, 24]
         # macOS 는 ps·lsof 로 프로세스를 찾는다. 가상 터미널 e2e 는 util-linux script 가 없어 건너뛴다.
         include:
           - os: macos-latest
