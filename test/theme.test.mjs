@@ -29,14 +29,29 @@ const contrast = (a, b) => {
   return (x + 0.05) / (y + 0.05);
 };
 
-test('밝은 팔레트는 흰 배경과 배경 띠 위에서 읽힌다', () => {
+// 터미널 배경: 어두운 테마는 Windows Terminal Campbell(#0c0c0c)과 검정, 밝은 테마는 흰색.
+const TERMINAL = { dark: ['#0c0c0c', '#000000'], light: ['#ffffff'] };
+const INFO = ['text', 'muted', 'info', 'idle', 'ended', 'busy', 'waiting', 'tool', 'team', 'alert', 'money', 'brand'];
+
+for (const [name, P] of Object.entries(PALETTES)) {
+  test(`${name}: 정보를 담은 글자색은 모든 배경에서 4.5:1 이상이다`, () => {
+    const bgs = [...TERMINAL[name], P.rowSel, P.rowFocus, P.rowWaiting, P.bar];
+    const colors = [...INFO.map((k) => [k, P[k]]), ...Object.entries(P.tools)];
+    for (const bg of bgs) for (const [k, c] of colors) assert.ok(contrast(c, bg) >= 4.5, `${k} ${c} on ${bg}: ${contrast(c, bg).toFixed(2)}`);
+    assert.ok(contrast(P.busy, P.addBg) >= 4.5 && contrast(P.alert, P.delBg) >= 4.5, 'diff 의 + / - 줄');
+  });
+
+  test(`${name}: text > muted > info 위계가 어느 배경에서도 뚜렷하다`, () => {
+    for (const bg of [...TERMINAL[name], P.rowSel, P.rowFocus, P.rowWaiting, P.bar]) {
+      assert.ok(contrast(P.text, bg) / contrast(P.muted, bg) >= 1.3, `text/muted on ${bg}`);
+      assert.ok(contrast(P.muted, bg) / contrast(P.info, bg) >= 1.3, `muted/info on ${bg}`);
+    }
+    assert.equal(P.ended, P.info, '종료 행은 info 단계');
+  });
+}
+
+test('밝은 팔레트의 칩과 diff 배경', () => {
   const P = PALETTES.light;
-  for (const bg of ['#ffffff', P.bar, P.rowFocus]) {
-    assert.ok(contrast(P.text, bg) >= 7, `text on ${bg}`);
-    for (const k of ['muted', 'busy', 'waiting', 'tool', 'alert', 'money', 'brand']) assert.ok(contrast(P[k], bg) >= 3, `${k} on ${bg}: ${contrast(P[k], bg).toFixed(2)}`);
-    for (const [k, c] of Object.entries(P.tools)) assert.ok(contrast(c, bg) >= 3, `${k} on ${bg}`);
-  }
-  for (const bg of ['#ffffff', P.bar]) for (const k of ['faint', 'ended']) assert.ok(contrast(P[k], bg) >= 4, `${k} on ${bg}: ${contrast(P[k], bg).toFixed(2)}`);
   assert.ok(contrast(P.chipText, P.brand) >= 4.5, '로고 칩');
   assert.ok(contrast(P.chipText, P.muted) >= 4.5, '키 칩');
   assert.ok(contrast(P.text, P.addBg) >= 7 && contrast(P.text, P.delBg) >= 7, 'diff 배경');
