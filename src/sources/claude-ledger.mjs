@@ -7,7 +7,7 @@ import { homedir } from 'node:os';
 import { JsonlTail } from '../tail.mjs';
 import { loadCache, markDirty } from '../cache.mjs';
 import { claudeCost } from '../pricing.mjs';
-import { dayKey, lastDays } from './common.mjs';
+import { dayKey, lastDays, addSlot, lastHourOf } from './common.mjs';
 import { collectAgyLedger } from './agy-ledger.mjs';
 
 export { dayKey };
@@ -27,13 +27,17 @@ export class UsageTracker {
     this.tail.onReset = () => {
       this.recent = new Map();
       this.days = {};
+      this.slots = {};
     };
     this.recent = new Map();
     this.days = {};
+    // 지출 속도용 5분 칸 (common.mjs addSlot).
+    this.slots = {};
     const c = loadCache(path, KIND);
     if (c) {
       this.tail.offset = c.offset;
       this.days = c.days ?? {};
+      this.slots = c.slots ?? {};
       this.recent = new Map(c.recent ?? []);
     }
   }
@@ -51,10 +55,10 @@ export class UsageTracker {
   snapshot() {
     const keep = new Set(lastDays(KEEP_DAYS));
     const days = Object.fromEntries(Object.entries(this.days).filter(([k]) => keep.has(k)));
-    return { offset: this.tail.lineOffset, days, recent: [...this.recent] };
+    return { offset: this.tail.lineOffset, days, slots: this.slots, recent: [...this.recent] };
   }
 
-  // 같은 message.id 가 여러 줄로 반복되므로 직전 값과의 차이만, 그 줄의 날짜에 더한다.
+  // 같은 message.id 가 여러 줄로 반복되므로 직전 값과의 차이만, 그 줄의 날짜와 5분 칸에 더한다.
   apply(x) {
     const m = x.message;
     if (x.type !== 'assistant' || !m?.usage || !m.id) return;
@@ -63,11 +67,16 @@ export class UsageTracker {
     const tokensOf = (o) => n(o, 'input_tokens') + n(o, 'output_tokens') + n(o, 'cache_read_input_tokens') + n(o, 'cache_creation_input_tokens');
     const prev = this.recent.get(m.id);
     const cost = claudeCost(m.model, u);
-    const day = (this.days[dayKey(Date.parse(x.timestamp) || Date.now())] ??= { tokens: 0, cost: 0, costNoCache: 0, unknown: false });
+    const at = Date.parse(x.timestamp) || Date.now();
+    const day = (this.days[dayKey(at)] ??= { tokens: 0, cost: 0, costNoCache: 0, unknown: false });
+    const dCost = (cost?.total ?? 0) - (prev?.cost ?? 0);
+    const dNoCache = (cost?.noCache ?? 0) - (prev?.costNoCache ?? 0);
+    const unknown = !cost && tokensOf(u) > 0;
     day.tokens += tokensOf(u) - tokensOf(prev?.u);
-    day.cost += (cost?.total ?? 0) - (prev?.cost ?? 0);
+    day.cost += dCost;
     day.costNoCache = (day.costNoCache ?? 0) + (cost?.noCache ?? 0) - (prev?.costNoCache ?? 0);
-    if (!cost && tokensOf(u) > 0) day.unknown = true;
+    if (unknown) day.unknown = true;
+    addSlot(this.slots, at, dCost, dNoCache, unknown);
     this.recent.delete(m.id);
     this.recent.set(m.id, { u, cost: cost?.total ?? 0, costNoCache: cost?.noCache ?? 0 });
     if (this.recent.size > RECENT_IDS) this.recent.delete(this.recent.keys().next().value);
@@ -113,7 +122,7 @@ function recentFiles() {
 
 const trackers = new Map();
 
-// 오늘과 최근 7일 합계 (Claude + agy). 아직 다 읽지 못했으면 loading 에 진행률(0~1).
+// 오늘·최근 7일·최근 1시간 합계 (Claude + agy). 아직 다 읽지 못했으면 loading 에 진행률(0~1).
 export function collectLedger({ budget, now = Date.now() } = {}) {
   const files = recentFiles();
   const keep = new Set(files);
@@ -131,6 +140,7 @@ export function collectLedger({ budget, now = Date.now() } = {}) {
   pending += agy.pending;
   size += agy.size;
   const books = [...[...trackers.values()].map((t) => t.days), ...agy.days];
+  const slots = [...[...trackers.values()].map((t) => t.slots), ...agy.slots];
   const sum = (keys) => {
     const out = { tokens: 0, cost: 0, costNoCache: 0, unknown: false };
     for (const days of books)
@@ -147,6 +157,7 @@ export function collectLedger({ budget, now = Date.now() } = {}) {
   return {
     today: sum([dayKey(now)]),
     week: sum(lastDays(DAYS, now)),
+    lastHour: lastHourOf(slots, now),
     // 살아 있는 세션은 계속 조금씩 늘어나므로, 많이 밀렸을 때만 '집계 중' 으로 본다.
     loading: pending > LOADING_MIN_BYTES && size ? 1 - pending / size : null,
   };

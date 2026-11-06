@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { AGY_ROOT, readCalls, sigOf, maxIdx } from './antigravity.mjs';
 import { openReadOnly, loadSqlite } from '../sqlite.mjs';
 import { loadCache, markDirty } from '../cache.mjs';
-import { dayKey, lastDays } from './common.mjs';
+import { dayKey, lastDays, addSlot } from './common.mjs';
 
 const KIND = 'agy-ledger';
 const DAYS = 7;
@@ -24,6 +24,8 @@ export class AgyBook {
     this.idx = -1;
     this.model = null;
     this.days = {};
+    // 지출 속도용 5분 칸 (common.mjs addSlot).
+    this.slots = {};
     // 한 번이라도 끝까지 읽었는지. 처음 읽는 동안만 '집계 중' 진행률에 들어간다.
     this.complete = false;
     const c = loadCache(path, KIND);
@@ -31,6 +33,7 @@ export class AgyBook {
       this.idx = c.idx ?? -1;
       this.model = c.model ?? null;
       this.days = c.days ?? {};
+      this.slots = c.slots ?? {};
       this.complete = true;
     }
   }
@@ -52,7 +55,7 @@ export class AgyBook {
     }
     const mainSig = sigOf(this.path, false);
     const mtime = statSync(this.path).mtimeMs;
-    let n = { idx: this.idx, model: this.model, days: copyDays(this.days) };
+    let n = { idx: this.idx, model: this.model, days: copyDays(this.days), slots: copyDays(this.slots) };
     let db;
     let result = null;
     try {
@@ -61,7 +64,7 @@ export class AgyBook {
       const has = db.prepare("select 1 from sqlite_master where type = 'table' and name = 'gen_metadata'").get();
       const last = has ? maxIdx(db, 'gen_metadata') : -1;
       // 마지막 줄 번호가 줄었으면 기록이 새로 쓰인 것이니 처음부터 다시 센다.
-      if (last < n.idx) n = { idx: -1, model: null, days: {} };
+      if (last < n.idx) n = { idx: -1, model: null, days: {}, slots: {} };
       result = has
         ? readCalls(db, n, last, budget, mtime, ({ usage: u, cost, at }) => {
             const day = (n.days[dayKey(at)] ??= { tokens: 0, cost: 0, costNoCache: 0, unknown: false });
@@ -70,6 +73,7 @@ export class AgyBook {
             day.cost += cost?.total ?? 0;
             day.costNoCache += cost?.noCache ?? 0;
             if (!cost && tokens > 0) day.unknown = true;
+            addSlot(n.slots, at, cost?.total ?? 0, cost?.noCache ?? 0, !cost && tokens > 0);
           })
         : 'done';
       // 읽는 동안 agy 가 본 파일에 썼으면 읽은 내용을 버리고 다음 갱신에 다시 읽는다.
@@ -93,7 +97,7 @@ export class AgyBook {
   snapshot() {
     const keep = new Set(lastDays(KEEP_DAYS));
     const days = Object.fromEntries(Object.entries(this.days).filter(([k]) => keep.has(k)));
-    return { offset: 0, idx: this.idx, model: this.model, days };
+    return { offset: 0, idx: this.idx, model: this.model, days, slots: this.slots };
   }
 }
 
@@ -121,10 +125,10 @@ function recentFiles() {
 
 const books = new Map();
 
-// 대화마다 날짜별 합계(days)와, 처음 읽기가 덜 끝난 기록의 크기(pending)·전체 크기(size).
+// 대화마다 날짜별 합계(days)와 5분 칸(slots), 처음 읽기가 덜 끝난 기록의 크기(pending)·전체 크기(size).
 // node:sqlite 를 못 쓰는 Node 에서는 비어 있다 (agy 는 프로세스만 보인다).
 export function collectAgyLedger({ budget } = {}) {
-  const out = { days: [], pending: 0, size: 0 };
+  const out = { days: [], slots: [], pending: 0, size: 0 };
   if (!loadSqlite() || !existsSync(join(AGY_ROOT, 'conversations'))) return out;
   const files = recentFiles();
   const keep = new Set(files);
@@ -137,6 +141,7 @@ export function collectAgyLedger({ budget } = {}) {
     out.size += size;
     if (!b.complete) out.pending += size;
     out.days.push(b.days);
+    out.slots.push(b.slots);
   }
   return out;
 }

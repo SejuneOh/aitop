@@ -21,7 +21,7 @@ const { createBudget } = await import('../src/tail.mjs');
 const { stepTime } = await import('../src/sources/antigravity.mjs');
 const { collectAgyLedger, _test: agyLedger } = await import('../src/sources/agy-ledger.mjs');
 const { collectLedger } = await import('../src/sources/claude-ledger.mjs');
-const { dayKey } = await import('../src/sources/common.mjs');
+const { dayKey, lastHourOf } = await import('../src/sources/common.mjs');
 const { flushCache } = await import('../src/cache.mjs');
 
 const sqlite = loadSqlite();
@@ -521,6 +521,8 @@ test('날짜별 사용량 장부에 agy 호출을 호출 날짜로 더한다 (Cl
   assert.equal(Math.round((r.week.cost - base.week.cost) * 1e4) / 1e4, 0.3 + 0.03 + 2.5);
   assert.equal(Math.round((r.week.costNoCache - base.week.costNoCache) * 1e4) / 1e4, 0.3 + 2.5);
   assert.equal(r.loading, null);
+  assert.equal(Math.round((r.lastHour.cost - base.lastHour.cost) * 1e4) / 1e4, 2.5, '최근 1시간에는 오늘 호출만');
+  assert.equal(r.lastHour.unknown, true);
 
   // 캐시에서 이어 읽어 같은 호출을 두 번 세지 않는다.
   flushCache();
@@ -529,4 +531,7 @@ test('날짜별 사용량 장부에 agy 호출을 호출 날짜로 더한다 (Cl
   const again = collectAgyLedger({ budget: createBudget() });
   const day = again.days.map((d) => d[dayKey(now)]?.tokens ?? 0);
   assert.ok(day.includes(2_000_007), '새 호출만 더한다');
+  // 다시 시작해도 5분 칸이 캐시에서 돌아와, 새 호출(입력 1M, $0.30)만 더해진다.
+  const costs = again.slots.map((s) => Math.round(lastHourOf([s], now).cost * 1e4) / 1e4);
+  assert.ok(costs.includes(2.8), `대화별 최근 1시간 ${costs}`);
 });
