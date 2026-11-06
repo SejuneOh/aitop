@@ -12,11 +12,12 @@ const screen = (W, extra = {}) => render({ data: { sessions: [s], usage, errors:
 test('헤더는 상태 이름을 먼저 줄이고, 그래도 모자라면 토큰 수, 7일, 오늘 순으로 줄이며 넘치지 않는다', () => {
   const head = (W) => screen(W)[0];
   assert.match(head(160), /1 작업 중 .*오늘 \$51\.96 132M · 7일 \$644 1\.20B · \d\d:\d\d:\d\d/);
-  assert.match(head(115), /1 작업 .*오늘 \$51\.96 132M · 7일 \$644 1\.20B/, '이름을 줄여 숫자를 지킨다');
-  assert.match(head(94), /오늘 \$51\.96 · 7일 \$644 · \d\d:\d\d:\d\d/);
-  assert.doesNotMatch(head(94), /132M/);
-  assert.match(head(84), /오늘 \$51\.96 · \d\d:\d\d:\d\d/);
-  for (const W of [60, 80, 84, 90, 94, 100, 115, 140, 160]) assert.ok(width(head(W)) <= W, `${W}`);
+  assert.match(head(70), /1 작업 .*오늘 \$51\.96 132M · 7일 \$644 1\.20B/, '이름을 줄여 숫자를 지킨다');
+  assert.match(head(68), /오늘 \$51\.96 · 7일 \$644 · \d\d:\d\d:\d\d/);
+  assert.doesNotMatch(head(68), /132M/);
+  assert.match(head(58), /오늘 \$51\.96 · \d\d:\d\d:\d\d/);
+  assert.doesNotMatch(head(58), /7일/);
+  for (const W of [40, 50, 60, 68, 70, 80, 84, 90, 94, 100, 115, 140, 160]) assert.ok(width(head(W)) <= W, `${W}`);
 });
 
 test('세션이 없는 도구는 이름만 보인다', () => {

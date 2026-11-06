@@ -21,7 +21,7 @@ export const HELP = [
   ['e', '종료된 세션(24시간) 보이기·숨기기'],
   ['?', '이 도움말 열기·닫기'],
   ['Esc', '한 단계 뒤로 (도움말·검색 닫기, diff → 파일 목록 → 세션). 종료하지 않음'],
-  ['c', '비용 기준 전환: API 환산(캐시 포함, 기본) ↔ 캐시 제외(입력·출력만). 표·헤더·상세가 같이 바뀐다'],
+  ['c', '비용 기준: API 환산(기본) ↔ 캐시 제외(입력·출력만). 표·헤더·상세가 같이 바뀐다'],
   ['q Ctrl-C', '나가기'],
   ['', ''],
   ['상태 기호', null],
@@ -93,7 +93,7 @@ export function footer(view, W, matched, sel) {
     ...(sel?.files?.length ? [{ k: 'f', t: '파일' }] : []),
     { k: 'd', t: view.showDetail ? '상세 닫기' : '상세 열기' },
     { k: 'e', t: view.showEnded ? '종료 숨김' : '종료 포함' },
-    { k: 'c', t: view.costMode === 'net' ? '비용 API 환산' : '비용 캐시 제외' },
+    { k: 'c', t: '비용 기준' },
     ...tail,
   ];
   return hintBar(items, W, '⊘ 읽기전용');

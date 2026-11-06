@@ -55,11 +55,14 @@ export function header(view, W) {
   const unseen = count((s) => s.unseen);
   const idle = count((s) => (s.status === 'idle' || s.status === 'live') && !s.unseen);
   const B = PALETTE.bar;
-  // 0 인 상태는 흐리게 둔다. 좁으면 이름을 줄인다.
-  const stat = (glyph, n, long, short, color, bold, narrow) => [
-    { t: `  ${glyph} `, fg: n ? color : PALETTE.faint, bg: B },
-    { t: `${n} ${narrow ? short : long}`, fg: n ? (bold ? color : PALETTE.text) : PALETTE.faint, bg: B, bold: bold && n > 0 },
-  ];
+  // 0 인 상태는 빼서 오른쪽 사용량 자리를 남긴다. 좁으면 이름을 줄인다.
+  const stat = (glyph, n, long, short, color, bold, narrow) =>
+    n
+      ? [
+          { t: `  ${glyph} `, fg: color, bg: B },
+          { t: `${n} ${narrow ? short : long}`, fg: bold ? color : PALETTE.text, bg: B, bold },
+        ]
+      : [];
   const leftOf = (narrow) => [
     { t: ` ${BRAND.logo} `, fg: PALETTE.chipText, bg: PALETTE.brand, bold: true },
     { t: '  ', bg: B },
@@ -67,11 +70,10 @@ export function header(view, W) {
     ...(waiting ? [...stat('◆', waiting, '응답 대기', '응답', PALETTE.waiting, true, narrow).map((x, i) => (i === 0 ? { ...x, t: x.t.trimStart() } : x)), { t: '  ', bg: B }] : []),
     { t: `${live.length} live`, fg: PALETTE.text, bg: B, bold: true },
     ...stat('⠿', working, '작업 중', '작업', PALETTE.busy, false, narrow),
-    ...(waiting ? [] : stat('◆', waiting, '응답 대기', '응답', PALETTE.waiting, true, narrow)),
     ...stat('●', unseen, '확인 전', '확인', PALETTE.busy, true, narrow),
     ...stat('○', idle, '대기', '대기', PALETTE.idle, false, narrow),
   ];
-  // 오른쪽: 오늘 $52 132M · 7일 $644 1.2B · 12:42:05. 폭이 모자라면 토큰 수, 7일, 오늘 순으로 뺀다.
+  // 오른쪽: 오늘 $52 132M · 7일 $644 1.2B · 12:42:05. 폭이 모자라면 토큰 수, API 표시, 7일, 오늘 순으로 뺀다 (캐시 제외 기준이면 그 표시는 끝까지 남긴다).
   const u = view.data.usage;
   const dot = { t: ' · ', fg: PALETTE.faint, bg: B };
   const net = view.costMode === 'net';
@@ -93,6 +95,7 @@ export function header(view, W) {
         [...period('오늘', u.today, true), dot, ...week(true), dot, clockSeg],
         [api, ...period('오늘', u.today, false), dot, ...week(false), dot, clockSeg],
         [apiShort, ...period('오늘', u.today, false), dot, ...week(false), dot, clockSeg],
+        [...period('오늘', u.today, false), dot, ...week(false), dot, clockSeg],
         [apiShort, ...period('오늘', u.today, false), dot, clockSeg],
         [...period('오늘', u.today, false), dot, clockSeg],
         [clockSeg],
