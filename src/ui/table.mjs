@@ -73,15 +73,20 @@ export function header(view, W) {
     ...stat('●', unseen, '확인 전', '확인', PALETTE.busy, true, narrow),
     ...stat('○', idle, '대기', '대기', PALETTE.idle, false, narrow),
   ];
-  // 오른쪽: 오늘 $52 132M · 7일 $644 1.2B · 12:42:05. 폭이 모자라면 토큰 수, API 표시, 7일, 오늘 순으로 뺀다 (캐시 제외 기준이면 그 표시는 끝까지 남긴다).
+  // 오른쪽: 오늘 $52 ($8.40/h) 132M · 7일 $644 1.2B · 12:42:05. 폭이 모자라면 지출 속도, 토큰 수, API 표시, 7일, 오늘 순으로 뺀다 (캐시 제외 기준이면 그 표시는 끝까지 남긴다).
   const u = view.data.usage;
   const dot = { t: ' · ', fg: PALETTE.faint, bg: B };
   const net = view.costMode === 'net';
-  const period = (label, p, tok) => [
+  const period = (label, p, tok, rate = []) => [
     { t: `${label} `, fg: PALETTE.muted, bg: B },
     { t: money(net ? p.costNoCache ?? null : p.cost, p.unknown), fg: PALETTE.money, bg: B, bold: true },
+    ...rate,
     ...(tok ? [{ t: ` ${fmtTokens(p.tokens)}`, fg: PALETTE.info, bg: B }] : []),
   ];
+  // 지출 속도: 최근 1시간 비용(5분 칸 근사)을 시간당으로. 0 이거나 아직 집계 중이면 숨기고, 폭이 모자라면 가장 먼저 뺀다.
+  const hour = u?.lastHour && u.loading == null ? (net ? u.lastHour.costNoCache : u.lastHour.cost) : null;
+  const perHour = (x) => (x >= 10 ? `$${Math.round(x).toLocaleString('en-US')}` : `$${x.toFixed(2)}`);
+  const rate = hour >= 0.005 ? [{ t: ` (${perHour(hour)}${u.lastHour.unknown ? '?' : ''}/h)`, fg: PALETTE.muted, bg: B }] : null;
   const week = (tok) => (u.loading != null ? [{ t: `7일 집계 중 ${Math.floor(u.loading * 100)}%`, fg: PALETTE.info, bg: B }] : period('7일', u.week, tok));
   // 장부를 못 읽었으면 화면에 있는 세션(모든 도구)의 누적 토큰이라도 보인다.
   const fallback = [{ t: `Σ ${fmtTokens(sessions.reduce((a, s) => a + (s.tokens?.total ?? 0), 0))} tok`, fg: PALETTE.muted, bg: B }];
@@ -91,6 +96,7 @@ export function header(view, W) {
   const apiShort = { t: net ? '캐시제외 ' : 'API ', fg: net ? PALETTE.brand : PALETTE.info, bg: B };
   const rights = u
     ? [
+        ...(rate ? [[api, ...period('오늘', u.today, true, rate), dot, ...week(true), dot, clockSeg]] : []),
         [api, ...period('오늘', u.today, true), dot, ...week(true), dot, clockSeg],
         [...period('오늘', u.today, true), dot, ...week(true), dot, clockSeg],
         [api, ...period('오늘', u.today, false), dot, ...week(false), dot, clockSeg],
