@@ -76,7 +76,7 @@ const { toJson } = await import('../src/json.mjs');
 const { createAttention, updateAttention, markSeen, nextAttention, windowTitle, newlyWaiting, attentionCounts } = await import('../src/attention.mjs');
 const { onKey, fixFocus } = await import('../src/keys.mjs');
 
-const view = { data: null, selectedId: null, showDetail: true, showEnded: args.has('--all'), frame: 0, filter: '', searching: false, help: false, focus: null, filePath: null, diffScroll: 0, tab: 'now', costMode: 'api' };
+const view = { data: null, selectedId: null, showDetail: 'auto', showEnded: args.has('--all'), frame: 0, filter: '', searching: false, help: false, focus: null, filePath: null, diffScroll: 0, tab: 'now', costMode: 'api' };
 const once = args.has('--once') || args.has('--json') || !process.stdout.isTTY;
 // 실시간 화면에서 한 번 갱신할 때 읽는 기록 양과 시간. 큰 기록은 여러 번에 나눠 읽어서 키 입력이 막히지 않게 한다.
 const TICK_BUDGET = 24 * 1024 * 1024;
@@ -137,6 +137,7 @@ let last = '';
 let lastTitle = '';
 
 function draw() {
+  view.rows = out.rows;
   const frame = render(view, out.columns, out.rows).join('\r\n');
   const title = windowTitle(view.data?.sessions ?? [], BRAND.tab);
   if (title !== lastTitle) {

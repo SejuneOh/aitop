@@ -5,11 +5,12 @@ import { PALETTE } from './ui/theme.mjs';
 import { line, setNow } from './ui/draw.mjs';
 import { TABLE_BOX_H, columns, emptyLines, filterSessions, header, memberRow, sessionRow, tableBox, tableHeader, toolStrip, topCost } from './ui/table.mjs';
 import { detail } from './ui/detail.mjs';
-import { footer, help } from './ui/chrome.mjs';
+import { detailOpen, footer, help } from './ui/chrome.mjs';
 
 export { PALETTE, style } from './ui/theme.mjs';
 export { money } from './ui/draw.mjs';
 export { filterSessions } from './ui/table.mjs';
+export { DETAIL_MIN_H, detailOpen } from './ui/chrome.mjs';
 
 export function render(view, W, H) {
   setNow(Date.now());
@@ -28,7 +29,7 @@ export function render(view, W, H) {
   if (view.help) {
     lines.push(header(view, W), ...help(W, Math.max(3, H - 2)));
     lines.length = H - 1;
-    lines.push(footer(view, W, sessions.length));
+    lines.push(footer({ ...view, showDetail: detailOpen(view, H) }, W, sessions.length));
     return lines;
   }
   lines.push(header(view, W), toolStrip(view, W));
@@ -41,7 +42,8 @@ export function render(view, W, H) {
     s.members.forEach((m, i) => rows.push({ s, m, last: i === s.members.length - 1 }));
   }
   const sel = sessions.find((s) => s.id === view.selectedId) ?? sessions[0];
-  const wantDetail = view.showDetail && Boolean(sel);
+  const open = detailOpen(view, H);
+  const wantDetail = open && Boolean(sel);
   let minDetail = wantDetail ? 12 : 0;
   const used = lines.length + table.length + (boxed ? 2 : 0);
   let room = Math.max(1, Math.min(Math.max(1, rows.length), H - used - minDetail - 2));
@@ -75,6 +77,6 @@ export function render(view, W, H) {
   if (errors?.length) lines[lines.length - 1] = line([{ t: ' ! ' + errors.join(' / '), fg: PALETTE.alert }], W);
   while (lines.length < H - 1) lines.push(line([], W));
   lines.length = H - 1;
-  lines.push(footer(view, W, sessions.length, sel));
+  lines.push(footer({ ...view, showDetail: open }, W, sessions.length, sel));
   return lines;
 }

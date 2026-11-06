@@ -3,6 +3,14 @@ import { pad, width } from '../text.mjs';
 import { NO_COLOR, PALETTE } from './theme.mjs';
 import { box, line, segsWidth } from './draw.mjs';
 
+// 상세 패널을 기본으로 여는 최소 화면 높이. 이보다 낮으면 세션 표에 줄을 준다.
+export const DETAIL_MIN_H = 24;
+
+// view.showDetail: 'auto' 는 화면 높이로 정하고, true/false 는 사용자가 d·f 로 고른 값이라 높이와 상관없이 따른다.
+export function detailOpen(view, H) {
+  return view.showDetail === 'auto' ? H >= DETAIL_MIN_H : Boolean(view.showDetail);
+}
+
 export const HELP = [
   ['키', null],
   ['/', '세션 검색 (이름·폴더·모델). Enter 적용, Esc 지우기'],

@@ -2,6 +2,7 @@
 // view.focus: null(세션 선택) → 'files'(변경 파일 목록) → 'diff'(고른 파일의 변경 내용). Esc 는 한 단계씩 뒤로 가고 종료하지 않는다.
 // view.tab: 변경 파일을 보는 지시 탭 ('now' 이번 지시, 지시 번호, 'all' 전체). turns.mjs 참고.
 import { turnTabs, visibleFiles } from './turns.mjs';
+import { detailOpen } from './ui/chrome.mjs';
 
 export const KEY = { up: '\x1b[A', down: '\x1b[B', right: '\x1b[C', left: '\x1b[D', pageUp: '\x1b[5~', pageDown: '\x1b[6~', esc: '\x1b', enter: '\r', tab: '\t', ctrlC: '\x03', backspace: '\x7f' };
 
@@ -120,7 +121,8 @@ export function onKey(view, key, act) {
   else if (key === 'n') act.next();
   else if (key === 'c') view.costMode = view.costMode === 'net' ? 'api' : 'net';
   else if (key === 'd') {
-    view.showDetail = !view.showDetail;
+    // view.rows: 마지막으로 그린 화면 높이. 'auto' 일 때 지금 보이는 상태를 뒤집는 데 쓴다.
+    view.showDetail = !detailOpen(view, view.rows ?? Infinity);
     if (!view.showDetail) view.focus = null;
   } else if (key === 'e') {
     view.showEnded = !view.showEnded;

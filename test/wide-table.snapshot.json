@@ -1,0 +1,277 @@
+{
+ "96": [
+  "   TOOL    SESSION         STATUS                        TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  세션-a          도구 실행 · Bash                1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    ⠸ 파일 찾기     Grep                            1.0k     $0.10"
+ ],
+ "97": [
+  "   TOOL    SESSION         STATUS                         TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  세션-a          도구 실행 · Bash                 1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    ⠸ 파일 찾기     Grep                             1.0k     $0.10"
+ ],
+ "98": [
+  "   TOOL    SESSION          STATUS                         TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  세션-a           도구 실행 · Bash                 1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    ⠸ 파일 찾기      Grep                             1.0k     $0.10"
+ ],
+ "99": [
+  "   TOOL    SESSION          STATUS                          TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  세션-a           도구 실행 · Bash                  1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    ⠸ 파일 찾기      Grep                              1.0k     $0.10"
+ ],
+ "100": [
+  "   TOOL    SESSION          STATUS                           TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  세션-a           도구 실행 · Bash                   1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    ⠸ 파일 찾기      Grep                               1.0k     $0.10"
+ ],
+ "101": [
+  "   TOOL    SESSION           STATUS                           TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  세션-a            도구 실행 · Bash                   1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    ⠸ 파일 찾기       Grep                               1.0k     $0.10"
+ ],
+ "102": [
+  "   TOOL    SESSION           STATUS                            TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  세션-a            도구 실행 · Bash                    1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    ⠸ 파일 찾기       Grep                                1.0k     $0.10"
+ ],
+ "103": [
+  "   TOOL    SESSION            STATUS                            TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  세션-a             도구 실행 · Bash                    1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    ⠸ 파일 찾기        Grep                                1.0k     $0.10"
+ ],
+ "104": [
+  "   TOOL    MODEL      SESSION        STATUS                      TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a         도구 실행 · Bash              1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기    Grep                          1.0k     $0.10"
+ ],
+ "105": [
+  "   TOOL    MODEL      SESSION        STATUS                       TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a         도구 실행 · Bash               1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기    Grep                           1.0k     $0.10"
+ ],
+ "106": [
+  "   TOOL    MODEL      SESSION         STATUS                       TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a          도구 실행 · Bash               1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기     Grep                           1.0k     $0.10"
+ ],
+ "107": [
+  "   TOOL    MODEL      SESSION         STATUS                        TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a          도구 실행 · Bash                1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기     Grep                            1.0k     $0.10"
+ ],
+ "108": [
+  "   TOOL    MODEL      SESSION         STATUS                         TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a          도구 실행 · Bash                 1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기     Grep                             1.0k     $0.10"
+ ],
+ "109": [
+  "   TOOL    MODEL      SESSION          STATUS                         TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a           도구 실행 · Bash                 1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기      Grep                             1.0k     $0.10"
+ ],
+ "110": [
+  "   TOOL    MODEL      SESSION          PROJECT    STATUS               TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a           proj-a     도구 실행 · Bash       1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore       Grep                   1.0k     $0.10"
+ ],
+ "111": [
+  "   TOOL    MODEL      SESSION          PROJECT    STATUS                TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a           proj-a     도구 실행 · Bash        1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore       Grep                    1.0k     $0.10"
+ ],
+ "112": [
+  "   TOOL    MODEL      SESSION          PROJECT    STATUS                 TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a           proj-a     도구 실행 · Bash         1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore       Grep                     1.0k     $0.10"
+ ],
+ "113": [
+  "   TOOL    MODEL      SESSION           PROJECT    STATUS                 TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a            proj-a     도구 실행 · Bash         1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore        Grep                     1.0k     $0.10"
+ ],
+ "114": [
+  "   TOOL    MODEL      SESSION           PROJECT    STATUS                  TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a            proj-a     도구 실행 · Bash          1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore        Grep                      1.0k     $0.10"
+ ],
+ "115": [
+  "   TOOL    MODEL      SESSION            PROJECT     STATUS                 TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a             proj-a      도구 실행 · Bash         1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore          Grep                     1.0k     $0.10"
+ ],
+ "116": [
+  "   TOOL    MODEL      SESSION            PROJECT     STATUS                  TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a             proj-a      도구 실행 · Bash          1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore          Grep                      1.0k     $0.10"
+ ],
+ "117": [
+  "   TOOL    MODEL      SESSION            PROJECT     STATUS                   TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a             proj-a      도구 실행 · Bash           1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore          Grep                       1.0k     $0.10"
+ ],
+ "118": [
+  "   TOOL    MODEL      SESSION             PROJECT     STATUS                   TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a              proj-a      도구 실행 · Bash           1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore           Grep                       1.0k     $0.10"
+ ],
+ "119": [
+  "   TOOL    MODEL      SESSION             PROJECT     STATUS                    TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a              proj-a      도구 실행 · Bash            1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore           Grep                        1.0k     $0.10"
+ ],
+ "120": [
+  "   TOOL    MODEL      SESSION             PROJECT      STATUS                    TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a              proj-a       도구 실행 · Bash            1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore            Grep                        1.0k     $0.10"
+ ],
+ "121": [
+  "   TOOL    MODEL      SESSION              PROJECT      STATUS                    TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a               proj-a       도구 실행 · Bash            1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore             Grep                        1.0k     $0.10"
+ ],
+ "122": [
+  "   TOOL    MODEL      SESSION              PROJECT      STATUS                     TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a               proj-a       도구 실행 · Bash             1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore             Grep                         1.0k     $0.10"
+ ],
+ "123": [
+  "   TOOL    MODEL      SESSION              PROJECT      STATUS                      TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a               proj-a       도구 실행 · Bash              1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore             Grep                          1.0k     $0.10"
+ ],
+ "124": [
+  "   TOOL    MODEL      SESSION               PROJECT      STATUS                      TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a                proj-a       도구 실행 · Bash              1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore              Grep                          1.0k     $0.10"
+ ],
+ "125": [
+  "   TOOL    MODEL      SESSION               PROJECT       STATUS                      TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a                proj-a        도구 실행 · Bash              1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore               Grep                          1.0k     $0.10"
+ ],
+ "126": [
+  "   TOOL    MODEL      SESSION               PROJECT       STATUS                       TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a                proj-a        도구 실행 · Bash               1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore               Grep                           1.0k     $0.10"
+ ],
+ "127": [
+  "   TOOL    MODEL      SESSION                PROJECT       STATUS                       TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a                 proj-a        도구 실행 · Bash               1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore                Grep                           1.0k     $0.10"
+ ],
+ "128": [
+  "   TOOL    MODEL      SESSION                PROJECT       STATUS                        TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a                 proj-a        도구 실행 · Bash                1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore                Grep                            1.0k     $0.10"
+ ],
+ "129": [
+  "   TOOL    MODEL      SESSION                 PROJECT        STATUS                       TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a                  proj-a         도구 실행 · Bash               1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore                  Grep                           1.0k     $0.10"
+ ],
+ "130": [
+  "   TOOL    MODEL      SESSION                 PROJECT        STATUS                        TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a                  proj-a         도구 실행 · Bash                1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore                  Grep                            1.0k     $0.10"
+ ],
+ "131": [
+  "   TOOL    MODEL      SESSION                 PROJECT        STATUS                         TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a                  proj-a         도구 실행 · Bash                 1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore                  Grep                             1.0k     $0.10"
+ ],
+ "132": [
+  "   TOOL    MODEL      SESSION                  PROJECT        STATUS                         TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a                   proj-a         도구 실행 · Bash                 1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore                   Grep                             1.0k     $0.10"
+ ],
+ "133": [
+  "   TOOL    MODEL      SESSION                  PROJECT        STATUS                          TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a                   proj-a         도구 실행 · Bash                  1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore                   Grep                              1.0k     $0.10"
+ ],
+ "134": [
+  "   TOOL    MODEL      SESSION                  PROJECT         STATUS                          TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a                   proj-a          도구 실행 · Bash                  1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore                    Grep                              1.0k     $0.10"
+ ],
+ "135": [
+  "   TOOL    MODEL      SESSION                   PROJECT         STATUS                          TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a                    proj-a          도구 실행 · Bash                  1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore                     Grep                              1.0k     $0.10"
+ ],
+ "136": [
+  "   TOOL    MODEL      SESSION                   PROJECT         STATUS                           TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a                    proj-a          도구 실행 · Bash                   1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore                     Grep                               1.0k     $0.10"
+ ],
+ "137": [
+  "   TOOL    MODEL      SESSION                   PROJECT         STATUS                            TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a                    proj-a          도구 실행 · Bash                    1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore                     Grep                                1.0k     $0.10"
+ ],
+ "138": [
+  "   TOOL    MODEL      SESSION                    PROJECT          STATUS                           TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a                     proj-a           도구 실행 · Bash                   1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore                       Grep                               1.0k     $0.10"
+ ],
+ "139": [
+  "   TOOL    MODEL      SESSION                    PROJECT          STATUS                            TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a                     proj-a           도구 실행 · Bash                    1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore                       Grep                                1.0k     $0.10"
+ ],
+ "140": [
+  "   TOOL    MODEL      SESSION                     PROJECT          STATUS                            TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a                      proj-a           도구 실행 · Bash                    1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore                        Grep                                1.0k     $0.10"
+ ],
+ "141": [
+  "   TOOL    MODEL      SESSION                     PROJECT          STATUS                             TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a                      proj-a           도구 실행 · Bash                     1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore                        Grep                                 1.0k     $0.10"
+ ],
+ "142": [
+  "   TOOL    MODEL      SESSION                     PROJECT          STATUS                              TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a                      proj-a           도구 실행 · Bash                      1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore                        Grep                                  1.0k     $0.10"
+ ],
+ "143": [
+  "   TOOL    MODEL      SESSION                      PROJECT           STATUS                             TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a                       proj-a            도구 실행 · Bash                     1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore                          Grep                                 1.0k     $0.10"
+ ],
+ "144": [
+  "   TOOL    MODEL      SESSION                      PROJECT           STATUS                              TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a                       proj-a            도구 실행 · Bash                      1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore                          Grep                                  1.0k     $0.10"
+ ],
+ "145": [
+  "   TOOL    MODEL      SESSION                      PROJECT           STATUS                               TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a                       proj-a            도구 실행 · Bash                       1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore                          Grep                                   1.0k     $0.10"
+ ],
+ "146": [
+  "   TOOL    MODEL      SESSION                       PROJECT           STATUS                               TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a                        proj-a            도구 실행 · Bash                       1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore                           Grep                                   1.0k     $0.10"
+ ],
+ "147": [
+  "   TOOL    MODEL      SESSION                       PROJECT            STATUS                               TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a                        proj-a             도구 실행 · Bash                       1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore                            Grep                                   1.0k     $0.10"
+ ],
+ "148": [
+  "   TOOL    MODEL      SESSION                       PROJECT            STATUS                                TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a                        proj-a             도구 실행 · Bash                        1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore                            Grep                                    1.0k     $0.10"
+ ],
+ "149": [
+  "   TOOL    MODEL      SESSION                        PROJECT            STATUS                                TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a                         proj-a             도구 실행 · Bash                        1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore                             Grep                                    1.0k     $0.10"
+ ],
+ "150": [
+  "   TOOL    MODEL      SESSION                        PROJECT            STATUS                                 TOKENS      COST CONTEXT          IDLE",
+  "▌⠋ claude  opus-5-5   세션-a                         proj-a             도구 실행 · Bash                         1.2M    $12.50 ▃▃▃▃▃▃▃▃▃▃▃  42%  now",
+  "     └─    haiku-4-5  ⠸ 파일 찾기 · Explore                             Grep                                     1.0k     $0.10"
+ ]
+}
