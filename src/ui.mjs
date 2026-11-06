@@ -42,10 +42,16 @@ export function render(view, W, H) {
   }
   const sel = sessions.find((s) => s.id === view.selectedId) ?? sessions[0];
   const wantDetail = view.showDetail && Boolean(sel);
-  const minDetail = wantDetail ? 12 : 0;
+  let minDetail = wantDetail ? 12 : 0;
   const used = lines.length + table.length + (boxed ? 2 : 0);
-  const room = Math.max(1, Math.min(Math.max(1, rows.length), H - used - minDetail - 2));
+  let room = Math.max(1, Math.min(Math.max(1, rows.length), H - used - minDetail - 2));
   // 표가 다 들어가지 않으면 마지막 줄에 몇 개가 가려졌는지 알린다.
+  // 고른 세션 한 줄밖에 안 남으면 상세 패널에서 한 줄을 가져와 그 알림 줄을 둔다.
+  // 화면 자체가 표 두 줄(맨 아래 키 줄 제외)을 못 담으면 알림 없이 고른 세션 행만 남긴다.
+  if (rows.length > room && room < 2 && H - used - 1 >= 2) {
+    room = 2;
+    minDetail = Math.max(0, minDetail - 1);
+  }
   const clipped = rows.length > room && room > 1;
   const shown = clipped ? room - 1 : room;
   const selRow = Math.max(0, rows.findIndex((r) => !r.m && r.s === sel));

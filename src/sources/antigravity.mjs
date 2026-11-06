@@ -3,8 +3,8 @@
 // - conversations/<id>.db 의 gen_metadata: 모델 호출 한 번에 한 줄. protobuf 안에 모델 이름과 토큰 사용량이 있다.
 // 실행 중인 agy 와 대화는 /proc/<pid>/fd 에 열린 presence/<id>.lock 으로 짝짓는다. /proc 이 없으면 작업 폴더로 짝짓는다.
 // 세션은 Gemini 탭에 보인다 (agy 는 Gemini CLI 의 후속 도구다).
-import { statSync, openSync, readSync, closeSync, existsSync } from 'node:fs';
-import { join, basename } from 'node:path';
+import { statSync, openSync, readSync, closeSync, existsSync, realpathSync } from 'node:fs';
+import { join, basename, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { openReadOnly, loadSqlite } from '../sqlite.mjs';
@@ -12,7 +12,18 @@ import { findProcesses, isAgy, openFiles } from '../procs.mjs';
 import { emptyTokens } from './common.mjs';
 import { contextWindow } from '../pricing.mjs';
 
-export const AGY_ROOT = process.env.AITOP_AGY_HOME ?? join(homedir(), '.gemini', 'antigravity-cli');
+// /proc/<pid>/fd 의 링크는 늘 심볼릭 링크를 푼 절대 경로라서, 기록 폴더도 같은 모양으로 바꿔 둔다
+// (끝의 /, 상대 경로, 심볼릭 링크로 걸린 ~/.gemini). 폴더가 없으면 절대 경로까지만 바꾼다.
+export function agyRoot(dir) {
+  const abs = resolve(dir);
+  try {
+    return realpathSync(abs);
+  } catch {
+    return abs;
+  }
+}
+
+export const AGY_ROOT = agyRoot(process.env.AITOP_AGY_HOME ?? join(homedir(), '.gemini', 'antigravity-cli'));
 
 const RECENT_MS = 24 * 3600 * 1000;
 const BATCH = 32;
@@ -240,6 +251,7 @@ function readSummaries() {
 }
 
 // 열린 파일 경로에서 대화 id 를 꺼낸다 (presence/<id>.lock, conversations/<id>.db[-wal|-shm]).
+// root 는 agyRoot() 로 바꾼 경로여야 한다.
 export function idFromPath(p, root = AGY_ROOT) {
   if (!p.startsWith(root + '/')) return null;
   const m = /^(?:presence\/([\w-]+)\.lock|conversations\/([\w-]+)\.db(?:-wal|-shm)?)(?: \(deleted\))?$/.exec(p.slice(root.length + 1));
@@ -253,13 +265,13 @@ const rootOf = (id, byId) => {
 };
 
 // 실행 중인 agy 프로세스와 최상위 대화를 짝짓는다. 짝을 못 찾은 프로세스는 따로 돌려준다.
-export function matchLive(procs, rows, filesOf = openFiles) {
+export function matchLive(procs, rows, filesOf = openFiles, dir = AGY_ROOT) {
   const byId = new Map(rows.map((r) => [r.id, r]));
   const live = new Map();
   const loose = [];
   for (const p of procs) {
     const files = filesOf(p.pid);
-    const ids = (files ?? []).map((f) => idFromPath(f)).filter((id) => id && byId.has(id));
+    const ids = (files ?? []).map((f) => idFromPath(f, dir)).filter((id) => id && byId.has(id));
     if (ids.length) {
       for (const id of ids) {
         const root = rootOf(id, byId);
