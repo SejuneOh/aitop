@@ -1,4 +1,5 @@
 // 날짜별 사용량 장부: 최근 7일 안에 바뀐 Claude 기록(서브에이전트 포함)에서 사용량만 날짜별로 모은다.
+// Antigravity CLI(agy) 사용량은 agy-ledger.mjs 가 같은 모양으로 모으고, 여기서 함께 더한다.
 // 세션 화면과 상관없이 끝난 세션까지 세야 해서, 세션 tracker 와 따로 가볍게 읽고 캐시도 따로 둔다.
 import { readdirSync, statSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -6,6 +7,10 @@ import { homedir } from 'node:os';
 import { JsonlTail } from '../tail.mjs';
 import { loadCache, markDirty } from '../cache.mjs';
 import { claudeCost } from '../pricing.mjs';
+import { dayKey, lastDays } from './common.mjs';
+import { collectAgyLedger } from './agy-ledger.mjs';
+
+export { dayKey };
 
 const HOME = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude');
 const PROJECTS = join(HOME, 'projects');
@@ -15,23 +20,6 @@ const KEEP_DAYS = 10;
 const LIST_TTL_MS = 30_000;
 const RECENT_IDS = 64;
 const LOADING_MIN_BYTES = 4 * 1024 * 1024;
-
-const two = (n) => String(n).padStart(2, '0');
-// 사용자가 보는 날짜(로컬 시간대) 기준 날짜 키.
-export function dayKey(ms) {
-  const d = new Date(ms);
-  return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}`;
-}
-
-function lastDays(n, now = Date.now()) {
-  const keys = [];
-  const d = new Date(now);
-  for (let i = 0; i < n; i++) {
-    keys.push(dayKey(d.getTime()));
-    d.setDate(d.getDate() - 1);
-  }
-  return keys;
-}
 
 export class UsageTracker {
   constructor(path) {
@@ -125,7 +113,7 @@ function recentFiles() {
 
 const trackers = new Map();
 
-// 오늘과 최근 7일 합계. 아직 다 읽지 못했으면 loading 에 진행률(0~1).
+// 오늘과 최근 7일 합계 (Claude + agy). 아직 다 읽지 못했으면 loading 에 진행률(0~1).
 export function collectLedger({ budget, now = Date.now() } = {}) {
   const files = recentFiles();
   const keep = new Set(files);
@@ -139,11 +127,15 @@ export function collectLedger({ budget, now = Date.now() } = {}) {
     pending += t.pending;
     size += t.tail.size;
   }
+  const agy = collectAgyLedger({ budget, now });
+  pending += agy.pending;
+  size += agy.size;
+  const books = [...[...trackers.values()].map((t) => t.days), ...agy.days];
   const sum = (keys) => {
     const out = { tokens: 0, cost: 0, costNoCache: 0, unknown: false };
-    for (const t of trackers.values())
+    for (const days of books)
       for (const k of keys) {
-        const d = t.days[k];
+        const d = days[k];
         if (!d) continue;
         out.tokens += d.tokens;
         out.cost += d.cost;

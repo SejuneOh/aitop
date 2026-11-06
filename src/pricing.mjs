@@ -18,8 +18,29 @@ const PRICES = {
   'claude-haiku-4-5': { input: 1, output: 5 },
 };
 
+// Gemini API 정가 (USD / 100만 토큰, 유료 등급 standard). Antigravity CLI(agy) 사용분을 "API 로 썼다면" 기준으로 계산한다.
+// 출처: Google 공식 가격표 https://aistudio.google.com/docs/pricing (2026-11-06 확인). 긴 컨텍스트 구간은 따로 없다.
+// 출력에는 생각 토큰이 들어 있고, cacheRead 는 context caching 가격이다. 가격이 바뀌는 모델은 날짜순 목록이며,
+// from 은 그 가격이 시작되는 날(UTC 0시)이다.
+const GEMINI_PRICES = {
+  'gemini-4-argon': [
+    { input: 2, output: 10, cacheRead: 0.1 },
+    { from: '2026-12-01', input: 4, output: 20, cacheRead: 0.2 },
+  ],
+  'gemini-3.8-flash': [
+    { input: 0.75, output: 3.75, cacheRead: 0.075 },
+    { from: '2027-01-01', input: 1.5, output: 7.5, cacheRead: 0.15 },
+  ],
+  'gemini-3.6-flash': [
+    { input: 0.75, output: 3.75, cacheRead: 0.075 },
+    { from: '2027-01-01', input: 1.5, output: 7.5, cacheRead: 0.15 },
+  ],
+  'gemini-3.5-flash-lite': [{ input: 0.3, output: 2.5, cacheRead: 0.03 }],
+  'gemini-3.1-flash-lite': [{ input: 0.25, output: 1.5, cacheRead: 0.025 }],
+};
+
 // 가격표가 바뀌면 이 값이 바뀌고, 캐시 폴더도 바뀌어 예전 비용이 다시 계산된다.
-export const PRICE_TAG = createHash('sha1').update(JSON.stringify(PRICES)).digest('hex').slice(0, 8);
+export const PRICE_TAG = createHash('sha1').update(JSON.stringify([PRICES, GEMINI_PRICES])).digest('hex').slice(0, 8);
 
 // 모델별 컨텍스트 창 크기(토큰). 출처: Anthropic 모델 표(2026-10). 표에 없는 모델은 contextWindow 가 추측한다.
 const WINDOWS = {
@@ -84,6 +105,25 @@ const OPENAI_PRICES = {
 // Codex 세션 누적 토큰(tokens: input 은 캐시 제외, cacheRead, output)의 환산 비용. 가격표에 없는 모델이면 null.
 export function codexCost(model, t) {
   const p = lookup(OPENAI_PRICES, model);
+  if (!p || !t) return null;
+  const base = (t.input ?? 0) * p.input + (t.output ?? 0) * p.output;
+  return { total: (base + (t.cacheRead ?? 0) * p.cacheRead) / 1e6, noCache: base / 1e6 };
+}
+
+// 시각 at(ms)에 쓰던 Gemini 가격. 모델 이름이 표와 똑같을 때만 찾는다:
+// 앞부분만 같은 다른 모델(gemini-3.8-flash-lite 와 gemini-3.8-flash 등)에 엉뚱한 가격을 매기지 않기 위해서다.
+export function geminiPrice(model, at = Date.now()) {
+  const list = model ? GEMINI_PRICES[model] : null;
+  if (!list) return null;
+  let p = list[0];
+  for (const x of list) if (x.from && at >= Date.parse(x.from)) p = x;
+  return p;
+}
+
+// agy 호출 한 번(t: input 은 캐시 제외, cacheRead, output 은 생각 포함)을 at 시각의 가격으로 환산한다. 가격표에 없는 모델이면 null.
+// agy 는 암시적 캐시만 써서 캐시 쓰기 요금이 없다.
+export function geminiCost(model, t, at) {
+  const p = geminiPrice(model, at);
   if (!p || !t) return null;
   const base = (t.input ?? 0) * p.input + (t.output ?? 0) * p.output;
   return { total: (base + (t.cacheRead ?? 0) * p.cacheRead) / 1e6, noCache: base / 1e6 };

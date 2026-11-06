@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { openReadOnly, loadSqlite } from '../sqlite.mjs';
 import { findProcesses, isAgy, openFiles } from '../procs.mjs';
 import { emptyTokens, pushEvent, describeTool, isNoisePrompt } from './common.mjs';
-import { contextWindow } from '../pricing.mjs';
+import { contextWindow, geminiCost } from '../pricing.mjs';
 
 // /proc/<pid>/fd 의 링크는 늘 심볼릭 링크를 푼 절대 경로라서, 기록 폴더도 같은 모양으로 바꿔 둔다
 // (끝의 /, 상대 경로, 심볼릭 링크로 걸린 ~/.gemini). 폴더가 없으면 절대 경로까지만 바꾼다.
@@ -72,23 +72,79 @@ export function pbFields(buf) {
 const msg = (fields, n) => fields.find(([f, v]) => f === n && Buffer.isBuffer(v))?.[1] ?? null;
 const int = (fields, n) => fields.find(([f, v]) => f === n && typeof v === 'number')?.[1] ?? 0;
 
-// gen_metadata 한 줄 → { model, usage }. 필드 번호는 기록에서 확인한 값이다:
+// gen_metadata 한 줄 → { model, usage, step }. 필드 번호는 기록에서 확인한 값이다:
 // 1 → 19 모델 이름, 1 → 17 → 2 사용량 (2 입력, 3 출력, 4 캐시 쓰기, 5 캐시 읽기). 출력(3) 은 생각(9) + 답변(10) 이다.
-// 입력(2) 에는 캐시 읽기가 들어 있지 않다.
+// 입력(2) 에는 캐시 읽기가 들어 있지 않다. 1 → 20 은 {1 이름, 2 값} 목록이고, 그 가운데 last_step_index 가
+// 이 호출 직전 단계(steps.idx)다. 호출 기록에는 시각이 없어 그 단계의 만든 시각을 호출 시각으로 쓴다.
 export function readGeneration(data) {
   try {
     const gen = msg(pbFields(Buffer.from(data)), 1);
     if (!gen) return null;
     const f = pbFields(gen);
     const model = msg(f, 19)?.toString('utf8') || null;
+    let step = null;
+    for (const [n, v] of f) {
+      if (n !== 20 || !Buffer.isBuffer(v)) continue;
+      let kv;
+      try {
+        kv = pbFields(v);
+      } catch {
+        continue;
+      }
+      if (msg(kv, 1)?.toString('utf8') !== 'last_step_index') continue;
+      const x = Number(msg(kv, 2)?.toString('utf8'));
+      if (Number.isInteger(x) && x >= 0) step = x;
+    }
     const stats = msg(f, 17);
     const usage = stats && msg(pbFields(stats), 2);
-    if (!usage) return { model, usage: null };
+    if (!usage) return { model, usage: null, step };
     const u = pbFields(usage);
-    return { model, usage: { input: int(u, 2), output: int(u, 3), cacheWrite: int(u, 4), cacheRead: int(u, 5) } };
+    return { model, usage: { input: int(u, 2), output: int(u, 3), cacheWrite: int(u, 4), cacheRead: int(u, 5) }, step };
   } catch {
     return null;
   }
+}
+
+// step_payload 의 앞부분만으로 만든 시각(5 → 1)을 읽는다. 뒤가 잘려 있어도 그 필드까지만 온전하면 된다.
+export function stepTime(data) {
+  const b = Buffer.from(data ?? EMPTY);
+  let i = 0;
+  try {
+    while (i < b.length) {
+      let key;
+      [key, i] = varint(b, i);
+      const w = key % 8;
+      if (w === 0) [, i] = varint(b, i);
+      else if (w === 2) {
+        let n;
+        [n, i] = varint(b, i);
+        if (Math.floor(key / 8) === 5) {
+          const meta = b.subarray(i, Math.min(b.length, i + n));
+          let j = 0;
+          while (j < meta.length) {
+            let k, len;
+            [k, j] = varint(meta, j);
+            if (k % 8 === 0) [, j] = varint(meta, j);
+            else if (k % 8 !== 2) return null;
+            else {
+              [len, j] = varint(meta, j);
+              if (k === 10) {
+                if (j + len > meta.length) return null;
+                const t = pbFields(meta.subarray(j, j + len));
+                return int(t, 1) ? int(t, 1) * 1000 + Math.floor(int(t, 2) / 1e6) : null;
+              }
+              j += len;
+            }
+          }
+          return null;
+        }
+        i += n;
+      } else if (w === 1) i += 8;
+      else if (w === 5) i += 4;
+      else return null;
+    }
+  } catch {}
+  return null;
 }
 
 // ---- 진행 기록: steps 한 줄이 단계 하나다 ----
@@ -155,6 +211,9 @@ const fresh = () => ({
   tokens: emptyTokens(),
   model: null,
   prompt: 0,
+  cost: 0,
+  costNoCache: 0,
+  costUnknown: false,
   // steps 는 step 번까지 다 넣었고, 그 뒤로는 seen 에 적힌 줄만 넣었다.
   step: -1,
   seen: [],
@@ -206,32 +265,80 @@ export function sigOf(path, withWal = true) {
 
 const outOf = (budget) => budget.left <= 0 || (budget.read > 0 && Date.now() >= (budget.deadline ?? Infinity));
 
-// gen_metadata 를 이어 읽어 n 에 더한다. 'done' 끝까지, 'torn' 마지막 줄이 쓰는 중, 'exhausted' 읽기 한도.
-function readGenerations(db, n, last, budget) {
+const STEP_HEAD = 16384;
+
+// 호출 직전 단계들의 만든 시각. 단계 내용은 클 수 있어 앞부분만 읽고, 거기서 못 찾은 것만 통째로 읽는다.
+function stepTimes(db, idxs, budget) {
+  const out = new Map();
+  if (!idxs.length) return out;
+  const head = db.prepare('select substr(step_payload, 1, ?) d from steps where idx = ?');
+  const full = db.prepare('select step_payload d from steps where idx = ?');
+  for (const i of new Set(idxs)) {
+    const r = head.get(STEP_HEAD, i);
+    spend(budget, r?.d);
+    let at = r?.d ? stepTime(r.d) : null;
+    if (at == null && r?.d?.length === STEP_HEAD) {
+      const f = full.get(i);
+      spend(budget, f?.d);
+      at = stepTime(f?.d);
+    }
+    if (at != null) out.set(i, at);
+  }
+  return out;
+}
+
+// gen_metadata 를 s.idx 다음부터 이어 읽어 사용량이 있는 호출마다 onCall({ model, usage, at, cost }) 을 부른다.
+// at 은 호출 직전 단계의 만든 시각이고, 단계를 찾지 못하면 fallbackAt(대화 기록 파일의 수정 시각)이다.
+// cost 는 at 시각의 가격으로 환산한 값이고, 가격표에 없는 모델이면 null.
+// 돌려주는 값: 'done' 끝까지, 'torn' 마지막 줄이 쓰는 중, 'exhausted' 읽기 한도.
+export function readCalls(db, s, last, budget, fallbackAt, onCall) {
   const q = db.prepare('select idx, data from gen_metadata where idx > ? order by idx limit ?');
+  const hasSteps = Boolean(db.prepare("select 1 from sqlite_master where type = 'table' and name = 'steps'").get());
   for (;;) {
-    const rows = q.all(n.idx, BATCH);
+    const rows = q.all(s.idx, BATCH);
+    const calls = [];
+    let torn = false;
     for (const r of rows) {
       spend(budget, r.data);
       const x = readGeneration(r.data);
       // 마지막 줄을 해석하지 못하면 아직 쓰는 중일 수 있으니 그 앞에서 멈추고 다음 갱신에 다시 읽는다.
       // 뒤에 줄이 더 있는데도 못 읽는 줄은 형식이 다른 것이라 건너뛴다.
-      if (!x && r.idx === last) return 'torn';
-      n.idx = r.idx;
-      if (x?.model) n.model = x.model;
-      const u = x?.usage;
-      if (!u) continue;
-      const t = n.tokens;
-      t.input += u.input;
-      t.output += u.output;
-      t.cacheRead += u.cacheRead;
-      t.cacheWrite += u.cacheWrite;
-      t.total += u.input + u.output + u.cacheRead + u.cacheWrite;
-      n.prompt = u.input + u.cacheRead + u.cacheWrite;
+      if (!x && r.idx === last) {
+        torn = true;
+        break;
+      }
+      calls.push({ idx: r.idx, x });
     }
+    const times = hasSteps ? stepTimes(db, calls.map((c) => c.x?.usage && c.x.step).filter((i) => i != null), budget) : new Map();
+    for (const { idx, x } of calls) {
+      s.idx = idx;
+      if (x?.model) s.model = x.model;
+      if (!x?.usage) continue;
+      const at = times.get(x.step) ?? fallbackAt;
+      onCall({ model: s.model, usage: x.usage, at, cost: geminiCost(s.model, x.usage, at) });
+    }
+    if (torn) return 'torn';
     if (rows.length < BATCH) return 'done';
     if (outOf(budget)) return 'exhausted';
   }
+}
+
+const callTokens = (u) => u.input + u.output + u.cacheRead + u.cacheWrite;
+
+// gen_metadata 를 이어 읽어 n 의 토큰과 비용에 더한다. 돌려주는 값은 readCalls 와 같다.
+function readGenerations(db, n, last, budget, fallbackAt) {
+  return readCalls(db, n, last, budget, fallbackAt, ({ usage: u, cost }) => {
+    const t = n.tokens;
+    t.input += u.input;
+    t.output += u.output;
+    t.cacheRead += u.cacheRead;
+    t.cacheWrite += u.cacheWrite;
+    t.total += callTokens(u);
+    n.prompt = u.input + u.cacheRead + u.cacheWrite;
+    n.cost += cost?.total ?? 0;
+    n.costNoCache += cost?.noCache ?? 0;
+    if (!cost && callTokens(u) > 0) n.costUnknown = true;
+  });
 }
 
 // steps 를 이어 읽어 n 의 진행 기록에 넣는다. 돌려주는 값은 readGenerations 와 같다.
@@ -319,7 +426,15 @@ const spend = (budget, data) => {
   budget.read = (budget.read ?? 0) + size;
 };
 
-const maxIdx = (db, table) => db.prepare(`select max(idx) m from ${table}`).get()?.m ?? -1;
+const mtimeOf = (path) => {
+  try {
+    return statSync(path).mtimeMs;
+  } catch {
+    return Date.now();
+  }
+};
+
+export const maxIdx = (db, table) => db.prepare(`select max(idx) m from ${table}`).get()?.m ?? -1;
 
 // 대화 기록 하나를 한 번 열어 토큰(gen_metadata)과 진행 기록(steps)을 함께 읽는다.
 export function readConversation(id, budget) {
@@ -333,6 +448,7 @@ export function readConversation(id, budget) {
     budget.exhausted = true;
     return g;
   }
+  const mtime = mtimeOf(path);
   // 복사본에 더하고, 끝까지 탈 없이 읽었을 때만 반영한다.
   let n = { ...g, tokens: { ...g.tokens }, events: [...g.events], turns: [...g.turns], seen: [...g.seen] };
   let db;
@@ -345,7 +461,7 @@ export function readConversation(id, budget) {
     const lastStep = tables.has('steps') ? maxIdx(db, 'steps') : -1;
     // 마지막 줄 번호가 줄었으면 기록이 새로 쓰인 것이니 처음부터 다시 읽는다.
     if (lastGen < n.idx || lastStep < n.step) n = fresh();
-    const gen = tables.has('gen_metadata') ? readGenerations(db, n, lastGen, budget) : 'done';
+    const gen = tables.has('gen_metadata') ? readGenerations(db, n, lastGen, budget, mtime) : 'done';
     const steps = gen !== 'exhausted' && tables.has('steps') ? readSteps(db, n, lastStep, budget) : 'done';
     if (gen === 'done' && steps === 'done') n.sig = sig;
     if (gen === 'exhausted' || steps === 'exhausted') budget.exhausted = true;
@@ -463,9 +579,9 @@ function member(r, g) {
     phase: r.running ? { kind: 'think', text: `작업 중 · ${r.steps}단계` } : { kind: 'done', text: '완료' },
     now: '',
     tokens: g.tokens.total,
-    cost: null,
-    costNoCache: null,
-    costUnknown: g.tokens.total > 0,
+    cost: g.cost,
+    costNoCache: g.costNoCache,
+    costUnknown: g.costUnknown,
     // 기록에 시작 시각이 없어 마지막으로 바뀐 시각을 둔다 (정렬용).
     updatedAt: r.updatedAt,
   };
@@ -563,10 +679,16 @@ export function collectAgy({ showEnded, budget }) {
     const members = kids.map((c, i) => member(c, kidUsage[i])).sort((a, b) => (a.updatedAt ?? 0) - (b.updatedAt ?? 0));
     // 메인과 서브에이전트를 항목별로 더한다 (Claude 세션과 같은 방식).
     const tokens = { ...g.tokens, main: g.tokens.total, sub: 0, subCount: kids.length };
+    let cost = g.cost;
+    let costNoCache = g.costNoCache;
+    let costUnknown = g.costUnknown;
     for (const u of kidUsage) {
       const t = u.tokens;
       for (const k of Object.keys(emptyTokens())) tokens[k] += t[k];
       tokens.sub += t.total;
+      cost += u.cost;
+      costNoCache += u.costNoCache;
+      costUnknown ||= u.costUnknown;
     }
     const running = members.filter((m) => m.status === 'busy').length;
     const wait = isLive ? waitingFor(g) : null;
@@ -583,9 +705,9 @@ export function collectAgy({ showEnded, budget }) {
       live: isLive,
       status: !isLive ? 'ended' : wait ? 'waiting' : r.running ? 'busy' : 'idle',
       phase: phaseOf(isLive, r, g, running),
-      cost: null,
-      costNoCache: null,
-      costUnknown: tokens.total > 0,
+      cost,
+      costNoCache,
+      costUnknown,
       waitingFor: wait,
       now: g.lastTool ?? g.events.at(-1)?.text ?? '',
       startedAt: null,
