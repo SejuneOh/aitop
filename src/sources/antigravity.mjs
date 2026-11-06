@@ -9,7 +9,7 @@ import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { openReadOnly, loadSqlite } from '../sqlite.mjs';
 import { findProcesses, isAgy, openFiles } from '../procs.mjs';
-import { emptyTokens } from './common.mjs';
+import { emptyTokens, pushEvent, describeTool, isNoisePrompt } from './common.mjs';
 import { contextWindow } from '../pricing.mjs';
 
 // /proc/<pid>/fd 의 링크는 늘 심볼릭 링크를 푼 절대 경로라서, 기록 폴더도 같은 모양으로 바꿔 둔다
@@ -91,11 +91,84 @@ export function readGeneration(data) {
   }
 }
 
-// ---- 대화별 토큰 합계 (gen_metadata 를 새 줄만 이어 읽는다) ----
+// ---- 진행 기록: steps 한 줄이 단계 하나다 ----
 
-const usages = new Map();
+// step_payload 의 필드 번호는 기록에서 확인한 값이다: 1 단계 종류, 5 메타 (1 만든 시각 {1 초, 2 나노초},
+// 4 도구 호출 {1 호출 id, 2 이름, 3 인자 JSON}), 19 → 2 사용자 입력, 20 → 1 답변 글, 20 → 7 답변이 낸 도구 호출 (5 → 4 와 같은 모양).
+export const STEP = { PROMPT: 14, REPLY: 15, TOOL: 132 };
+// steps.status: 1 대기, 2 실행 중, 8 답변 생성 중, 9 사용자 허락 대기, 3 끝. 3 이 아닌 넷은 아직 바뀌는 중이다.
+// 9 는 도구 호출이 사용자의 허락을 기다리는 동안이다 (MCP 호출, run_command 에서 보았다). 허락하면 2 로 바뀐다.
+const OPEN = new Set([1, 2, 8, 9]);
+const APPROVAL = 9;
+const MAX_TURNS = 50;
+const EMPTY = Buffer.alloc(0);
 
-const fresh = () => ({ sig: null, idx: -1, tokens: emptyTokens(), model: null, prompt: 0 });
+// 도구 호출을 한 줄로. agy 도구 인자는 PascalCase 다 (read_file {Path}, run_command {CommandLine}, call_mcp_tool {ServerName, ToolName}).
+export function describeAgyTool(name, args = {}) {
+  if (name === 'call_mcp_tool') return describeTool(`mcp ${args.ServerName ?? ''}/${args.ToolName ?? ''}`, {});
+  if (name === 'run_command') return describeTool('Bash', { command: args.CommandLine ?? '' });
+  const path = args.Path ?? args.AbsolutePath ?? args.TargetFile;
+  if (typeof path === 'string') return describeTool(`${name} ${basename(path)}`, {});
+  return describeTool(name, args);
+}
+
+function toolOf(call) {
+  if (!call) return null;
+  const f = pbFields(call);
+  const name = msg(f, 2)?.toString('utf8');
+  if (!name) return null;
+  let args = {};
+  try {
+    args = JSON.parse(msg(f, 3)?.toString('utf8') ?? '{}');
+  } catch {}
+  return { name, what: describeAgyTool(name, args && typeof args === 'object' ? args : {}) };
+}
+
+// step_payload 한 줄 → { type, at, text, tool }. 해석하지 못하면 null.
+export function readStep(data) {
+  try {
+    const f = pbFields(Buffer.from(data ?? EMPTY));
+    const type = int(f, 1);
+    if (!type) return null;
+    const meta = pbFields(msg(f, 5) ?? EMPTY);
+    const t = msg(meta, 1) && pbFields(msg(meta, 1));
+    const step = { type, at: t ? int(t, 1) * 1000 + Math.floor(int(t, 2) / 1e6) : null, text: null, tool: null };
+    if (type === STEP.PROMPT) step.text = msg(pbFields(msg(f, 19) ?? EMPTY), 2)?.toString('utf8') || null;
+    else if (type === STEP.REPLY) {
+      const b = pbFields(msg(f, 20) ?? EMPTY);
+      step.text = msg(b, 1)?.toString('utf8') || null;
+      step.tool = toolOf(msg(b, 7));
+    } else if (type === STEP.TOOL) step.tool = toolOf(msg(meta, 4));
+    return step;
+  } catch {
+    return null;
+  }
+}
+
+// ---- 대화별 기록 (gen_metadata 와 steps 를 새 줄만 이어 읽는다) ----
+
+const convs = new Map();
+
+const fresh = () => ({
+  sig: null,
+  idx: -1,
+  tokens: emptyTokens(),
+  model: null,
+  prompt: 0,
+  // steps 는 step 번까지 다 넣었고, 그 뒤로는 seen 에 적힌 줄만 넣었다.
+  step: -1,
+  seen: [],
+  events: [],
+  turns: [],
+  turnCount: 0,
+  lastTool: null,
+  last: null,
+  // 아직 바뀌는 중인 단계 가운데 가장 뒤의 것 (지금 무엇을 하는지 보이는 데 쓴다).
+  open: null,
+  // 허락을 기다리는 단계 가운데 가장 뒤의 것. main·wal 은 그 상태를 본 파일에서 읽었을 때의 본 파일·-wal 서명이다.
+  wait: null,
+  path: null,
+});
 
 // SQLite 파일 머리 24번째 바이트의 변경 카운터. 쓰기마다 1 씩 늘어서, 수정 시각·크기가 그대로인 쓰기도 알아챈다.
 function changeCounter(path) {
@@ -133,9 +206,125 @@ export function sigOf(path, withWal = true) {
 
 const outOf = (budget) => budget.left <= 0 || (budget.read > 0 && Date.now() >= (budget.deadline ?? Infinity));
 
-export function readUsage(id, budget) {
-  let g = usages.get(id);
-  if (!g) usages.set(id, (g = fresh()));
+// gen_metadata 를 이어 읽어 n 에 더한다. 'done' 끝까지, 'torn' 마지막 줄이 쓰는 중, 'exhausted' 읽기 한도.
+function readGenerations(db, n, last, budget) {
+  const q = db.prepare('select idx, data from gen_metadata where idx > ? order by idx limit ?');
+  for (;;) {
+    const rows = q.all(n.idx, BATCH);
+    for (const r of rows) {
+      spend(budget, r.data);
+      const x = readGeneration(r.data);
+      // 마지막 줄을 해석하지 못하면 아직 쓰는 중일 수 있으니 그 앞에서 멈추고 다음 갱신에 다시 읽는다.
+      // 뒤에 줄이 더 있는데도 못 읽는 줄은 형식이 다른 것이라 건너뛴다.
+      if (!x && r.idx === last) return 'torn';
+      n.idx = r.idx;
+      if (x?.model) n.model = x.model;
+      const u = x?.usage;
+      if (!u) continue;
+      const t = n.tokens;
+      t.input += u.input;
+      t.output += u.output;
+      t.cacheRead += u.cacheRead;
+      t.cacheWrite += u.cacheWrite;
+      t.total += u.input + u.output + u.cacheRead + u.cacheWrite;
+      n.prompt = u.input + u.cacheRead + u.cacheWrite;
+    }
+    if (rows.length < BATCH) return 'done';
+    if (outOf(budget)) return 'exhausted';
+  }
+}
+
+// steps 를 이어 읽어 n 의 진행 기록에 넣는다. 돌려주는 값은 readGenerations 와 같다.
+// agy 는 단계 한 줄을 만든 뒤 상태와 내용을 그 자리에서 고쳐 쓰므로, 아직 바뀌는 중인 단계는 넣지 않고 다음에 다시 읽는다.
+// 그 뒤의 단계를 먼저 넣었으면 n.seen 에 적어 두어 두 번 넣지 않는다. 바뀌는 중인 단계는 매번 다시 훑으므로 open·wait 도 매번 새로 정한다.
+function readSteps(db, n, last, budget) {
+  const q = db.prepare('select idx, status, step_payload data from steps where idx > ? order by idx limit ?');
+  const seen = new Set(n.seen);
+  let cur = n.step;
+  let hold = null;
+  let result = 'done';
+  n.open = null;
+  n.wait = null;
+  scan: for (;;) {
+    const rows = q.all(cur, BATCH);
+    for (const r of rows) {
+      spend(budget, r.data);
+      if (seen.has(r.idx)) {
+        cur = r.idx;
+        continue;
+      }
+      const s = readStep(r.data);
+      // 바뀌는 중인 단계는 내용이 아직 비어 있어도 나중에 다시 읽는다.
+      if (OPEN.has(r.status)) {
+        cur = r.idx;
+        hold ??= r.idx;
+        if (s) n.open = { ...s, idx: r.idx, status: r.status };
+        if (r.status === APPROVAL) n.wait = { idx: r.idx, what: s?.tool?.what || '도구 허락' };
+        continue;
+      }
+      if (!s && r.idx === last) {
+        hold ??= r.idx;
+        result = 'torn';
+        break scan;
+      }
+      cur = r.idx;
+      applyStep(n, s, r.idx);
+      seen.add(r.idx);
+    }
+    if (rows.length < BATCH) break;
+    if (outOf(budget)) {
+      result = 'exhausted';
+      break;
+    }
+  }
+  n.step = hold === null ? cur : hold - 1;
+  n.seen = [...seen].filter((i) => i > n.step);
+  return result;
+}
+
+// 늦게 끝난 단계는 뒤 단계보다 나중에 들어오므로 시각 순서 자리로 옮긴다.
+function addEvent(n, at, kind, text) {
+  const e = pushEvent(n, at, kind, text);
+  if (!e) return null;
+  const ev = n.events;
+  for (let i = ev.length - 1; i > 0 && ev[i - 1].at > e.at; i--) [ev[i - 1], ev[i]] = [ev[i], ev[i - 1]];
+  return e;
+}
+
+function applyStep(n, s, idx) {
+  if (!s) return;
+  const at = s.at ? new Date(s.at).toISOString() : null;
+  if (s.type === STEP.PROMPT) {
+    if (s.text && !isNoisePrompt(s.text)) {
+      const e = addEvent(n, at, 'prompt', s.text);
+      if (e) {
+        n.turns.push({ n: ++n.turnCount, at: e.at, text: e.text.slice(0, 120) });
+        if (n.turns.length > MAX_TURNS) n.turns.shift();
+      }
+    }
+  } else if (s.type === STEP.REPLY) {
+    if (s.text) addEvent(n, at, 'reply', s.text);
+  } else if (s.type === STEP.TOOL) {
+    if (s.tool) {
+      addEvent(n, at, 'tool', s.tool.what);
+      n.lastTool = s.tool.what;
+    }
+  } else return;
+  if (idx > (n.last?.idx ?? -1)) n.last = { type: s.type, tool: s.tool, idx };
+}
+
+const spend = (budget, data) => {
+  const size = data?.length ?? 0;
+  budget.left -= size;
+  budget.read = (budget.read ?? 0) + size;
+};
+
+const maxIdx = (db, table) => db.prepare(`select max(idx) m from ${table}`).get()?.m ?? -1;
+
+// 대화 기록 하나를 한 번 열어 토큰(gen_metadata)과 진행 기록(steps)을 함께 읽는다.
+export function readConversation(id, budget) {
+  let g = convs.get(id);
+  if (!g) convs.set(id, (g = fresh()));
   const path = join(AGY_ROOT, 'conversations', `${id}.db`);
   const sig = sigOf(path);
   if (sig === null || sig === g.sig) return g;
@@ -145,51 +334,27 @@ export function readUsage(id, budget) {
     return g;
   }
   // 복사본에 더하고, 끝까지 탈 없이 읽었을 때만 반영한다.
-  const n = { ...g, tokens: { ...g.tokens } };
+  let n = { ...g, tokens: { ...g.tokens }, events: [...g.events], turns: [...g.turns], seen: [...g.seen] };
   let db;
   let ok = false;
   try {
     db = openReadOnly(path);
     if (!db) return g;
-    const last = db.prepare('select max(idx) m from gen_metadata').get()?.m ?? -1;
-    // 마지막 줄 번호가 줄었으면 기록이 새로 쓰인 것이니 처음부터 다시 더한다.
-    if (last < n.idx) Object.assign(n, fresh());
-    const q = db.prepare('select idx, data from gen_metadata where idx > ? order by idx limit ?');
-    let torn = false;
-    for (;;) {
-      const rows = q.all(n.idx, BATCH);
-      for (const r of rows) {
-        const size = r.data?.length ?? 0;
-        budget.left -= size;
-        budget.read = (budget.read ?? 0) + size;
-        const x = readGeneration(r.data);
-        // 마지막 줄을 해석하지 못하면 아직 쓰는 중일 수 있으니 그 앞에서 멈추고 다음 갱신에 다시 읽는다.
-        // 뒤에 줄이 더 있는데도 못 읽는 줄은 형식이 다른 것이라 건너뛴다.
-        if (!x && r.idx === last) {
-          torn = true;
-          break;
-        }
-        n.idx = r.idx;
-        if (x?.model) n.model = x.model;
-        const u = x?.usage;
-        if (!u) continue;
-        const t = n.tokens;
-        t.input += u.input;
-        t.output += u.output;
-        t.cacheRead += u.cacheRead;
-        t.cacheWrite += u.cacheWrite;
-        t.total += u.input + u.output + u.cacheRead + u.cacheWrite;
-        n.prompt = u.input + u.cacheRead + u.cacheWrite;
-      }
-      if (torn) break;
-      if (rows.length < BATCH) {
-        n.sig = sig;
-        break;
-      }
-      if (outOf(budget)) {
-        budget.exhausted = true;
-        break;
-      }
+    const tables = new Set(db.prepare("select name from sqlite_master where type = 'table'").all().map((r) => r.name));
+    const lastGen = tables.has('gen_metadata') ? maxIdx(db, 'gen_metadata') : -1;
+    const lastStep = tables.has('steps') ? maxIdx(db, 'steps') : -1;
+    // 마지막 줄 번호가 줄었으면 기록이 새로 쓰인 것이니 처음부터 다시 읽는다.
+    if (lastGen < n.idx || lastStep < n.step) n = fresh();
+    const gen = tables.has('gen_metadata') ? readGenerations(db, n, lastGen, budget) : 'done';
+    const steps = gen !== 'exhausted' && tables.has('steps') ? readSteps(db, n, lastStep, budget) : 'done';
+    if (gen === 'done' && steps === 'done') n.sig = sig;
+    if (gen === 'exhausted' || steps === 'exhausted') budget.exhausted = true;
+    n.path = path;
+    // 허락 대기를 본 파일에서 처음 읽은 때의 -wal 서명을 남긴다. 본 파일이 그대로인 채 -wal 만 바뀌면 같은 대기로 보고 남긴 값을 둔다.
+    if (n.wait) {
+      const prev = g.wait;
+      const same = prev?.idx === n.wait.idx && prev.main === mainSig;
+      n.wait = { ...n.wait, main: mainSig, wal: same ? prev.wal : walSig(path) };
     }
     // 읽는 동안 agy 가 본 파일에 썼으면 읽은 내용을 믿을 수 없으니 버리고 다음 갱신에 다시 읽는다.
     ok = sigOf(path, false) === mainSig;
@@ -306,11 +471,44 @@ function member(r, g) {
   };
 }
 
-function phaseOf(live, r, runningMembers) {
+// -wal 의 크기·수정 시각. 열지 않고 stat 만 한다.
+function walSig(path) {
+  try {
+    const w = statSync(`${path}-wal`);
+    return `${w.mtimeMs}:${w.size}`;
+  } catch {
+    return '-';
+  }
+}
+
+// 허락을 기다리는 도구 호출이 있으면 그 도구를 한 줄로 돌려준다.
+// immutable 로는 -wal 을 읽지 못해 본 파일에 합쳐진 뒤에야 대기가 보이고, 허락한 뒤에도 다시 합쳐질 때까지 대기로 남는다.
+// 그래서 대기를 본 뒤 -wal 이 바뀌었으면 agy 가 다시 쓰고 있는 것(사용자가 이미 답한 것)으로 보고 대기로 치지 않는다.
+export function waitingFor(g) {
+  const w = g.wait;
+  if (!w) return null;
+  if (g.path && w.wal !== undefined && walSig(g.path) !== w.wal) return null;
+  return w.what;
+}
+
+// 실행 중일 때는 아직 바뀌는 중인 단계, 없으면 마지막으로 끝난 단계로 지금 할 일을 짐작한다.
+// 끝난 답변이 도구 호출을 냈으면 그 도구를 실행할 차례이고, 끝난 도구 호출 뒤에는 모델이 결과를 읽고 생각한다.
+export function phaseOf(live, r, g, runningMembers = 0) {
   if (!live) return { kind: 'ended', text: '종료' };
-  if (!r.running) return { kind: 'idle', text: '다음 지시 대기' };
   const extra = runningMembers ? ` · 에이전트 ${runningMembers}개 실행 중` : '';
-  return { kind: 'think', text: `작업 중 · ${r.steps}단계${extra}` };
+  const wait = waitingFor(g);
+  if (wait) return { kind: 'waiting', text: `응답 대기 · ${wait}${extra}` };
+  if (!r.running) return { kind: 'idle', text: '다음 지시 대기' };
+  // 바뀌는 중인 단계와 끝난 단계 가운데 더 뒤의 것이 지금 하는 일이다 (앞의 명령이 오래 도는 동안 뒤 단계가 이어질 수 있다).
+  const open = g.open && (!g.last || (g.open.idx ?? Infinity) > (g.last.idx ?? -1));
+  const s = open ? g.open : (g.last ?? g.open);
+  let p;
+  if (!s) p = { kind: 'think', text: `작업 중 · ${r.steps}단계` };
+  else if (s.type === STEP.TOOL && open) p = { kind: 'tool', text: `도구 실행 · ${s.tool?.what || '도구'}` };
+  else if (s.type === STEP.REPLY && !open && s.tool) p = { kind: 'tool', text: `도구 실행 · ${s.tool.what}` };
+  else if (s.type === STEP.REPLY) p = { kind: 'write', text: '답변 작성 중' };
+  else p = { kind: 'think', text: '생각 중' };
+  return { ...p, text: p.text + extra };
 }
 
 function placeholder(p, text) {
@@ -358,10 +556,10 @@ export function collectAgy({ showEnded, budget }) {
   tops.sort((a, b) => Number(live.has(b.id)) - Number(live.has(a.id)));
   for (const r of tops) {
     const isLive = live.has(r.id);
-    const g = readUsage(r.id, budget);
+    const g = readConversation(r.id, budget);
     const kids = children.get(r.id) ?? [];
     // 서브에이전트 기록은 한 번만 읽어 행과 합계가 같은 값을 쓰게 한다.
-    const kidUsage = kids.map((c) => readUsage(c.id, budget));
+    const kidUsage = kids.map((c) => readConversation(c.id, budget));
     const members = kids.map((c, i) => member(c, kidUsage[i])).sort((a, b) => (a.updatedAt ?? 0) - (b.updatedAt ?? 0));
     // 메인과 서브에이전트를 항목별로 더한다 (Claude 세션과 같은 방식).
     const tokens = { ...g.tokens, main: g.tokens.total, sub: 0, subCount: kids.length };
@@ -371,6 +569,7 @@ export function collectAgy({ showEnded, budget }) {
       tokens.sub += t.total;
     }
     const running = members.filter((m) => m.status === 'busy').length;
+    const wait = isLive ? waitingFor(g) : null;
     out.push({
       tool: 'gemini',
       id: r.id,
@@ -382,26 +581,26 @@ export function collectAgy({ showEnded, budget }) {
       branch: null,
       model: g.model,
       live: isLive,
-      status: !isLive ? 'ended' : r.running ? 'busy' : 'idle',
-      phase: phaseOf(isLive, r, running),
+      status: !isLive ? 'ended' : wait ? 'waiting' : r.running ? 'busy' : 'idle',
+      phase: phaseOf(isLive, r, g, running),
       cost: null,
       costNoCache: null,
       costUnknown: tokens.total > 0,
-      waitingFor: null,
-      now: '',
+      waitingFor: wait,
+      now: g.lastTool ?? g.events.at(-1)?.text ?? '',
       startedAt: null,
       updatedAt: r.updatedAt ?? Date.now(),
       tokens,
       context: { used: g.prompt, window: contextWindow(g.model, g.prompt) },
-      events: [],
+      events: g.events,
       files: [],
-      turns: [],
+      turns: g.turns,
       members: isLive ? members : [],
     });
   }
   for (const p of loose) out.push(placeholder(p, '첫 입력 대기'));
 
   const keep = new Set(rows.map((r) => r.id));
-  for (const id of usages.keys()) if (!keep.has(id)) usages.delete(id);
+  for (const id of convs.keys()) if (!keep.has(id)) convs.delete(id);
   return out;
 }
