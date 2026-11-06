@@ -9,7 +9,7 @@ import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { openReadOnly, loadSqlite } from '../sqlite.mjs';
 import { findProcesses, isAgy, openFiles } from '../procs.mjs';
-import { emptyTokens, pushEvent, describeTool, isNoisePrompt } from './common.mjs';
+import { emptyTokens, pushEvent, describeTool, isNoisePrompt, MEMBER_FADE_MS } from './common.mjs';
 import { contextWindow, geminiCost } from '../pricing.mjs';
 
 // /proc/<pid>/fd 의 링크는 늘 심볼릭 링크를 푼 절대 경로라서, 기록 폴더도 같은 모양으로 바꿔 둔다
@@ -676,7 +676,11 @@ export function collectAgy({ showEnded, budget }) {
     const kids = children.get(r.id) ?? [];
     // 서브에이전트 기록은 한 번만 읽어 행과 합계가 같은 값을 쓰게 한다.
     const kidUsage = kids.map((c) => readConversation(c.id, budget));
-    const members = kids.map((c, i) => member(c, kidUsage[i])).sort((a, b) => (a.updatedAt ?? 0) - (b.updatedAt ?? 0));
+    // 끝난 서브에이전트는 Claude 팀원처럼 잠시 "완료"로 보였다가 행에서 빠진다. 합계에는 그대로 남는다.
+    const members = kids
+      .map((c, i) => member(c, kidUsage[i]))
+      .filter((m) => m.status === 'busy' || (m.updatedAt != null && Date.now() - m.updatedAt <= MEMBER_FADE_MS))
+      .sort((a, b) => (a.updatedAt ?? 0) - (b.updatedAt ?? 0));
     // 메인과 서브에이전트를 항목별로 더한다 (Claude 세션과 같은 방식).
     const tokens = { ...g.tokens, main: g.tokens.total, sub: 0, subCount: kids.length };
     let cost = g.cost;

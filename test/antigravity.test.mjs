@@ -440,6 +440,41 @@ test('실행 중인 agy 를 대화와 짝지어 Gemini 세션으로 보인다', 
   }
 });
 
+test('끝난 서브에이전트는 6초 동안만 행으로 보이고, 합계에는 모두 남는다', { skip: noSqlite || (!canListProcesses() && '프로세스 목록 미지원') || (process.platform !== 'linux' && '/proc 필요') }, async () => {
+  const now = Date.now();
+  makeConversation('fade-1', [{ input: 100, output: 10 }]);
+  makeConversation('fade-run', [{ input: 1, output: 1 }]);
+  makeConversation('fade-new', [{ input: 2, output: 2 }]);
+  makeConversation('fade-old', [{ input: 4, output: 4 }]);
+  makeSummaries([
+    { id: 'fade-1', title: '부모', modified: ts(now - 2000), ws: ['file:///work/fade'], status: 'CASCADE_RUN_STATUS_RUNNING' },
+    { id: 'fade-run', title: '실행 중', modified: ts(now - 90_000), agent: 'writer', parent: 'fade-1', status: 'CASCADE_RUN_STATUS_RUNNING' },
+    { id: 'fade-new', title: '방금 끝남', modified: ts(now - 1000), agent: 'writer', parent: 'fade-1' },
+    { id: 'fade-old', title: '오래전 끝남', modified: ts(now - 60_000), agent: 'writer', parent: 'fade-1' },
+  ]);
+  const lock = join(root, 'presence', 'fade-1.lock');
+  writeFileSync(lock, '');
+  const script = `require('fs').openSync(${JSON.stringify(lock)}, 'r'); setInterval(() => {}, 1000);`;
+  const child = spawn(process.execPath, ['-e', script], { argv0: 'agy', stdio: 'ignore' });
+  try {
+    let s;
+    for (let i = 0; i < 40 && !s; i++) {
+      await sleep(100);
+      s = collectAgy({ showEnded: false, budget: createBudget() }).find((x) => x.id === 'fade-1');
+    }
+    assert.ok(s, 'agy 세션을 찾는다');
+    assert.deepEqual(s.members.map((m) => [m.task, m.status]), [['실행 중', 'busy'], ['방금 끝남', 'done']], '실행 중 + 6초 안에 끝난 것만, 시각 순서');
+    assert.equal(s.tokens.subCount, 3);
+    assert.equal(s.tokens.sub, 2 + 4 + 8);
+    assert.equal(s.tokens.total, 110 + 2 + 4 + 8);
+    const k = Date.now() >= Date.parse('2026-12-01') ? 2 : 1;
+    assert.equal(Math.round(s.cost * 1e8), Math.round((100 * 2 + 10 * 10 + 7 * (2 + 10)) * k * 100), '숨긴 서브에이전트 비용도 더한다');
+    assert.equal(s.phase.text, '작업 중 · 1단계 · 에이전트 1개 실행 중');
+  } finally {
+    child.kill();
+  }
+});
+
 test('비용은 호출 직전 단계의 시각에 쓰던 가격으로 센다', { skip: noSqlite }, () => {
   const dec = Date.UTC(2026, 11, 1, 0, 0, 5);
   makeSteps('cost-1', [prompt('a', T0), reply('b', null, T0 + 1000), prompt('c', dec)]);
