@@ -4,6 +4,9 @@ import { makeClaudeHome, assistant, user, usage } from '../fixture.mjs';
 import { fileURLToPath } from 'node:url';
 
 export const BIN = fileURLToPath(new URL('../../bin/aitop.mjs', import.meta.url));
+
+// 이 PC 에서 실제로 돌고 있는 agy 의 기록을 읽지 않게 한다 (기록 폴더가 없으면 agy 를 보지 않는다).
+process.env.AITOP_AGY_HOME = '/nonexistent/aitop-e2e-agy';
 export const SESSION_ID = 'e2e00000-1';
 
 export function makeSession() {

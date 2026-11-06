@@ -23,6 +23,8 @@ export const PRICE_TAG = createHash('sha1').update(JSON.stringify(PRICES)).diges
 
 // 모델별 컨텍스트 창 크기(토큰). 출처: Anthropic 모델 표(2026-10). 표에 없는 모델은 contextWindow 가 추측한다.
 const WINDOWS = {
+  // Gemini 계열의 입력 한도(1,048,576 토큰). Antigravity 의 내부 모델 이름(gemini-4-argon 등)도 같다고 본다.
+  'gemini-': 1_048_576,
   'claude-fable-5-1': 1_000_000,
   'claude-mythos-5-1': 1_000_000,
   'claude-fable-5': 1_000_000,

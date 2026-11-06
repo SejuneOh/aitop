@@ -1,11 +1,11 @@
 # ⣠⣴⣾ aitop
 
-터미널에서 지금 돌고 있는 AI 코딩 세션(Claude Code · Codex CLI · Gemini CLI)과 진행 내용, 토큰을 실시간으로 보는 읽기 전용 모니터.
+터미널에서 지금 돌고 있는 AI 코딩 세션(Claude Code · Codex CLI · Antigravity CLI · Gemini CLI)과 진행 내용, 토큰을 실시간으로 보는 읽기 전용 모니터.
 
 - 포트를 열지 않고, 네트워크 요청을 하지 않는다. 각 CLI 가 내 PC 에 남기는 세션 파일만 읽는다.
 - 세션 파일은 읽기 전용으로만 연다. 디스크에 쓰는 곳은 읽은 위치·합계를 기억하는 `~/.cache/aitop` 뿐이다 (지워도 된다).
 - 화면에 표시되는 텍스트 중 API 키·토큰처럼 보이는 값은 `••••` 로 가린다.
-- 외부 라이브러리 없음 (Node 20 이상).
+- 외부 라이브러리 없음 (Node 20 이상). Antigravity CLI 의 세부 정보는 Node 내장 `node:sqlite` 로 기록을 immutable(파일을 하나도 만들거나 고치지 않는 열기)로 열 수 있는 Node 22.15 이상에서만 읽는다.
 
 ## 설치
 
@@ -119,7 +119,7 @@ end)
 - STATUS: 지금 단계 (`도구 실행 · Bash`, `생각 중`, `답변 작성 중`, `팀원 N명 작업 중`, `응답 대기`, `다음 지시 대기`). 큰 기록을 처음 읽는 동안은 `기록 읽는 중 N%`
 - 응답 대기 세션은 맨 위에 배경색으로 보인다. 화면이 작아 표가 잘리면 마지막 줄에 `… +N 세션` 이 나온다.
 - 서브에이전트는 메인 세션 아래 `├─` 행으로 붙고, 하는 일(description) 뒤에 타입이 흐리게 붙는다. 첫 응답 전에는 `시작 중`, 끝나면 6초간 `완료`로 보였다가 사라진다.
-- COST: Claude API 정가로 환산한 비용. 구독 요금제 사용분도 같은 기준으로 계산한다 (`src/pricing.mjs`). 가격표에 없는 모델이 섞이면 `$1.20?` 처럼 `?` 가 붙는다. Codex 는 OpenAI API 정가로 환산한다 (gpt-5.3-codex, gpt-5.1-codex(-mini), codex-mini, gpt-4o-mini). 값은 2026-11 가격 비교 사이트 기준 추정이며, 세션 중 모델이 바뀌면 마지막 모델 가격으로 계산한다.
+- COST: Claude API 정가로 환산한 비용. 구독 요금제 사용분도 같은 기준으로 계산한다 (`src/pricing.mjs`). 가격표에 없는 모델이 섞이면 `$1.20?` 처럼 `?` 가 붙는다. Codex 는 OpenAI API 정가로 환산한다 (gpt-5.3-codex, gpt-5.1-codex(-mini), codex-mini, gpt-4o-mini). 값은 2026-11 가격 비교 사이트 기준 추정이며, 세션 중 모델이 바뀌면 마지막 모델 가격으로 계산한다. Antigravity CLI 는 Gemini 가격표가 없어 표에는 `-` 로 보이고 상세 패널에는 비용 구획이 없다.
 - IDLE: 마지막 활동 후 지난 시간. 작업 중이면 `now`.
 - 상세 패널의 토큰 합계 = 메인 + 서브에이전트 = 입력 + 출력 + 캐시 읽기 + 캐시 쓰기. 비용은 캐시 제외 금액도 함께 보인다.
 - `--all`: 24시간 안에 바뀐 기록을 종료 세션으로 보인다. 본문은 선택했을 때 읽는다.
@@ -132,6 +132,7 @@ end)
 |---|---|---|
 | Claude Code | `~/.claude/sessions/<pid>.json` + pid 가 살아 있는지 | `~/.claude/projects/*/<sessionId>.jsonl`, `…/subagents/agent-*.jsonl` |
 | Codex CLI | `codex` 프로세스와 작업 폴더 (Linux `/proc`, macOS `ps`·`lsof`) | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` |
+| Antigravity CLI (`agy`) | `agy` 프로세스가 열어 둔 `presence/<id>.lock` (Linux `/proc/<pid>/fd`). macOS 는 작업 폴더로 짝짓는다 | `~/.gemini/antigravity-cli/conversation_summaries.db`(제목·상태·서브에이전트), `conversations/<id>.db` 의 `gen_metadata`(모델·토큰) |
 | Gemini CLI | `gemini` 프로세스 | 아직 미지원 |
 
 ## 알려진 한계
@@ -140,6 +141,7 @@ end)
 - 세션 파일 형식은 각 CLI 의 내부 형식이라, CLI 업데이트로 바뀌면 `src/sources/` 의 해당 파일을 고쳐야 한다.
 - 컨텍스트 창 크기는 기록에 없어서 모델별 표(`src/pricing.mjs`)로 정한다. 표에 없는 모델은 200k 를 넘으면 1M 으로 가정한다.
 - 같은 폴더에서 codex 를 여러 개 띄우면, 최근에 바뀐 세션 파일부터 순서대로 짝짓는다.
+- Antigravity CLI 세션은 Gemini 탭에 보인다. 기록이 SQLite + protobuf 라 진행 단계는 `작업 중 · N단계` / `다음 지시 대기` 만 보이고, 지시 내용·도구 호출·변경 파일은 아직 읽지 않는다. 토큰 필드 번호는 실제 기록에서 확인한 값이라(출력 = 생각 + 답변) agy 업데이트로 바뀔 수 있다. Windows Antigravity 앱(`/mnt/c/…/.gemini/antigravity`)은 읽지 않는다.
 - 토큰 합계에는 캐시 읽기 토큰이 포함된다. 세부 구성은 상세 패널에서 본다.
 - 실시간 화면은 한 번 갱신에 기록을 24MB 까지만 읽는다. 아주 큰 기록은 처음 몇 초 동안 합계가 채워지는 중으로 보인다.
 - 캐시 폴더 이름에 가격표 지문이 들어가서, 가격표를 바꾼 버전으로 올리면 첫 실행 때 비용을 다시 계산한다.

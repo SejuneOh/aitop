@@ -1,6 +1,7 @@
 import { collectClaude } from './sources/claude.mjs';
 import { collectCodex } from './sources/codex.mjs';
 import { collectGemini } from './sources/gemini.mjs';
+import { collectAgy } from './sources/antigravity.mjs';
 import { collectLedger } from './sources/claude-ledger.mjs';
 import { createBudget } from './tail.mjs';
 
@@ -18,7 +19,7 @@ export function collect({ budgetBytes = Infinity, budgetMs = Infinity, ...opts }
   };
   const sessions = [];
   const errors = [];
-  for (const [tool, fn] of [['claude', collectClaude], ['codex', collectCodex], ['gemini', collectGemini]]) {
+  for (const [tool, fn] of [['claude', collectClaude], ['codex', collectCodex], ['gemini', collectGemini], ['agy', collectAgy]]) {
     try {
       sessions.push(...fn({ ...opts, budget: budgetOf(budgetBytes, budgetMs) }));
     } catch (err) {

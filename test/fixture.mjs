@@ -11,6 +11,8 @@ export function makeClaudeHome() {
   mkdirSync(join(home, 'projects'), { recursive: true });
   process.env.CLAUDE_CONFIG_DIR = home;
   process.env.XDG_CACHE_HOME = join(root, 'cache');
+  // 이 PC 에서 실제로 돌고 있는 agy 의 기록을 읽지 않게 한다 (기록 폴더가 없으면 agy 를 보지 않는다).
+  process.env.AITOP_AGY_HOME = join(root, 'agy-missing');
 
   const lines = (rows) => rows.map((r) => JSON.stringify(r)).join('\n') + '\n';
 
