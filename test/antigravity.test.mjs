@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readdirSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -127,6 +127,17 @@ test('기록을 읽어도 agy 폴더에 -wal·-shm 같은 파일을 만들지 �
   assert.deepEqual(before, ['wal-1.db'], 'agy 가 닫히면 -wal·-shm 은 지워진다');
   assert.equal(readUsage('wal-1', createBudget()).tokens.total, 10);
   assert.deepEqual(readdirSync(join(root, 'conversations')).filter((f) => f.startsWith('wal-1')).sort(), before);
+
+  // 새 호출을 본 파일에 합쳐 두고, agy 가 남긴 것처럼 빈 -wal 만 둔다. 이때도 -shm 을 만들거나 고치지 않는다.
+  const w2 = new sqlite.DatabaseSync(p);
+  w2.prepare('insert into gen_metadata (idx, data) values (1, ?)').run(generation({ input: 1, output: 1 }));
+  w2.close();
+  writeFileSync(`${p}-wal`, '');
+  const files = () => readdirSync(join(root, 'conversations')).filter((f) => f.startsWith('wal-1')).sort().map((f) => [f, statSync(join(root, 'conversations', f)).mtimeMs]);
+  const ready = files();
+  assert.deepEqual(ready.map(([f]) => f), ['wal-1.db', 'wal-1.db-wal']);
+  assert.equal(readUsage('wal-1', createBudget()).tokens.total, 12, '본 파일에 합쳐진 새 호출을 읽는다');
+  assert.deepEqual(files(), ready, '파일 목록과 수정 시각이 그대로');
 });
 
 test('읽기 한도에 닿으면 멈췄다가 다음 갱신에 이어 읽는다', { skip: noSqlite }, () => {

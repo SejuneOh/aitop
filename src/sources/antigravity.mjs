@@ -87,7 +87,6 @@ const usages = new Map();
 const fresh = () => ({ sig: null, idx: -1, tokens: emptyTokens(), model: null, prompt: 0 });
 
 // SQLite 파일 머리 24번째 바이트의 변경 카운터. 쓰기마다 1 씩 늘어서, 수정 시각·크기가 그대로인 쓰기도 알아챈다.
-// WAL 모드에서는 합칠 때까지 늘지 않지만 그동안은 -wal 파일의 크기와 시각이 바뀐다.
 function changeCounter(path) {
   let fd;
   try {
@@ -101,17 +100,24 @@ function changeCounter(path) {
   }
 }
 
-function sigOf(path) {
-  let s = `${changeCounter(path)};`;
-  for (const p of [path, `${path}-wal`]) {
-    try {
-      const st = statSync(p);
-      s += `${st.mtimeMs}:${st.size};`;
-    } catch {
-      s += '-;';
-    }
+// 파일 서명. 커널의 수정 시각은 몇 ms 단위로 거칠고 WAL 모드에서는 변경 카운터가 늘지 않아,
+// 다시 읽을지는 -wal 의 상태까지 함께 본다 (agy 가 쓰면 -wal 이 생기거나 바뀌고, 합치면 지워지거나 비워진다).
+// 읽은 결과를 버릴지는 본 파일만 본다 (immutable 은 본 파일만 읽는다).
+export function sigOf(path, withWal = true) {
+  let main;
+  try {
+    const st = statSync(path);
+    main = `${changeCounter(path)};${st.mtimeMs}:${st.size}`;
+  } catch {
+    return null;
   }
-  return s;
+  if (!withWal) return main;
+  try {
+    const w = statSync(`${path}-wal`);
+    return `${main};${w.mtimeMs}:${w.size}`;
+  } catch {
+    return `${main};-`;
+  }
 }
 
 const outOf = (budget) => budget.left <= 0 || (budget.read > 0 && Date.now() >= (budget.deadline ?? Infinity));
@@ -121,7 +127,8 @@ export function readUsage(id, budget) {
   if (!g) usages.set(id, (g = fresh()));
   const path = join(AGY_ROOT, 'conversations', `${id}.db`);
   const sig = sigOf(path);
-  if (sig === g.sig) return g;
+  if (sig === null || sig === g.sig) return g;
+  const mainSig = sigOf(path, false);
   if (outOf(budget)) {
     budget.exhausted = true;
     return g;
@@ -165,8 +172,8 @@ export function readUsage(id, budget) {
         break;
       }
     }
-    // immutable 로 읽는 동안 agy 가 쓰기 시작했으면 읽은 내용을 믿을 수 없으니 버리고 다음 갱신에 다시 읽는다.
-    ok = !db.immutable || sigOf(path) === sig;
+    // 읽는 동안 agy 가 본 파일에 썼으면 읽은 내용을 믿을 수 없으니 버리고 다음 갱신에 다시 읽는다.
+    ok = sigOf(path, false) === mainSig;
   } catch {
     // agy 가 쓰는 중이라 잠겨 있으면 다음 갱신에 다시 읽는다.
   } finally {
@@ -194,12 +201,20 @@ export function cwdOf(workspaceUris) {
   }
 }
 
+// 읽는 동안 agy 가 쓰면 결과를 버리고 지난번 목록을 쓴다 (한 번 갱신 동안 세션이 사라져 보이지 않게).
+let summaries = { sig: null, rows: [] };
+
 function readSummaries() {
+  const path = join(AGY_ROOT, 'conversation_summaries.db');
+  const sig = sigOf(path);
+  if (sig === null) return [];
+  if (sig === summaries.sig) return summaries.rows;
+  const mainSig = sigOf(path, false);
   let db;
   try {
-    db = openReadOnly(join(AGY_ROOT, 'conversation_summaries.db'));
+    db = openReadOnly(path);
     if (!db) return [];
-    return db
+    const rows = db
       .prepare(
         `select conversation_id id, title, step_count steps, last_modified_time modified, workspace_uris ws, status,
                 agent_name agent, parent_conversation_id parent, not_fully_idle busy, killed
@@ -207,11 +222,13 @@ function readSummaries() {
       )
       .all()
       .map((r) => ({ ...r, cwd: cwdOf(r.ws), updatedAt: parseTime(r.modified), running: r.status === RUNNING || Boolean(r.busy) }));
+    if (sigOf(path, false) === mainSig) summaries = { sig, rows };
   } catch {
-    return [];
+    // 다음 갱신에 다시 읽는다.
   } finally {
     db?.close();
   }
+  return summaries.rows;
 }
 
 // 열린 파일 경로에서 대화 id 를 꺼낸다 (presence/<id>.lock, conversations/<id>.db[-wal|-shm]).
