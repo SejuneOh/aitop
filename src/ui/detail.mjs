@@ -1,4 +1,4 @@
-// 선택한 세션 상세 패널: 왼쪽 요약, 오른쪽 변경 파일·지시 탭·diff·최근 활동.
+// 선택한 세션 상세 패널: 왼쪽 요약, 오른쪽 변경 파일·지시 탭·diff·최근 활동. 100칸 미만에서는 요약을 위쪽 두 줄로 접는다.
 import { fmtAgo, fmtTokens, pad, truncateLeft, width } from '../text.mjs';
 import { currentTab, filesForTab, turnTabs } from '../turns.mjs';
 import { isAbsolute, relative } from 'node:path';
@@ -195,8 +195,73 @@ export function rightColumn(s, w, rows, view) {
   return R;
 }
 
+// 이 폭보다 좁으면 왼쪽 칸을 위쪽 요약 두 줄로 접고, 변경 파일·최근 활동이 안쪽 전체 폭을 쓴다.
+export const NARROW_W = 100;
+
+const FOLDER_MIN = 28;
+
+// 조각 묶음을 폭에 맞춘다. 넘치면 drop 값이 큰 묶음부터 빼고, 그래도 넘치면 fill 이 뒤를 자른다.
+function fitGroups(groups, w) {
+  const kept = groups.filter((g) => g);
+  const total = () => kept.reduce((a, g) => a + segsWidth(g.segs), 0);
+  while (total() > w) {
+    const i = kept.reduce((best, g, k) => ((g.drop ?? 0) > (kept[best].drop ?? 0) ? k : best), 0);
+    if (!kept[i].drop) break;
+    kept.splice(i, 1);
+  }
+  return kept.flatMap((g) => g.segs);
+}
+
+// 좁은 화면의 요약 두 줄.
+// 1줄: 상태 · 폴더 · 브랜치 · 종류 · 시작.
+// 2줄: 571k +서브2 (입력 90.3k·출력 18.4k·캐시 463k) · $0.17 · ctx 5% · pid 218093. 캐시는 읽기와 쓰기를 더한 값이다.
+// 폭이 모자라면 pid → 토큰 내역 → 서브에이전트 수 → ctx 순으로 뺀다.
+export function summaryLines(s, w, frame, view) {
+  const g = glyph(s, frame);
+  const phase = [{ ...g, t: g.t + ' ' }, { t: s.phase?.text ?? s.status, fg: PHASE_COLOR[s.phase?.kind] ?? PALETTE.text, bold: true }];
+  const sep = { t: ' · ', fg: PALETTE.info };
+  const optional = [
+    s.branch && [sep, { t: s.branch, fg: PALETTE.info }],
+    s.kind && [sep, { t: s.kind, fg: PALETTE.info }],
+    s.startedAt && [sep, { t: `시작 ${hhmm(s.startedAt)} (${fmtAgo(NOW - s.startedAt)} 전)`, fg: PALETTE.info }],
+  ].filter(Boolean);
+  // 폴더가 FOLDER_MIN 칸(짧으면 제 길이)을 얻을 때까지 시작 → 종류 → 브랜치 순으로 뺀다. 폴더는 왼쪽부터 줄여 끝 이름을 남긴다.
+  const path = tilde(s.cwd ?? '');
+  const want = Math.min(width(path), FOLDER_MIN);
+  const room = (k) => w - segsWidth(phase) - (path ? 3 : 0) - optional.slice(0, k).reduce((a, x) => a + segsWidth(x), 0);
+  let k = optional.length;
+  while (k > 0 && room(k) < want) k--;
+  const folder = path ? [sep, { t: truncateLeft(path, Math.max(1, room(k))), fg: PALETTE.muted }] : [];
+  const first = [...phase, ...folder, ...optional.slice(0, k).flat()];
+
+  const t = s.tokens ?? {};
+  const net = view?.costMode === 'net';
+  const total = { segs: [{ t: fmtTokens(t.total), fg: PALETTE.text, bold: true }] };
+  const parts = { segs: [{ t: ' (', fg: PALETTE.info }, { t: `입력 ${fmtTokens(t.input)}·출력 ${fmtTokens(t.output)}·캐시 ${fmtTokens((t.cacheRead ?? 0) + (t.cacheWrite ?? 0))}`, fg: PALETTE.info }, { t: ')', fg: PALETTE.info }], drop: 3 };
+  const sub = t.subCount ? { segs: [{ t: ` +서브${t.subCount}`, fg: PALETTE.muted }], drop: 2 } : null;
+  const cost = s.cost != null ? { segs: [sep, ...(net ? [{ t: '캐시제외 ', fg: PALETTE.muted }] : []), { t: money(net ? s.costNoCache : s.cost, s.costUnknown), fg: PALETTE.money, bold: true }] } : null;
+  let ctx = null;
+  if (s.context?.window) {
+    const r = Math.min(1, Math.max(0, s.context.used / s.context.window || 0));
+    const hot = r >= 0.85;
+    ctx = { segs: [sep, { t: 'ctx ', fg: PALETTE.info }, { t: `${hot ? '!' : ''}${Math.round(r * 100)}%`, fg: hot ? PALETTE.alert : PALETTE.muted, bold: hot }], drop: 1 };
+  }
+  const pid = s.pid ? { segs: [sep, { t: `pid ${s.pid}`, fg: PALETTE.info }], drop: 4 } : null;
+  // 둘째 줄은 상태 글자 아래에 맞춰 2칸 들여 쓴다.
+  const second = fitGroups([total, sub, parts, cost, ctx, pid], w - 2);
+  return [first, [{ t: '  ' }, ...second]];
+}
+
 export function detail(s, W, H, frame, view) {
   const tc = PALETTE.tools[s.tool];
+  // 제목: 세션 이름은 진하게, 도구·모델은 도구 색으로.
+  const title = [{ t: s.name ?? s.tool, fg: PALETTE.text, bold: true }, { t: `  ${s.tool}${s.model ? ' · ' + s.model : ''}`, fg: tc }];
+  if (W < NARROW_W) {
+    const inner = W - 4;
+    const top = summaryLines(s, inner, frame, view);
+    const R = rightColumn(s, inner, H - 2 - top.length, view);
+    return box(title, W, H, null, [...top, ...R], 0, tc, Boolean(view?.focus));
+  }
   const leftW = Math.min(46, Math.max(30, Math.floor((W - 4) * 0.38)));
   const L = [];
   // 왼쪽 칸도 오른쪽 칸처럼 라벨 가로줄로 나누고 내용은 1칸 들여 쓴다.
@@ -232,7 +297,5 @@ export function detail(s, W, H, frame, view) {
   }
 
   const R = rightColumn(s, W - leftW - 7, H - 2, view);
-  // 제목: 세션 이름은 진하게, 도구·모델은 도구 색으로.
-  const title = [{ t: s.name ?? s.tool, fg: PALETTE.text, bold: true }, { t: `  ${s.tool}${s.model ? ' · ' + s.model : ''}`, fg: tc }];
   return box(title, W, H, L, R, leftW, tc, Boolean(view?.focus));
 }
