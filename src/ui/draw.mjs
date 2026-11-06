@@ -104,7 +104,7 @@ export function fill(segs, n, bg) {
   return bg ? out.map((x) => ({ bg, ...x })) : out;
 }
 
-// title: 조각 배열 또는 문자열.
+// title: 조각 배열 또는 문자열. leftLines 가 null 이면 칸을 나누지 않고 rightLines 가 안쪽 전체 폭(W - 4)을 쓴다.
 export function box(title, W, H, leftLines, rightLines, leftW, accent, focused = false) {
   const e = focused && NO_COLOR ? EDGE.heavy : EDGE.normal;
   const fg = focused ? PALETTE.brand : PALETTE.line;
@@ -115,7 +115,8 @@ export function box(title, W, H, leftLines, rightLines, leftW, accent, focused =
   // '│ ' + 왼쪽 + ' │ ' + 오른쪽 + ' │' = W
   const rightW = W - leftW - 7;
   for (let i = 0; i < H - 2; i++) {
-    out.push(line([{ t: `${e.v} `, fg }, ...fill(leftLines[i] ?? [], leftW), { t: ` ${e.v} `, fg }, ...fill(rightLines[i] ?? [], rightW), { t: ` ${e.v}`, fg }], W));
+    const body = leftLines ? [...fill(leftLines[i] ?? [], leftW), { t: ` ${e.v} `, fg }, ...fill(rightLines[i] ?? [], rightW)] : fill(rightLines[i] ?? [], W - 4);
+    out.push(line([{ t: `${e.v} `, fg }, ...body, { t: ` ${e.v}`, fg }], W));
   }
   out.push(line([{ t: e.bl + e.h.repeat(W - 2) + e.br, fg }], W));
   return out;
