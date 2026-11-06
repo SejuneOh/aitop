@@ -2,6 +2,8 @@ import { basename } from 'node:path';
 import { mask, oneLine, plainText } from '../text.mjs';
 
 export const MAX_EVENTS = 40;
+// 끝난 서브에이전트(팀원)는 이 시간 동안 "완료"로 보였다가 목록에서 사라진다.
+export const MEMBER_FADE_MS = 6000;
 
 export function emptyTokens() {
   return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
