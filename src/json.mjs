@@ -8,6 +8,8 @@ const pickTokens = (t = {}) => ({ total: t.total ?? 0, input: t.input ?? 0, outp
 const iso = (ms) => (ms ? new Date(ms).toISOString() : null);
 // 비용(달러)은 소수 넷째 자리까지 반올림한다.
 const money = (x) => (typeof x === 'number' ? Math.round(x * 1e4) / 1e4 : (x ?? null));
+// 최근 1시간 비용 (5분 칸 단위 근사).
+const lastHourOf = (h) => (h ? { cost: money(h.cost), costNoCache: money(h.costNoCache), unknown: Boolean(h.unknown) } : null);
 const usageOf = (u) => (u ? { ...u, ...('cost' in u ? { cost: money(u.cost) } : {}) } : u);
 
 // version 은 aitop 버전, tools 는 aitop --doctor 와 같은 도구별 점검 결과다.
@@ -16,7 +18,7 @@ export function toJson(data, version = null) {
     version,
     at: iso(data.at),
     tools: toolsJson(data.tools?.tools),
-    usage: data.usage ? { today: usageOf(data.usage.today), last7days: usageOf(data.usage.week), complete: data.usage.loading == null } : null,
+    usage: data.usage ? { today: usageOf(data.usage.today), last7days: usageOf(data.usage.week), lastHour: lastHourOf(data.usage.lastHour), complete: data.usage.loading == null } : null,
     sessions: data.sessions.map((s) => ({
       tool: s.tool,
       id: s.id,

@@ -27,6 +27,39 @@ export function lastDays(n, now = Date.now()) {
   return keys;
 }
 
+// 지출 속도용 짧은 구간 장부. 비용을 5분 칸(키 = 칸 시작 시각 ms)에 모으고, 그 장부에서 가장 새 칸부터
+// 2시간 안의 칸만 남긴다. 기준이 시계가 아니라 기록 안의 시각이라 처음 읽기 중에도 칸 수가 일정하다.
+export const SLOT_MS = 5 * 60_000;
+const SLOT_KEEP_MS = 2 * 3600_000;
+
+export function addSlot(slots, at, cost, costNoCache, unknown) {
+  if (!Number.isFinite(at)) return;
+  const k = Math.floor(at / SLOT_MS) * SLOT_MS;
+  let s = slots[k];
+  if (!s) {
+    s = slots[k] = { cost: 0, costNoCache: 0, unknown: false };
+    const newest = Math.max(...Object.keys(slots).map(Number));
+    for (const key of Object.keys(slots)) if (Number(key) < newest - SLOT_KEEP_MS) delete slots[key];
+    if (!slots[k]) return;
+  }
+  s.cost += cost;
+  s.costNoCache += costNoCache;
+  if (unknown) s.unknown = true;
+}
+
+// 최근 1시간 합계. 시작 시각이 now 로부터 60분 안인 칸만 센다 (5분 단위 근사라 55~60분 구간).
+export function lastHourOf(books, now = Date.now()) {
+  const out = { cost: 0, costNoCache: 0, unknown: false };
+  for (const slots of books)
+    for (const [k, s] of Object.entries(slots ?? {})) {
+      if (Number(k) < now - 3600_000) continue;
+      out.cost += s.cost;
+      out.costNoCache += s.costNoCache;
+      out.unknown ||= s.unknown;
+    }
+  return out;
+}
+
 // 기록 줄의 timestamp. 없거나 읽을 수 없으면 지금 시각.
 export const parseTs = (ts) => (ts && Date.parse(ts)) || Date.now();
 

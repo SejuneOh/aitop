@@ -61,7 +61,7 @@ export function hintBar(items, W, right = '') {
   while (wOf(list) > W && list.some((i) => !i.keep)) list.splice(list.findLastIndex((i) => !i.keep), 1);
   const segs = segsOf(list);
   const used = wOf(list);
-  if (right && W - used >= width(right) + 1) segs.push({ t: ' '.repeat(W - used - width(right)) }, { t: right, fg: PALETTE.faint });
+  if (right && W - used >= width(right) + 1) segs.push({ t: ' '.repeat(W - used - width(right)) }, { t: right, fg: PALETTE.info });
   return line(segs, W);
 }
 

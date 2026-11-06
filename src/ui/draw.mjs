@@ -38,7 +38,7 @@ export function glyph(s, frame) {
   const k = s.phase?.kind;
   if (s.status === 'waiting') return { t: frame % 8 < 5 ? '◆' : '◇', fg: PALETTE.waiting, bold: true };
   if (k === 'ended') return { t: '·', fg: PALETTE.ended };
-  if (k === 'done') return { t: '✓', fg: PALETTE.faint };
+  if (k === 'done') return { t: '✓', fg: PALETTE.info };
   if (k === 'unseen') return { t: '●', fg: PALETTE.busy, bold: true };
   if (k === 'idle') return s.status === 'live' ? { t: '●', fg: PALETTE.tools[s.tool] } : { t: '○', fg: PALETTE.idle };
   return { t: SPIN[frame % SPIN.length], fg: PHASE_COLOR[k] ?? PALETTE.busy, bold: true };
@@ -104,7 +104,7 @@ export function fill(segs, n, bg) {
   return bg ? out.map((x) => ({ bg, ...x })) : out;
 }
 
-// title: 조각 배열 또는 문자열.
+// title: 조각 배열 또는 문자열. leftLines 가 null 이면 칸을 나누지 않고 rightLines 가 안쪽 전체 폭(W - 4)을 쓴다.
 export function box(title, W, H, leftLines, rightLines, leftW, accent, focused = false) {
   const e = focused && NO_COLOR ? EDGE.heavy : EDGE.normal;
   const fg = focused ? PALETTE.brand : PALETTE.line;
@@ -115,7 +115,8 @@ export function box(title, W, H, leftLines, rightLines, leftW, accent, focused =
   // '│ ' + 왼쪽 + ' │ ' + 오른쪽 + ' │' = W
   const rightW = W - leftW - 7;
   for (let i = 0; i < H - 2; i++) {
-    out.push(line([{ t: `${e.v} `, fg }, ...fill(leftLines[i] ?? [], leftW), { t: ` ${e.v} `, fg }, ...fill(rightLines[i] ?? [], rightW), { t: ` ${e.v}`, fg }], W));
+    const body = leftLines ? [...fill(leftLines[i] ?? [], leftW), { t: ` ${e.v} `, fg }, ...fill(rightLines[i] ?? [], rightW)] : fill(rightLines[i] ?? [], W - 4);
+    out.push(line([{ t: `${e.v} `, fg }, ...body, { t: ` ${e.v}`, fg }], W));
   }
   out.push(line([{ t: e.bl + e.h.repeat(W - 2) + e.br, fg }], W));
   return out;
@@ -128,7 +129,7 @@ export const hhmm = (ms) => clock(ms).slice(0, 5);
 export function rule(label, meta, w, color = PALETTE.line) {
   const head = [{ t: '── ', fg: color }, ...label];
   const headW = head.reduce((a, x) => a + width(x.t), 0);
-  const tail = meta && headW + width(meta) + 4 <= w ? [{ t: ` ${meta} `, fg: PALETTE.faint }, { t: '─', fg: color }] : [];
+  const tail = meta && headW + width(meta) + 4 <= w ? [{ t: ` ${meta} `, fg: PALETTE.info }, { t: '─', fg: color }] : [];
   const used = [...head, ...tail].reduce((a, x) => a + width(x.t), 0);
   return [...head, { t: ' ' + '─'.repeat(Math.max(0, w - used - 1)), fg: color }, ...tail];
 }

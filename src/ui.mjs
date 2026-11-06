@@ -67,7 +67,7 @@ export function render(view, W, H) {
     const onScreen = new Set(visible.filter((r) => !r.m).map((r) => r.s));
     const hidden = sessions.filter((s) => !onScreen.has(s));
     const waitingHidden = hidden.filter((s) => s.status === 'waiting').length;
-    table.push(line([{ t: `   … +${hidden.length} 세션`, fg: PALETTE.muted }, ...(waitingHidden ? [{ t: ` (응답 대기 ${waitingHidden})`, fg: PALETTE.waiting, bold: true }] : []), { t: '  ↑↓ 로 이동', fg: PALETTE.faint }], TW));
+    table.push(line([{ t: `   … +${hidden.length} 세션`, fg: PALETTE.muted }, ...(waitingHidden ? [{ t: ` (응답 대기 ${waitingHidden})`, fg: PALETTE.waiting, bold: true }] : []), { t: '  ↑↓ 로 이동', fg: PALETTE.info }], TW));
   }
   lines.push(...(boxed ? tableBox(table, W, sessions.length) : table));
   if (wantDetail) {
