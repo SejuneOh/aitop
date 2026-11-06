@@ -1,12 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { iconMode, brand, userVarsSeq } from '../src/brand.mjs';
 import { windowTitle } from '../src/attention.mjs';
 import { width } from '../src/text.mjs';
 import { render } from '../src/ui.mjs';
+import { makeClaudeHome } from './fixture.mjs';
 
 const BIN = join(fileURLToPath(new URL('.', import.meta.url)), '..', 'bin', 'aitop.mjs');
 
@@ -48,7 +51,11 @@ test('헤더 칩은 로고만, 시작 화면에도 로고가 보인다', () => {
 });
 
 test('AITOP_ICONS=ascii 면 도움말은 >_ai aitop, 헤더 칩은 >_ai', () => {
-  const run = (...a) => spawnSync(process.execPath, [BIN, ...a], { env: { ...process.env, AITOP_ICONS: 'ascii', NO_COLOR: '1' }, encoding: 'utf8' });
+  // 이 PC 의 실제 세션이 응답 대기 중이면 헤더가 ◆ 칩으로 시작하므로, 빈 기록 폴더만 보게 한다.
+  makeClaudeHome();
+  const empty = mkdtempSync(join(tmpdir(), 'aitop-brand-'));
+  const env = { ...process.env, CODEX_HOME: join(empty, 'codex'), GEMINI_HOME: join(empty, 'gemini'), AITOP_ICONS: 'ascii', NO_COLOR: '1' };
+  const run = (...a) => spawnSync(process.execPath, [BIN, ...a], { env, encoding: 'utf8' });
   assert.match(run('--help').stdout, /^>_ai aitop - /);
   assert.match(run('--once').stdout, /^ >_ai  +\d+ live/);
 });

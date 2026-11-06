@@ -27,3 +27,17 @@ test('비용 색은 화면에서 가장 큰 금액 두 개에만 칠한다', () 
   const colored = raw.filter((l) => l.includes(money) && /세션-/.test(strip(l))).map((l) => strip(l).match(/세션-(\w)/)[1]).sort();
   assert.deepEqual(colored, ['b', 'd']);
 });
+
+test('낮은 화면에서도 보이는 세션 행과 … +N 을 더하면 전체 세션 수가 되고, 고른 세션은 보인다', () => {
+  const five = ['a', 'b', 'c', 'd', 'e'].map((id) => mk(id, 1));
+  for (const selectedId of ['a', 'e']) {
+    for (let H = 10; H <= 24; H++) {
+      const lines = render({ ...view, data: { ...view.data, sessions: five }, selectedId }, 100, H).map(strip);
+      const rows = lines.filter((l) => / claude  세션-/.test(l));
+      const more = lines.map((l) => l.match(/… \+(\d+) 세션/)).find(Boolean);
+      assert.equal(rows.length + (more ? Number(more[1]) : 0), five.length, `H=${H} ${selectedId}`);
+      assert.ok(rows.some((l) => l.startsWith('▌') && l.includes(`세션-${selectedId}`)), `H=${H} 고른 세션`);
+      assert.ok(lines.length <= H, `H=${H} 높이`);
+    }
+  }
+});

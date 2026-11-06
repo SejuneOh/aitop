@@ -1,24 +1,25 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, statSync, symlinkSync, realpathSync } from 'node:fs';
+import { join, relative } from 'node:path';
 import { tmpdir } from 'node:os';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { loadSqlite } from '../src/sqlite.mjs';
 import { canListProcesses } from '../src/procs.mjs';
 
-const root = mkdtempSync(join(tmpdir(), 'aitop-agy-'));
+// macOS 의 임시 폴더는 /private/var 로 가는 심볼릭 링크라, 실제 경로로 바뀌는 AGY_ROOT 와 맞추려고 처음부터 실제 경로를 쓴다.
+const root = realpathSync(mkdtempSync(join(tmpdir(), 'aitop-agy-')));
 process.env.AITOP_AGY_HOME = root;
 process.env.XDG_CACHE_HOME = join(root, 'cache');
 mkdirSync(join(root, 'conversations'));
 mkdirSync(join(root, 'presence'));
 
-const { pbFields, readGeneration, readUsage, idFromPath, matchLive, parseTime, cwdOf, collectAgy } = await import('../src/sources/antigravity.mjs');
+const { pbFields, readGeneration, readUsage, idFromPath, matchLive, agyRoot, parseTime, cwdOf, collectAgy } = await import('../src/sources/antigravity.mjs');
 const { createBudget } = await import('../src/tail.mjs');
 
 const sqlite = loadSqlite();
-const noSqlite = !sqlite && 'node:sqlite 가 없는 Node';
+const noSqlite = !sqlite && 'agy 기록을 immutable 로 열 수 없는 Node (22.15 미만)';
 
 // ---- protobuf 만들기 ----
 const varint = (n) => {
@@ -105,6 +106,24 @@ test('agy 프로세스와 대화를 짝짓는다: 열린 파일, 서브에이전
   const { live, loose } = matchLive([{ pid: 1, cwd: '/w' }, { pid: 2, cwd: '/x' }, { pid: 3, cwd: '/y' }], rows, (pid) => files[pid]);
   assert.deepEqual([...live], [['top', 1], ['other', 2]]);
   assert.deepEqual(loose.map((p) => p.pid), [3], '대화를 아직 열지 않은 프로세스');
+});
+
+test('기록 폴더를 /proc 링크와 같은 실제 절대 경로로 바꿔 짝짓는다: 끝의 /, 상대 경로, 심볼릭 링크', () => {
+  const base = realpathSync(mkdtempSync(join(tmpdir(), 'aitop-agy-root-')));
+  const real = join(base, 'real');
+  mkdirSync(join(real, 'presence'), { recursive: true });
+  symlinkSync(base, join(base, 'gemini-link'));
+  const opened = [`${real}/presence/top.lock`];
+  const rows = [{ id: 'top', parent: '', cwd: '/w' }];
+  for (const dir of [`${real}/`, relative(process.cwd(), real), join(base, 'gemini-link', 'real'), `${join(base, 'gemini-link', 'real')}/`]) {
+    const r = agyRoot(dir);
+    assert.equal(r, real, dir);
+    assert.equal(idFromPath(opened[0], r), 'top', dir);
+    const { live, loose } = matchLive([{ pid: 1, cwd: '/elsewhere' }], rows, () => opened, r);
+    assert.deepEqual([...live], [['top', 1]], dir);
+    assert.deepEqual(loose, [], dir);
+  }
+  assert.equal(agyRoot(`${base}/missing/`), join(base, 'missing'), '없는 폴더는 절대 경로까지만 바꾼다');
 });
 
 test('토큰은 호출마다 더하고, 새 줄만 이어 읽는다', { skip: noSqlite }, () => {
