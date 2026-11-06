@@ -8,7 +8,8 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { loadSqlite } from '../src/sqlite.mjs';
 import { canListProcesses } from '../src/procs.mjs';
 
-const root = mkdtempSync(join(tmpdir(), 'aitop-agy-'));
+// macOS 의 임시 폴더는 /private/var 로 가는 심볼릭 링크라, 실제 경로로 바뀌는 AGY_ROOT 와 맞추려고 처음부터 실제 경로를 쓴다.
+const root = realpathSync(mkdtempSync(join(tmpdir(), 'aitop-agy-')));
 process.env.AITOP_AGY_HOME = root;
 process.env.XDG_CACHE_HOME = join(root, 'cache');
 mkdirSync(join(root, 'conversations'));
