@@ -96,3 +96,35 @@ test('날짜별 합계에 캐시 제외 비용도 더한다', () => {
   const u = collectLedger({ budget: createBudget() });
   assert.ok(u.today.cost > u.today.costNoCache && u.today.costNoCache > 0, JSON.stringify(u.today));
 });
+
+test('응답 대기 행의 STATUS 칸은 요청 내용을 바로 보이고, 상세 창은 전체 문구를 보인다', () => {
+  const s = sess('w', { status: 'waiting', phase: { kind: 'waiting', text: '응답 대기 · $ which cloudflared && which python3' } });
+  const bare = sess('b', { status: 'waiting', phase: { kind: 'waiting', text: '응답 대기' } });
+  const lines = draw(view([s, bare], { showDetail: true }), 160, 30);
+  const row = lines.find((l) => l.includes('◆ claude') && / w +/.test(l));
+  assert.match(row, / w +\$ which cloudflared && which python3/);
+  assert.doesNotMatch(row, /응답 대기/);
+  assert.match(lines.find((l) => l.includes('◆ claude') && / b +/.test(l)), /응답 대기/, '요청 내용이 없으면 응답 대기라고 적는다');
+  assert.ok(lines.some((l) => l.includes('◆ 응답 대기 · $ which cloudflared')), '상세 창');
+  assert.match(lines[0], /◆ 2 응답 대기/, '헤더 수는 그대로');
+});
+
+test('STATUS 칸 글: 응답 대기 접두어를 빼고, 요청이 없으면 응답 대기를 남긴다', async () => {
+  const { statusText } = await import('../src/ui/table.mjs');
+  assert.equal(statusText({ kind: 'waiting', text: '응답 대기 · approve Bash · 에이전트 1개 실행 중' }), 'approve Bash · 에이전트 1개 실행 중');
+  assert.equal(statusText({ kind: 'waiting', text: '응답 대기' }), '응답 대기');
+  assert.equal(statusText({ kind: 'tool', text: '응답 대기 · x' }), '응답 대기 · x', '대기가 아니면 그대로');
+  assert.equal(statusText(undefined), '');
+  const m = member('Explore', '찾기', 'claude-haiku-5-5', { phase: { kind: 'waiting', text: '응답 대기 · $ ls' } });
+  const row = draw(view([sess('p', { members: [m] })])).find((l) => l.includes('찾기'));
+  assert.match(row, /\$ ls/);
+  assert.doesNotMatch(row, /응답 대기/, '팀원 행도 같은 규칙');
+});
+
+test('종료 행과 끝난 팀원 행은 기울임꼴, 색이 없어도 · 와 종료 글자로 구분된다', () => {
+  const ended = sess('e', { status: 'ended', live: false, phase: { kind: 'ended', text: '종료' } });
+  const raw = render(view([sess('a'), ended], { showEnded: true }), 160, 24);
+  const row = raw.find((l) => strip(l).includes(' e '));
+  if (!process.env.NO_COLOR) assert.match(row, /\x1b\[3m/);
+  assert.match(strip(row), /^ · claude .* e +.*종료/);
+});

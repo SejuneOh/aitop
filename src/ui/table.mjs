@@ -80,15 +80,15 @@ export function header(view, W) {
   const period = (label, p, tok) => [
     { t: `${label} `, fg: PALETTE.muted, bg: B },
     { t: money(net ? p.costNoCache ?? null : p.cost, p.unknown), fg: PALETTE.money, bg: B, bold: true },
-    ...(tok ? [{ t: ` ${fmtTokens(p.tokens)}`, fg: PALETTE.faint, bg: B }] : []),
+    ...(tok ? [{ t: ` ${fmtTokens(p.tokens)}`, fg: PALETTE.info, bg: B }] : []),
   ];
-  const week = (tok) => (u.loading != null ? [{ t: `7일 집계 중 ${Math.floor(u.loading * 100)}%`, fg: PALETTE.faint, bg: B }] : period('7일', u.week, tok));
+  const week = (tok) => (u.loading != null ? [{ t: `7일 집계 중 ${Math.floor(u.loading * 100)}%`, fg: PALETTE.info, bg: B }] : period('7일', u.week, tok));
   // 장부를 못 읽었으면 화면에 있는 세션(모든 도구)의 누적 토큰이라도 보인다.
   const fallback = [{ t: `Σ ${fmtTokens(sessions.reduce((a, s) => a + (s.tokens?.total ?? 0), 0))} tok`, fg: PALETTE.muted, bg: B }];
   const clockSeg = { t: clock(view.data.at), fg: PALETTE.muted, bg: B };
   // 비용은 API 정가 환산이다 (구독 요금제의 실제 청구액이 아님). 폭이 되면 그렇다고 적는다.
-  const api = { t: net ? '캐시 제외  ' : 'API 환산  ', fg: net ? PALETTE.brand : PALETTE.faint, bg: B };
-  const apiShort = { t: net ? '캐시제외 ' : 'API ', fg: net ? PALETTE.brand : PALETTE.faint, bg: B };
+  const api = { t: net ? '캐시 제외  ' : 'API 환산  ', fg: net ? PALETTE.brand : PALETTE.info, bg: B };
+  const apiShort = { t: net ? '캐시제외 ' : 'API ', fg: net ? PALETTE.brand : PALETTE.info, bg: B };
   const rights = u
     ? [
         [api, ...period('오늘', u.today, true), dot, ...week(true), dot, clockSeg],
@@ -122,7 +122,7 @@ export function toolStrip(view, W) {
     if (!live) {
       // 종료 세션을 함께 볼 때는 그 도구의 누적 토큰을 흐리게 남긴다. 기록 폴더가 없으면 미설치로 보인다.
       const missing = view.data.tools?.tools?.[tool]?.state === 'missing';
-      segs.push({ t: ` ${tool}`, fg: PALETTE.faint }, ...(missing ? [{ t: ' 미설치', fg: PALETTE.faint, italic: true }] : view.showEnded && list.length ? [{ t: ` · ${fmtTokens(tok)}`, fg: PALETTE.faint }] : []), { t: '     ' });
+      segs.push({ t: ` ${tool}`, fg: PALETTE.info }, ...(missing ? [{ t: ' 미설치', fg: PALETTE.info, italic: true }] : view.showEnded && list.length ? [{ t: ` · ${fmtTokens(tok)}`, fg: PALETTE.info }] : []), { t: '     ' });
       continue;
     }
     segs.push({ t: '▍', fg: PALETTE.tools[tool] }, { t: tool, fg: PALETTE.tools[tool], bold: true }, { t: ` ${live}`, fg: PALETTE.text }, { t: ` · ${fmtTokens(tok)}`, fg: PALETTE.muted }, { t: '     ' });
@@ -132,7 +132,7 @@ export function toolStrip(view, W) {
 }
 
 export function tableHeader(c, W) {
-  const h = (t, n, align) => ({ t: pad(t, n, align) + ' ', fg: PALETTE.faint });
+  const h = (t, n, align) => ({ t: pad(t, n, align) + ' ', fg: PALETTE.info });
   const segs = [{ t: ' '.repeat(c.mark + c.glyph) }, h('TOOL', c.tool)];
   if (c.showModel) segs.push(h('MODEL', c.model));
   segs.push(h('SESSION', c.name));
@@ -155,10 +155,10 @@ export function sessionRow(s, c, W, selected, frame, hot, costMode = 'api') {
   const tc = PALETTE.tools[s.tool];
   const g = glyph(s, frame);
   // 다음 지시를 기다리는 세션은 상태 글자만 흐리게 한다.
-  const pc = s.phase?.kind === 'idle' ? PALETTE.faint : PHASE_COLOR[s.phase?.kind] ?? PALETTE.muted;
+  const pc = s.phase?.kind === 'idle' ? PALETTE.info : PHASE_COLOR[s.phase?.kind] ?? PALETTE.muted;
   // 아직 토큰을 하나도 쓰지 않은 세션은 숫자 칸을 비운다. 기다리는 중이면 '아직 지시 없음'.
   const blank = s.lazy || !(s.tokens?.total > 0);
-  const phaseText = blank && s.tool !== 'gemini' && (s.status === 'idle' || s.status === 'live') ? '아직 지시 없음' : s.phase?.text ?? '';
+  const phaseText = blank && s.tool !== 'gemini' && (s.status === 'idle' || s.status === 'live') ? '아직 지시 없음' : statusText(s.phase);
   const segs = [
     { t: selected ? '▌' : ' ', fg: PALETTE.brand, bold: true },
     { ...g, t: g.t + ' ' },
@@ -166,21 +166,29 @@ export function sessionRow(s, c, W, selected, frame, hot, costMode = 'api') {
   ];
   if (c.showModel) segs.push({ t: pad(shortModel(s.model), c.model) + ' ', fg: ended ? PALETTE.ended : PALETTE.muted });
   segs.push({ t: pad(s.name ?? '', c.name) + ' ', fg: ended ? PALETTE.ended : PALETTE.text, bold: selected });
-  if (c.showProject) segs.push({ t: pad(s.project ?? '', c.project) + ' ', fg: PALETTE.muted });
+  if (c.showProject) segs.push({ t: pad(s.project ?? '', c.project) + ' ', fg: ended ? PALETTE.ended : PALETTE.muted });
   segs.push(
     { t: pad(phaseText, c.status) + ' ', fg: pc, bold: s.status === 'waiting' },
     { t: pad(blank ? '' : fmtTokens(s.tokens.total), c.tokens, 'right') + ' ', fg: ended ? PALETTE.ended : PALETTE.muted },
   );
-  if (c.showCost) segs.push({ t: pad(blank ? '' : (hot?.has(s.id) ? '▲' : '') + money(costOf(s, costMode), s.costUnknown), c.cost, 'right') + ' ', fg: s.cost == null || ended ? PALETTE.faint : hot?.has(s.id) ? PALETTE.money : PALETTE.muted, bold: Boolean(hot?.has(s.id)) });
-  segs.push(...gauge(s.context?.used ?? 0, s.context?.window ?? 0, c.cells), { t: ' ' }, { t: pad(idle, c.age, 'right'), fg: waiting ? PALETTE.waiting : PALETTE.faint });
-  return line(segs, W, bg);
+  if (c.showCost) segs.push({ t: pad(blank ? '' : (hot?.has(s.id) ? '▲' : '') + money(costOf(s, costMode), s.costUnknown), c.cost, 'right') + ' ', fg: s.cost == null || ended ? PALETTE.info : hot?.has(s.id) ? PALETTE.money : PALETTE.muted, bold: Boolean(hot?.has(s.id)) });
+  segs.push(...gauge(s.context?.used ?? 0, s.context?.window ?? 0, c.cells), { t: ' ' }, { t: pad(idle, c.age, 'right'), fg: waiting ? PALETTE.waiting : PALETTE.info });
+  // 종료 행은 밝기 말고도 기울임꼴로 구분한다 (색이 없으면 · 글리프와 '종료' 글자로 구분된다).
+  return line(ended ? segs.map((x) => ({ ...x, italic: true })) : segs, W, bg);
+}
+
+// 표의 STATUS 칸 글. 응답 대기는 ◆ 와 행 색으로 이미 보이므로 무엇을 허락해 달라는지만 적고, 요청 내용이 없으면 '응답 대기' 를 남긴다.
+// 상세 창은 phase.text 전체를 보인다.
+export function statusText(phase) {
+  const text = phase?.text ?? '';
+  return phase?.kind === 'waiting' ? text.replace(/^응답 대기 · /, '') : text;
 }
 
 // 메인 세션 아래에 붙는 팀원(서브에이전트) 행. 끝나면 잠깐 "완료"로 보였다가 사라진다.
 // parentModel: 부모와 같은 모델이면 모델 칸을 비운다. costMode: 'api' | 'net'.
 export function memberRow(m, last, c, W, frame, parentModel, costMode = 'api') {
   const done = m.status === 'done';
-  const g = done ? { t: '✓', fg: PALETTE.faint } : { t: SPIN[(frame + 3) % SPIN.length], fg: PALETTE.team, bold: true };
+  const g = done ? { t: '✓', fg: PALETTE.info } : { t: SPIN[(frame + 3) % SPIN.length], fg: PALETTE.team, bold: true };
   const branch = last ? '└─ ' : '├─ ';
   const segs = [
     { t: ' '.repeat(c.mark + c.glyph) },
@@ -194,18 +202,19 @@ export function memberRow(m, last, c, W, frame, parentModel, costMode = 'api') {
   const showSuffix = suffix && nameW - width(label) >= width(suffix);
   const started = m.started !== false;
   const sameModel = parentModel && shortModel(m.model) === shortModel(parentModel);
-  if (c.showModel) segs.push({ t: pad(started && !sameModel ? shortModel(m.model) : '', c.model) + ' ', fg: PALETTE.faint });
+  if (c.showModel) segs.push({ t: pad(started && !sameModel ? shortModel(m.model) : '', c.model) + ' ', fg: PALETTE.info });
   segs.push(
     { ...g, t: g.t + ' ' },
-    { t: label, fg: done ? PALETTE.faint : PALETTE.team },
-    { t: pad(showSuffix ? suffix : '', nameW - width(label)) + ' ', fg: PALETTE.faint },
+    { t: label, fg: done ? PALETTE.info : PALETTE.team },
+    { t: pad(showSuffix ? suffix : '', nameW - width(label)) + ' ', fg: PALETTE.info },
   );
   segs.push(
-    { t: pad(m.phase?.text ?? '', c.status) + ' ', fg: done ? PALETTE.faint : PHASE_COLOR[m.phase?.kind] ?? PALETTE.muted },
-    { t: pad(started ? fmtTokens(m.tokens ?? 0) : '', c.tokens, 'right') + ' ', fg: PALETTE.faint },
+    { t: pad(statusText(m.phase), c.status) + ' ', fg: done ? PALETTE.info : PHASE_COLOR[m.phase?.kind] ?? PALETTE.muted },
+    { t: pad(started ? fmtTokens(m.tokens ?? 0) : '', c.tokens, 'right') + ' ', fg: done ? PALETTE.info : PALETTE.muted },
   );
-  if (c.showCost) segs.push({ t: pad(started ? money(costOf(m, costMode), m.costUnknown) : '', c.cost, 'right') + ' ', fg: PALETTE.faint });
-  return line(segs, W);
+  if (c.showCost) segs.push({ t: pad(started ? money(costOf(m, costMode), m.costUnknown) : '', c.cost, 'right') + ' ', fg: done ? PALETTE.info : PALETTE.muted });
+  // 끝난 팀원은 종료 행처럼 기울임꼴로 둔다.
+  return line(done ? segs.map((x) => ({ ...x, italic: true })) : segs, W);
 }
 
 // 세션이 없을 때: aitop --doctor 와 같은 도구별 점검 줄과 종료 세션 보기 안내.
@@ -217,10 +226,10 @@ export function emptyLines(view, W) {
   const pathW = Math.max(0, ...tools.map((t) => width(t.path)));
   for (const t of tools) {
     const d = describe(t, NOW);
-    out.push(line([{ t: `   ${d.mark} `, fg: MARK_COLOR[t.state], bold: true }, { t: pad(t.tool, 7), fg: PALETTE.tools[t.tool], bold: true }, { t: pad(d.state, 10), fg: PALETTE.text }, { t: pad(d.path, pathW + 2), fg: PALETTE.muted }, { t: d.detail, fg: PALETTE.faint }], W));
-    if (d.hint) out.push(line([{ t: `            → ${d.hint}`, fg: PALETTE.faint }], W));
+    out.push(line([{ t: `   ${d.mark} `, fg: MARK_COLOR[t.state], bold: true }, { t: pad(t.tool, 7), fg: PALETTE.tools[t.tool], bold: true }, { t: pad(d.state, 10), fg: PALETTE.text }, { t: pad(d.path, pathW + 2), fg: PALETTE.muted }, { t: d.detail, fg: PALETTE.info }], W));
+    if (d.hint) out.push(line([{ t: `            → ${d.hint}`, fg: PALETTE.info }], W));
   }
-  if (!view.showEnded) out.push(line([], W), line([{ t: '   지난 24시간 세션 보기: ', fg: PALETTE.faint }, { t: 'e', fg: PALETTE.text, bold: true }, { t: ' 또는 ', fg: PALETTE.faint }, { t: 'aitop --all', fg: PALETTE.text }], W));
+  if (!view.showEnded) out.push(line([], W), line([{ t: '   지난 24시간 세션 보기: ', fg: PALETTE.info }, { t: 'e', fg: PALETTE.text, bold: true }, { t: ' 또는 ', fg: PALETTE.info }, { t: 'aitop --all', fg: PALETTE.text }], W));
   return out;
 }
 

@@ -29,7 +29,7 @@ export const ROOMY = 16;
 // ▸ src/ui.mjs   편집 ×3   새 파일   14:02. 파일 이름은 진하게, 폴더는 흐리게.
 // 줄 수는 편집마다 더한 값이라 git diff 처럼 읽히지 않게 목록에는 넣지 않는다. 좁으면 시각, 새 파일 표시 순으로 뺀다.
 export function fileRow(f, cwd, w, selected) {
-  const tail = [{ t: `${GAP}편집 ×${f.edits}`, fg: PALETTE.muted }, ...(f.created ? [{ t: `${GAP}새 파일`, fg: PALETTE.brand }] : []), { t: `${GAP}${hhmm(f.at)}`, fg: PALETTE.faint }];
+  const tail = [{ t: `${GAP}편집 ×${f.edits}`, fg: PALETTE.muted }, ...(f.created ? [{ t: `${GAP}새 파일`, fg: PALETTE.brand }] : []), { t: `${GAP}${hhmm(f.at)}`, fg: PALETTE.info }];
   const tailW = () => tail.reduce((a, x) => a + width(x.t), 0);
   while (tail.length > 1 && w - 2 * BAND_PAD - tailW() < 12) tail.pop();
   const pathW = Math.max(1, w - 2 * BAND_PAD - tailW());
@@ -52,7 +52,7 @@ export function fileRow(f, cwd, w, selected) {
 // 같은 파일을 여러 번 고치면 줄 번호 기준이 매번 달라져 하나의 diff 로 합칠 수 없다.
 export function diffBody(f, w) {
   if (f.hidden) return [[INDENT, { t: '비밀값이 있을 수 있는 파일이라 변경 내용을 숨겼습니다', fg: PALETTE.waiting, italic: true }]];
-  if (!f.hunks.length) return [[INDENT, { t: f.deleted ? '이 파일을 삭제했습니다' : '보관된 변경 내용이 없습니다', fg: PALETTE.faint, italic: true }]];
+  if (!f.hunks.length) return [[INDENT, { t: f.deleted ? '이 파일을 삭제했습니다' : '보관된 변경 내용이 없습니다', fg: PALETTE.info, italic: true }]];
   const nums = w >= 50;
   const textW = w - 1 - (nums ? 5 : 0);
   const out = [];
@@ -63,14 +63,14 @@ export function diffBody(f, w) {
     for (const l of h.lines) {
       const k = l[0];
       // 줄 번호를 모르는 변경(Codex)은 번호 칸을 비운다.
-      const no = { t: pad(k === '-' || h.unnumbered ? '' : String(n), 4, 'right') + ' ', fg: PALETTE.faint };
+      const no = { t: pad(k === '-' || h.unnumbered ? '' : String(n), 4, 'right') + ' ', fg: PALETTE.info };
       if (k !== '-') n++;
       const seg = k === '+' ? { fg: PALETTE.busy, bg: PALETTE.addBg } : k === '-' ? { fg: PALETTE.alert, bg: PALETTE.delBg } : { fg: PALETTE.muted };
       out.push([...(nums ? [no] : []), { ...seg, t: pad(l, textW) }]);
     }
-    if (h.cut) out.push([{ t: `… ${h.cut}줄 생략`, fg: PALETTE.faint, italic: true }]);
+    if (h.cut) out.push([{ t: `… ${h.cut}줄 생략`, fg: PALETTE.info, italic: true }]);
   }
-  if (f.dropped) out.push([{ t: `… 이전 변경 ${f.dropped}개는 보관 한도를 넘어 생략`, fg: PALETTE.faint, italic: true }]);
+  if (f.dropped) out.push([{ t: `… 이전 변경 ${f.dropped}개는 보관 한도를 넘어 생략`, fg: PALETTE.info, italic: true }]);
   return out.map((r) => [INDENT, ...r]);
 }
 
@@ -87,7 +87,7 @@ export function diffView(s, files, f, w, rows, view) {
   const room = w - 10 - width(meta);
   const stats = [` · 편집 ×${f.edits} · 쓴 줄 ${f.add} · 지운 줄 ${f.del}`, ` · ×${f.edits}`, ''].find((x) => room - width(x) >= 12) ?? '';
   const name = truncateLeft(relPath(s.cwd, f.path), Math.max(8, room - width(stats)));
-  const label = [{ t: '‹ ', fg: PALETTE.brand, bold: true }, { t: name, fg: PALETTE.text, bold: true }, { t: stats, fg: PALETTE.faint }];
+  const label = [{ t: '‹ ', fg: PALETTE.brand, bold: true }, { t: name, fg: PALETTE.text, bold: true }, { t: stats, fg: PALETTE.info }];
   return [rule(label, meta, w, PALETTE.brand), ...(gap ? [[]] : []), ...body.slice(top, top + page)];
 }
 
@@ -97,9 +97,9 @@ export function activity(s, n, dim = false) {
   const icon = { prompt: { t: '❯ ', fg: tc, bold: true }, tool: { t: '• ', fg: PALETTE.tool }, reply: { t: '↳ ', fg: PALETTE.muted } };
   // 기록 줄 순서와 시각이 어긋날 때가 있어(병렬 도구 호출 등) 시각 순으로 다시 정렬한다. 같은 시각이면 기록 순서를 지킨다.
   const events = [...(s.events ?? [])].sort((a, b) => a.at - b.at).slice(-n);
-  if (!events.length) return [[INDENT, { t: '아직 기록된 활동이 없습니다', fg: PALETTE.faint, italic: true }]];
-  const rows = events.map((e) => [INDENT, { t: clock(e.at) + '  ', fg: PALETTE.faint }, icon[e.kind], { t: e.text, fg: e.kind === 'prompt' ? PALETTE.text : PALETTE.muted, bold: e.kind === 'prompt' }]);
-  return dim ? rows.map((r) => r.map((x) => ({ ...x, fg: PALETTE.faint, bold: false }))) : rows;
+  if (!events.length) return [[INDENT, { t: '아직 기록된 활동이 없습니다', fg: PALETTE.info, italic: true }]];
+  const rows = events.map((e) => [INDENT, { t: clock(e.at) + '  ', fg: PALETTE.info }, icon[e.kind], { t: e.text, fg: e.kind === 'prompt' ? PALETTE.text : PALETTE.muted, bold: e.kind === 'prompt' }]);
+  return dim ? rows.map((r) => r.map((x) => ({ ...x, fg: PALETTE.info, bold: false }))) : rows;
 }
 
 // ‹이번 지시›  T5  T3  전체. 색을 꺼도 보이게 고른 탭은 ‹ › 로 감싼다. 폭이 모자라면 가운데 지시 탭부터 줄인다.
@@ -123,9 +123,9 @@ export function tabsLine(tabs, tab, w) {
     const after = turns.length - before - shown.length;
     const parts = [];
     if (ends.includes(tabs[0])) parts.push(seg(tabs[0], short));
-    if (marks && before) parts.push({ t: `… +${before}`, fg: PALETTE.faint });
+    if (marks && before) parts.push({ t: `… +${before}`, fg: PALETTE.info });
     parts.push(...shown.map((t) => seg(t, short)));
-    if (marks && after) parts.push({ t: `… +${after}`, fg: PALETTE.faint });
+    if (marks && after) parts.push({ t: `… +${after}`, fg: PALETTE.info });
     if (ends.includes(tabs.at(-1))) parts.push(seg(tabs.at(-1), short));
     return parts.flatMap((x) => [x, { t: '  ' }]);
   };
@@ -139,10 +139,10 @@ export function tabsLine(tabs, tab, w) {
 
 // 탭 아래 설명: 지시면 시각과 첫 줄, 전체면 편집 수.
 export function tabNote(tab, files) {
-  if (tab.key === 'all') return [{ t: `세션 전체 · 편집 ${files.reduce((a, f) => a + f.edits, 0)}회`, fg: PALETTE.faint, italic: true }];
+  if (tab.key === 'all') return [{ t: `세션 전체 · 편집 ${files.reduce((a, f) => a + f.edits, 0)}회`, fg: PALETTE.info, italic: true }];
   const p = tab.turn;
   const edits = files.reduce((a, f) => a + f.edits, 0);
-  return [{ t: p ? `${hhmm(p.at)} "${p.text}"` : '지시 기록 없음', fg: PALETTE.faint, italic: true }, ...(edits ? [{ t: `  편집 ${edits}회`, fg: PALETTE.muted }] : [])];
+  return [{ t: p ? `${hhmm(p.at)} "${p.text}"` : '지시 기록 없음', fg: PALETTE.info, italic: true }, ...(edits ? [{ t: `  편집 ${edits}회`, fg: PALETTE.muted }] : [])];
 }
 
 // 오른쪽 칸: 고친 파일이 없으면 최근 활동만, 있으면 위쪽 절반까지 변경 파일 구획(배경 띠), 파일을 열면 diff.
@@ -186,7 +186,7 @@ export function rightColumn(s, w, rows, view) {
   const start = selIdx >= slots ? selIdx - slots + 1 : 0;
   const shown = files.slice(start, start + slots);
   const list = [];
-  if (!files.length) list.push(fill([BAND_LEFT, { t: '· 이 지시에서는 고친 파일 없음', fg: PALETTE.faint, italic: true }, { t: `${GAP}${focused ? '←/→' : 'f 다음 ←/→'} 다른 지시`, fg: PALETTE.faint }], inner, PALETTE.bar));
+  if (!files.length) list.push(fill([BAND_LEFT, { t: '· 이 지시에서는 고친 파일 없음', fg: PALETTE.info, italic: true }, { t: `${GAP}${focused ? '←/→' : 'f 다음 ←/→'} 다른 지시`, fg: PALETTE.info }], inner, PALETTE.bar));
   shown.forEach((f, k) => list.push(fileRow(f, s.cwd, inner, start + k === selIdx)));
   if (overflow) list.push(fill([BAND_LEFT, { t: `+${files.length - shown.length}개 더`, fg: PALETTE.muted }], inner, PALETTE.bar));
   const block = [...head, ...(gap ? [[]] : []), ...list, ...(gap ? [[]] : [])];
@@ -217,15 +217,15 @@ export function detail(s, W, H, frame, view) {
   const t = s.tokens ?? {};
   section('토큰');
   kv('합계', fmtTokens(t.total));
-  if (t.subCount) more([{ t: `메인 ${fmtTokens(t.main)} + 서브 ${t.subCount}개 ${fmtTokens(t.sub)}`, fg: PALETTE.faint }]);
-  more([{ t: `입력 ${fmtTokens(t.input)} · 출력 ${fmtTokens(t.output)}`, fg: PALETTE.faint }]);
-  more([{ t: `캐시 읽기 ${fmtTokens(t.cacheRead)} · 쓰기 ${fmtTokens(t.cacheWrite)}`, fg: PALETTE.faint }]);
+  if (t.subCount) more([{ t: `메인 ${fmtTokens(t.main)} + 서브 ${t.subCount}개 ${fmtTokens(t.sub)}`, fg: PALETTE.info }]);
+  more([{ t: `입력 ${fmtTokens(t.input)} · 출력 ${fmtTokens(t.output)}`, fg: PALETTE.info }]);
+  more([{ t: `캐시 읽기 ${fmtTokens(t.cacheRead)} · 쓰기 ${fmtTokens(t.cacheWrite)}`, fg: PALETTE.info }]);
   if (s.cost != null) section('비용');
   else if (s.context?.window) section('컨텍스트');
   if (s.cost != null) {
     const net = view?.costMode === 'net';
     L.push([INDENT, { t: pad(net ? '캐시제외' : 'API 환산', 9), fg: PALETTE.muted }, { t: money(net ? s.costNoCache : s.cost, s.costUnknown), fg: PALETTE.money, bold: true }]);
-    more([{ t: net ? `API 환산 ${money(s.cost, s.costUnknown)}` : `캐시 제외 ${money(s.costNoCache, s.costUnknown)}`, fg: PALETTE.faint }, ...(s.costUnknown ? [{ t: '  ? 가격표에 없는 모델 포함', fg: PALETTE.waiting }] : [])]);
+    more([{ t: net ? `API 환산 ${money(s.cost, s.costUnknown)}` : `캐시 제외 ${money(s.costNoCache, s.costUnknown)}`, fg: PALETTE.info }, ...(s.costUnknown ? [{ t: '  ? 가격표에 없는 모델 포함', fg: PALETTE.waiting }] : [])]);
   }
   if (s.context?.window) {
     L.push([INDENT, { t: pad('컨텍스트', 9), fg: PALETTE.muted }, { t: pad(`${fmtTokens(s.context.used)}/${fmtTokens(s.context.window)}`, 11) + ' ', fg: PALETTE.text }, ...gauge(s.context.used, s.context.window, Math.max(4, leftW - width(INDENT.t) - 26))]);

@@ -10,9 +10,13 @@ export function pickTheme(env = process.env) {
   return Number.isInteger(bg) && (bg === 7 || (bg >= 9 && bg <= 15)) ? 'light' : 'dark';
 }
 
+// 정보를 담은 글자색(text, muted, info, 상태색)은 터미널 배경, 선택 행, 대기 행, 배경 띠 어디에서도 4.5:1 이상이다.
+// faint 는 구분점이나 게이지 빈 칸 같은 장식에만 쓴다.
 const DARK = {
   text: '#e6e8ee',
-  muted: '#8a90a2',
+  muted: '#babec8',
+  // 글자 위계는 text > muted > info. info 는 가장 낮은 단계 (시각, 토큰 내역, 힌트, 종료 행)로 선택 행에서 4.5:1 바로 위에 둔다.
+  info: '#999eae',
   faint: '#4b5060',
   line: '#2b2f3a',
   rowSel: '#1d2433',
@@ -25,9 +29,9 @@ const DARK = {
   waiting: '#fbbf24',
   tool: '#38bdf8',
   team: '#f0abfc',
-  idle: '#8a90a2',
-  ended: '#4b5060',
-  alert: '#f87171',
+  idle: '#babec8',
+  ended: '#999eae',
+  alert: '#f87878',
   money: '#fcd34d',
   addBg: '#10261a',
   delBg: '#2c1517',
@@ -39,25 +43,26 @@ const DARK = {
 // 흰 배경용. 글자는 짙게, 배경 띠는 옅게 둔다.
 const LIGHT = {
   text: '#1f2328',
-  muted: '#57606a',
+  muted: '#495059',
+  info: '#5f6771',
   faint: '#6e7781',
   line: '#d0d7de',
   rowSel: '#eaeef2',
   rowFocus: '#dbe7f7',
   rowWaiting: '#fff3cd',
   bar: '#f3f5f7',
-  brand: '#0969da',
-  busy: '#1a7f37',
-  waiting: '#9a6700',
+  brand: '#0862cb',
+  busy: '#187533',
+  waiting: '#895c00',
   tool: '#0550ae',
-  team: '#8250df',
-  idle: '#57606a',
-  ended: '#6e7781',
-  alert: '#cf222e',
-  money: '#9a6700',
+  team: '#7649cb',
+  idle: '#495059',
+  ended: '#5f6771',
+  alert: '#c5202c',
+  money: '#895c00',
   addBg: '#dafbe1',
   delBg: '#ffebe9',
-  tools: { claude: '#bc4c00', codex: '#0a7d6e', gemini: '#1f5fbf' },
+  tools: { claude: '#ab4500', codex: '#097264', gemini: '#1f5fbf' },
   chipText: '#ffffff',
 };
 
@@ -80,7 +85,7 @@ export function style({ fg, bg, bold, dim, italic } = {}) {
 
 export const RESET = NO_COLOR ? '' : '\x1b[0m';
 
-export const PHASE_COLOR = { tool: PALETTE.tool, team: PALETTE.team, think: PALETTE.busy, write: PALETTE.busy, waiting: PALETTE.waiting, idle: PALETTE.idle, ended: PALETTE.ended, done: PALETTE.faint, unseen: PALETTE.busy };
+export const PHASE_COLOR = { tool: PALETTE.tool, team: PALETTE.team, think: PALETTE.busy, write: PALETTE.busy, waiting: PALETTE.waiting, idle: PALETTE.idle, ended: PALETTE.ended, done: PALETTE.info, unseen: PALETTE.busy };
 
 // 상자 테두리. 포커스가 있으면 강조색으로, 색이 없으면 굵은 선으로 구분한다.
 export const EDGE = {
