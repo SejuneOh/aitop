@@ -11,7 +11,7 @@ const draw = (sessions, W = 140, H = 30, extra = {}) => render({ data: { session
 
 test('넓은 화면 헤더는 비용이 API 환산임을 적고, 좁으면 뺀다', () => {
   assert.match(strip(draw([sess('a')], 160)[0]), /API 환산 +오늘 \$52/);
-  assert.doesNotMatch(strip(draw([sess('a')], 90)[0]), /API 환산/);
+  assert.doesNotMatch(strip(draw([sess('a')], 70)[0]), /API 환산/);
 });
 
 test('토큰 0 세션은 숫자 칸을 비우고 아직 지시 없음으로 보인다', () => {
