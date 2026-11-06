@@ -4,7 +4,9 @@
 import { readdirSync, statSync, existsSync, openSync, readSync, closeSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir, platform } from 'node:os';
-import { findProcesses, isCodex, isGemini, canListProcesses, isAlive } from './procs.mjs';
+import { findProcesses, isCodex, isGemini, isAgy, canListProcesses, isAlive } from './procs.mjs';
+import { AGY_ROOT } from './sources/antigravity.mjs';
+import { loadSqlite, openReadOnly } from './sqlite.mjs';
 import { fmtAgo, pad, stripControl } from './text.mjs';
 import { BRAND } from './brand.mjs';
 
@@ -133,9 +135,27 @@ function gemini() {
   };
 }
 
+// Antigravity CLI: 요약 DB 를 열어 대화 목록을 읽을 수 있는지 본다. node:sqlite 가 없으면 프로세스만 센다.
+function agy() {
+  const dir = join(AGY_ROOT, 'conversations');
+  const running = canListProcesses() ? findProcesses(isAgy).length : null;
+  const files = existsSync(dir) ? walk(dir, 0, (n) => n.endsWith('.db')) : null;
+  if (!files) return { tool: 'agy', state: 'missing', path: tilde(AGY_ROOT), records: 0, lastAt: null, running, readable: null, hint: 'agy 를 한 번 실행하면 생깁니다 (Gemini 탭에 보입니다)' };
+  const last = newest(files.flatMap((f) => [f, `${f}-wal`]).filter((f) => existsSync(f)));
+  if (!loadSqlite()) return { tool: 'agy', state: 'limited', path: tilde(AGY_ROOT), records: files.length, lastAt: last?.mtime ?? null, running, readable: null, hint: `Node ${process.versions.node} 에는 node:sqlite 가 없어 프로세스만 감지합니다 (Node 22.13 이상 필요)` };
+  let readable = false;
+  try {
+    const db = openReadOnly(join(AGY_ROOT, 'conversation_summaries.db'));
+    db.prepare('select count(*) n from conversation_summaries').get();
+    db.close();
+    readable = true;
+  } catch {}
+  return { tool: 'agy', state: 'ok', path: tilde(AGY_ROOT), records: files.length, lastAt: last?.mtime ?? null, running, readable, hint: null };
+}
+
 export function checkTools() {
   const tools = {};
-  for (const fn of [claude, codex, gemini]) {
+  for (const fn of [claude, codex, gemini, agy]) {
     const r = fn();
     tools[r.tool] = r;
   }

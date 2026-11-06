@@ -142,3 +142,26 @@ export function isCodex(argv) {
 export function isGemini(argv) {
   return argv.slice(0, 2).some((a) => /^gemini(\.js)?$/.test(base(a)));
 }
+
+// Antigravity CLI 는 Go 실행 파일 하나(`agy`)로 뜬다.
+export function isAgy(argv) {
+  return argv.length > 0 && base(argv[0]) === 'agy';
+}
+
+// 프로세스가 열어 둔 파일 경로들. Linux·WSL 의 /proc 에서만 알 수 있고, 그 밖의 OS 나 읽을 권한이 없으면 null.
+export function openFiles(pid) {
+  if (!HAS_PROC) return null;
+  let fds;
+  try {
+    fds = readdirSync(`/proc/${pid}/fd`);
+  } catch {
+    return null;
+  }
+  const out = [];
+  for (const fd of fds) {
+    try {
+      out.push(readlinkSync(`/proc/${pid}/fd/${fd}`));
+    } catch {}
+  }
+  return out;
+}
