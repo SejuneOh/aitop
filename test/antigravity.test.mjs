@@ -140,6 +140,18 @@ test('기록을 읽어도 agy 폴더에 -wal·-shm 같은 파일을 만들지 �
   assert.deepEqual(files(), ready, '파일 목록과 수정 시각이 그대로');
 });
 
+test('마지막 줄을 해석하지 못하면 건너뛰지 않고 다음 갱신에 다시 읽는다', { skip: noSqlite }, () => {
+  makeConversation('torn-1', [{ input: 5, output: 5 }]);
+  const db = new sqlite.DatabaseSync(join(root, 'conversations', 'torn-1.db'));
+  db.prepare('insert into gen_metadata (idx, data) values (1, ?)').run(Buffer.from([0x0a, 0x7f, 1]));
+  db.close();
+  assert.equal(readUsage('torn-1', createBudget()).tokens.total, 10, '쓰는 중인 줄은 아직 세지 않는다');
+  const db2 = new sqlite.DatabaseSync(join(root, 'conversations', 'torn-1.db'));
+  db2.prepare('update gen_metadata set data = ? where idx = 1').run(generation({ input: 1, output: 2 }));
+  db2.close();
+  assert.equal(readUsage('torn-1', createBudget()).tokens.total, 13, '다 쓰인 뒤에는 그 줄도 센다');
+});
+
 test('읽기 한도에 닿으면 멈췄다가 다음 갱신에 이어 읽는다', { skip: noSqlite }, () => {
   makeConversation('u2', Array.from({ length: 70 }, () => ({ input: 1, output: 1 })));
   const b = createBudget(1, Infinity);
@@ -158,6 +170,7 @@ test('실행 중인 agy 를 대화와 짝지어 Gemini 세션으로 보인다', 
     { id: 'live-1', title: 'agy 작업', steps: 12, modified: ts(now - 1000), ws: ['file:///work/demo'], status: 'CASCADE_RUN_STATUS_RUNNING' },
     { id: 'kid-1', title: '하위 작업', modified: ts(now - 500), ws: ['file:///work/demo'], agent: 'article_writer', parent: 'live-1', status: 'CASCADE_RUN_STATUS_RUNNING' },
     { id: 'old-1', title: '지난 대화', modified: ts(now - 3600_000), ws: ['file:///work/old'] },
+    { id: 'orphan-1', title: '부모 없는 하위', modified: ts(now - 7200_000), ws: ['file:///work/old'], agent: 'article_writer', parent: 'gone' },
   ]);
   const lock = join(root, 'presence', 'live-1.lock');
   writeFileSync(lock, '');
@@ -188,6 +201,7 @@ test('실행 중인 agy 를 대화와 짝지어 Gemini 세션으로 보인다', 
     const all = collectAgy({ showEnded: true, budget: createBudget() });
     assert.equal(all.find((x) => x.id === 'old-1')?.status, 'ended', '--all 이면 24시간 안의 지난 대화도 보인다');
     assert.equal(all.filter((x) => x.id === 'kid-1').length, 0, '서브에이전트는 따로 세지 않는다');
+    assert.equal(all.find((x) => x.id === 'orphan-1')?.status, 'ended', '부모가 목록에 없는 서브에이전트는 혼자 보인다');
   } finally {
     child.kill();
   }

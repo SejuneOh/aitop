@@ -1,8 +1,8 @@
 // Node 에 들어 있는 node:sqlite 를 쓸 수 있으면 돌려준다. 외부 라이브러리 없이 SQLite 기록을 읽기 위해서다.
-// Node 22.13 이상(22.5~22.12 는 --experimental-sqlite 필요)에서만 있고, 없으면 null.
+// node:sqlite 가 없거나(Node 22.13 미만) file: 주소 열기를 못 하면(22.13·22.14) null. immutable 로 열려면 file: 주소가 필요하다.
 // 처음 불러올 때 나오는 ExperimentalWarning 은 화면을 깨뜨리므로 이 경고만 삼킨다.
 import { existsSync } from 'node:fs';
-import { pathToFileURL } from 'node:url';
+import { pathToFileURL, fileURLToPath } from 'node:url';
 
 let sqlite;
 
@@ -17,13 +17,25 @@ export function loadSqlite() {
     return emit.call(this, warning, ...rest);
   };
   try {
-    sqlite = get('node:sqlite')?.DatabaseSync ? get('node:sqlite') : null;
+    const mod = get('node:sqlite');
+    sqlite = mod?.DatabaseSync && opensUri(mod) ? mod : null;
   } catch {
     sqlite = null;
   } finally {
     process.emitWarning = emit;
   }
   return sqlite;
+}
+
+// 이 파일 자신을 immutable 주소로 열어 본다. file: 주소를 모르는 버전은 그런 이름의 파일이 없어 여기서 실패한다.
+// SQLite 는 첫 읽기 전까지 내용을 보지 않으므로 DB 가 아닌 파일도 열리고, 아무 파일도 만들지 않는다.
+function opensUri(mod) {
+  try {
+    new mod.DatabaseSync(`${pathToFileURL(fileURLToPath(import.meta.url)).href}?immutable=1`, { readOnly: true }).close();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // 늘 immutable 로 연다. 보통 읽기 전용 연결은 WAL 모드 DB 옆에 -wal·-shm 을 만들거나 고치고, 쓰는 쪽보다 늦게 닫히면

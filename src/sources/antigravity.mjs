@@ -144,14 +144,21 @@ export function readUsage(id, budget) {
     // 마지막 줄 번호가 줄었으면 기록이 새로 쓰인 것이니 처음부터 다시 더한다.
     if (last < n.idx) Object.assign(n, fresh());
     const q = db.prepare('select idx, data from gen_metadata where idx > ? order by idx limit ?');
+    let torn = false;
     for (;;) {
       const rows = q.all(n.idx, BATCH);
       for (const r of rows) {
-        n.idx = r.idx;
         const size = r.data?.length ?? 0;
         budget.left -= size;
         budget.read = (budget.read ?? 0) + size;
         const x = readGeneration(r.data);
+        // 마지막 줄을 해석하지 못하면 아직 쓰는 중일 수 있으니 그 앞에서 멈추고 다음 갱신에 다시 읽는다.
+        // 뒤에 줄이 더 있는데도 못 읽는 줄은 형식이 다른 것이라 건너뛴다.
+        if (!x && r.idx === last) {
+          torn = true;
+          break;
+        }
+        n.idx = r.idx;
         if (x?.model) n.model = x.model;
         const u = x?.usage;
         if (!u) continue;
@@ -163,6 +170,7 @@ export function readUsage(id, budget) {
         t.total += u.input + u.output + u.cacheRead + u.cacheWrite;
         n.prompt = u.input + u.cacheRead + u.cacheWrite;
       }
+      if (torn) break;
       if (rows.length < BATCH) {
         n.sig = sig;
         break;
@@ -267,8 +275,7 @@ export function matchLive(procs, rows, filesOf = openFiles) {
   return { live, loose };
 }
 
-function member(r, budget) {
-  const g = readUsage(r.id, budget);
+function member(r, g) {
   return {
     id: r.id,
     name: r.agent || 'agent',
@@ -321,7 +328,7 @@ export function collectAgy({ showEnded, budget }) {
   const procs = findProcesses(isAgy);
   // 기록 폴더가 없으면 agy 를 실행한 적이 없는 것이다 (테스트에서 AITOP_AGY_HOME 으로 실제 기록과 떼어 놓을 때도 쓴다).
   if (!existsSync(AGY_ROOT) || (!procs.length && !showEnded)) return [];
-  if (!loadSqlite()) return procs.map((p) => placeholder(p, '실행 중 (세부 정보는 Node 22.13 이상)'));
+  if (!loadSqlite()) return procs.map((p) => placeholder(p, '실행 중 (세부 정보는 Node 22.15 이상)'));
 
   const rows = readSummaries();
   const { live, loose } = matchLive(procs, rows);
@@ -334,17 +341,20 @@ export function collectAgy({ showEnded, budget }) {
 
   const out = [];
   // 살아 있는 대화부터 읽어 읽기 한도가 오래된 기록에 먼저 쓰이지 않게 한다.
-  const tops = rows.filter((r) => !r.parent && (live.has(r.id) || (showEnded && Date.now() - (r.updatedAt ?? 0) < RECENT_MS)));
+  // 부모가 목록에 없는 서브에이전트(목록 상한 밖)는 혼자 최상위로 본다.
+  const tops = rows.filter((r) => rootOf(r.id, byId) === r.id && (live.has(r.id) || (showEnded && Date.now() - (r.updatedAt ?? 0) < RECENT_MS)));
   tops.sort((a, b) => Number(live.has(b.id)) - Number(live.has(a.id)));
   for (const r of tops) {
     const isLive = live.has(r.id);
     const g = readUsage(r.id, budget);
     const kids = children.get(r.id) ?? [];
-    const members = kids.map((c) => member(c, budget)).sort((a, b) => (a.updatedAt ?? 0) - (b.updatedAt ?? 0));
+    // 서브에이전트 기록은 한 번만 읽어 행과 합계가 같은 값을 쓰게 한다.
+    const kidUsage = kids.map((c) => readUsage(c.id, budget));
+    const members = kids.map((c, i) => member(c, kidUsage[i])).sort((a, b) => (a.updatedAt ?? 0) - (b.updatedAt ?? 0));
     // 메인과 서브에이전트를 항목별로 더한다 (Claude 세션과 같은 방식).
     const tokens = { ...g.tokens, main: g.tokens.total, sub: 0, subCount: kids.length };
-    for (const c of kids) {
-      const t = readUsage(c.id, budget).tokens;
+    for (const u of kidUsage) {
+      const t = u.tokens;
       for (const k of Object.keys(emptyTokens())) tokens[k] += t[k];
       tokens.sub += t.total;
     }

@@ -142,7 +142,7 @@ function agy() {
   const files = existsSync(dir) ? walk(dir, 0, (n) => n.endsWith('.db')) : null;
   if (!files) return { tool: 'agy', state: 'missing', path: tilde(AGY_ROOT), records: 0, lastAt: null, running, readable: null, hint: 'agy 를 한 번 실행하면 생깁니다 (Gemini 탭에 보입니다)' };
   const last = newest(files.flatMap((f) => [f, `${f}-wal`]).filter((f) => existsSync(f)));
-  if (!loadSqlite()) return { tool: 'agy', state: 'limited', path: tilde(AGY_ROOT), records: files.length, lastAt: last?.mtime ?? null, running, readable: null, hint: `Node ${process.versions.node} 에는 node:sqlite 가 없어 프로세스만 감지합니다 (Node 22.13 이상 필요)` };
+  if (!loadSqlite()) return { tool: 'agy', state: 'limited', path: tilde(AGY_ROOT), records: files.length, lastAt: last?.mtime ?? null, running, readable: null, hint: `Node ${process.versions.node} 에서는 기록을 읽기 전용으로 열 수 없어 프로세스만 감지합니다 (Node 22.15 이상 필요)` };
   let readable = false;
   let db;
   try {
