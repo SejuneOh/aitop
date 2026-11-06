@@ -29,7 +29,7 @@ aitop
 
 | 브랜치 | 하는 일 |
 |---|---|
-| 기능 브랜치 → `dev` | PR 마다 CI(단위 테스트 → e2e → 실행 확인, Node 20/22/24) 실행. 병합 후 로컬에서 `npm install -g .` 로 확인 |
+| 기능 브랜치 → `dev` | PR 마다 CI(단위 테스트 → e2e → 실행 확인, Node 20/22/22.13/22.15/24, macOS 22) 실행. 병합 후 로컬에서 `npm install -g .` 로 확인. `dev` 에 들어오면 `release-pr` 워크플로가 `dev` → `main` release PR 을 만들거나 제목·본문(포함된 PR, 닫는 이슈)을 갱신한다 |
 | `dev` → `main` | 단위 테스트와 e2e 를 통과하고 `package.json` 의 `version` 이 아직 배포되지 않은 값이면 GitHub Packages 에 배포하고 `v<버전>` 태그·릴리스 생성 |
 
 테스트
