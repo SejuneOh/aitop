@@ -2,13 +2,13 @@
 import { readFileSync } from 'node:fs';
 import { BRAND, userVarsSeq } from '../src/brand.mjs';
 
-const HELP = `${BRAND.logo} aitop - 터미널에서 Claude Code · Codex · Gemini 세션을 실시간으로 본다
+const HELP = `${BRAND.logo} aitop - 터미널에서 Claude Code · Codex · Antigravity · Gemini 세션을 실시간으로 본다
 
   aitop            실시간 화면
   aitop --once     현재 상태를 한 번 출력하고 끝낸다
   aitop --all      종료된 세션(24시간 이내)도 함께 본다
   aitop --json     세션 목록과 사용량 합계를 JSON 으로 한 번 출력한다 (--all 과 함께 쓸 수 있다)
-  aitop --doctor   Claude · Codex · Gemini 기록과 실행 중인 프로세스를 찾는지 점검한다 (--json 과 함께 쓸 수 있다)
+  aitop --doctor   Claude · Codex · Antigravity · Gemini 기록과 실행 중인 프로세스를 찾는지 점검한다 (--json 과 함께 쓸 수 있다)
   aitop --bell     응답 대기 세션이 새로 생기면 터미널 벨을 울린다
   aitop --theme light|dark  밝은 배경 / 어두운 배경 색 (없으면 COLORFGBG 로 고른다)
   aitop --version  설치된 버전을 보인다
