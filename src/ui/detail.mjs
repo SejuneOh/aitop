@@ -51,7 +51,7 @@ export function fileRow(f, cwd, w, selected) {
 // 변경 조각을 고친 순서의 역순(최신 먼저)으로, 조각마다 시각 · 누가 · 위치 머리를 달아 보인다.
 // 같은 파일을 여러 번 고치면 줄 번호 기준이 매번 달라져 하나의 diff 로 합칠 수 없다.
 export function diffBody(f, w) {
-  if (f.hidden) return [[INDENT, { t: '비밀값이 있을 수 있는 파일이라 변경 내용을 숨겼습니다', fg: PALETTE.waiting, italic: true }]];
+  if (f.hidden) return [[INDENT, { t: '비밀값이 있을 수 있는 파일이라 변경 내용을 숨겼습니다', fg: PALETTE.info, italic: true }]];
   if (!f.hunks.length) return [[INDENT, { t: f.deleted ? '이 파일을 삭제했습니다' : '보관된 변경 내용이 없습니다', fg: PALETTE.info, italic: true }]];
   const nums = w >= 50;
   const textW = w - 1 - (nums ? 5 : 0);
@@ -145,9 +145,49 @@ export function tabNote(tab, files) {
   return [{ t: p ? `${hhmm(p.at)} "${p.text}"` : '지시 기록 없음', fg: PALETTE.info, italic: true }, ...(edits ? [{ t: `  편집 ${edits}회`, fg: PALETTE.muted }] : [])];
 }
 
+// 허락을 기다리는 요청을 폭에 맞춰 여러 줄로 나눈다. 명령은 띄어쓰기와 상관없이 글자 단위로 끊어 빠짐없이 보인다.
+export const REQUEST_LINES = 6;
+
+export function wrapText(text, w) {
+  const out = [];
+  for (const para of String(text).split('\n')) {
+    let cur = '';
+    let cw = 0;
+    for (const ch of para) {
+      const k = width(ch);
+      if (cw + k > w && cur) {
+        out.push(cur);
+        cur = '';
+        cw = 0;
+      }
+      cur += ch;
+      cw += k;
+    }
+    out.push(cur);
+  }
+  return out;
+}
+
+// ── 요청 ── 구획: 응답 대기 중이고 요청 내용을 알 때만. 최대 max 줄, 넘치면 마지막 줄 끝을 … 로 바꾼다.
+export function requestBlock(s, w, max = REQUEST_LINES) {
+  if (s.status !== 'waiting' || !s.waitDetail || max < 1) return [];
+  const textW = Math.max(1, w - width(INDENT.t));
+  let lines = wrapText(s.waitDetail, textW);
+  if (lines.length > max) {
+    lines = lines.slice(0, max);
+    const last = [...lines[max - 1]];
+    while (last.length && width(last.join('')) + 1 > textW) last.pop();
+    lines[max - 1] = last.join('') + '…';
+  }
+  return [rule([{ t: '요청', fg: PALETTE.waiting, bold: true }], '', w), ...lines.map((l) => [INDENT, { t: l, fg: PALETTE.text }])];
+}
+
 // 오른쪽 칸: 고친 파일이 없으면 최근 활동만, 있으면 위쪽 절반까지 변경 파일 구획(배경 띠), 파일을 열면 diff.
 // 머리는 안쪽 줄 수에 따라: 16 이상 가로줄+탭+지시, 11~15 가로줄+탭(지시는 탭 줄 오른쪽), 10 이하 가로줄만.
 export function rightColumn(s, w, rows, view) {
+  // --show-requests 를 켰고 응답 대기 중이면 요청 내용을 맨 위에 두고, 아래 구획에는 적어도 4줄을 남긴다.
+  const req = view?.showRequests ? requestBlock(s, w, Math.min(REQUEST_LINES, rows - 5)) : [];
+  if (req.length) return [...req, ...rightColumn({ ...s, waitDetail: null }, w, rows - req.length, view)];
   const all = s.files ?? [];
   const focused = view?.focus === 'files';
   const activityRule = () => rule([{ t: '최근 활동', fg: focused ? PALETTE.muted : PALETTE.text, bold: true }], '', w);
@@ -290,7 +330,7 @@ export function detail(s, W, H, frame, view) {
   if (s.cost != null) {
     const net = view?.costMode === 'net';
     L.push([INDENT, { t: pad(net ? '캐시제외' : 'API 환산', 9), fg: PALETTE.muted }, { t: money(net ? s.costNoCache : s.cost, s.costUnknown), fg: PALETTE.money, bold: true }]);
-    more([{ t: net ? `API 환산 ${money(s.cost, s.costUnknown)}` : `캐시 제외 ${money(s.costNoCache, s.costUnknown)}`, fg: PALETTE.info }, ...(s.costUnknown ? [{ t: '  ? 가격표에 없는 모델 포함', fg: PALETTE.waiting }] : [])]);
+    more([{ t: net ? `API 환산 ${money(s.cost, s.costUnknown)}` : `캐시 제외 ${money(s.costNoCache, s.costUnknown)}`, fg: PALETTE.info }, ...(s.costUnknown ? [{ t: '  ? 가격표에 없는 모델 포함', fg: PALETTE.info }] : [])]);
   }
   if (s.context?.window) {
     L.push([INDENT, { t: pad('컨텍스트', 9), fg: PALETTE.muted }, { t: pad(`${fmtTokens(s.context.used)}/${fmtTokens(s.context.window)}`, 11) + ' ', fg: PALETTE.text }, ...gauge(s.context.used, s.context.window, Math.max(4, leftW - width(INDENT.t) - 26))]);

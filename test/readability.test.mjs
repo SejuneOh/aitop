@@ -36,6 +36,38 @@ test('헤더: 응답 대기가 있으면 로고 바로 뒤에 둔다', () => {
   assert.doesNotMatch(draw(view([sess('a')]))[0], /◆/, '없으면 보이지 않는다');
 });
 
+test('좁은 헤더는 live 수와 ○ 대기를 먼저 빼서 오늘 비용을 남긴다', () => {
+  const list = [sess('w', { status: 'waiting', phase: { kind: 'waiting', text: '응답 대기' } }), sess('b', { status: 'busy', phase: { kind: 'think', text: '생각 중' } }), sess('i1'), sess('i2')];
+  // 캐시 제외 기준은 '캐시제외' 표시가 끝까지 남아야 하므로 60 칸부터 본다.
+  for (const [costMode, widths] of [['api', [56, 60, 64]], ['net', [60, 64]]]) {
+    for (const W of widths) {
+      const head = draw(view(list, { costMode }), W)[0];
+      assert.ok(width(head) <= W, `W=${W}`);
+      assert.match(head, /◆ 1 응답 +⠿ 1 작업/, `W=${W} ${costMode}: ${head}`);
+      assert.match(head, /오늘 \$/, `W=${W} ${costMode}: ${head}`);
+      assert.doesNotMatch(head, /live/, `W=${W}`);
+    }
+  }
+  assert.match(draw(view(list), 160)[0], /4 live +⠿ 1 작업 중 +○ 2 대기/, '넓으면 그대로 보인다');
+});
+
+test('좁은 헤더: 빼고 나서 남는 상태 수가 없으면 live 수를 남긴다', () => {
+  const head = draw(view([sess('i1')], { costMode: 'net' }), 40)[0];
+  assert.ok(width(head) <= 40);
+  assert.match(head, /1 live/, head);
+});
+
+test('도구 줄: 종료 세션 표시가 들어가지 않으면 조각 없이 뺀다', () => {
+  const s = sess('a', { tokens: { total: 571000 } });
+  for (let W = 40; W <= 100; W++) {
+    const tools = draw(view([s], { showEnded: true }), W)[1];
+    assert.ok(width(tools) <= W, `W=${W}`);
+    assert.doesNotMatch(tools, /…/, `W=${W}: ${tools}`);
+    if (tools.includes('종')) assert.match(tools, /종료된 세션 포함 \(24시간\)/, `W=${W}`);
+  }
+  assert.match(draw(view([s], { showEnded: true }), 100)[1], /종료된 세션 포함 \(24시간\)/);
+});
+
 test('헤더: 0 인 상태 수는 빼고 live 수는 남긴다', () => {
   const head = draw(view([sess('a'), sess('b')]))[0];
   assert.match(head, /2 live +○ 2 대기/);

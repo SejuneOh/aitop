@@ -9,7 +9,7 @@ import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { openReadOnly, loadSqlite } from '../sqlite.mjs';
 import { findProcesses, isAgy, openFiles } from '../procs.mjs';
-import { emptyTokens, pushEvent, describeTool, isNoisePrompt, MEMBER_FADE_MS } from './common.mjs';
+import { emptyTokens, pushEvent, describeTool, toolDetail, isNoisePrompt, MEMBER_FADE_MS } from './common.mjs';
 import { contextWindow, geminiCost } from '../pricing.mjs';
 
 // /proc/<pid>/fd 의 링크는 늘 심볼릭 링크를 푼 절대 경로라서, 기록 폴더도 같은 모양으로 바꿔 둔다
@@ -177,7 +177,22 @@ function toolOf(call) {
   try {
     args = JSON.parse(msg(f, 3)?.toString('utf8') ?? '{}');
   } catch {}
-  return { name, what: describeAgyTool(name, args && typeof args === 'object' ? args : {}) };
+  const a = args && typeof args === 'object' ? args : {};
+  return { name, what: describeAgyTool(name, a), detail: agyToolDetail(name, a) };
+}
+
+// 허락을 기다리는 도구 호출의 전체 내용: 명령은 $ 없이 그대로, 파일은 전체 경로, MCP 는 서버/도구 이름과 인자.
+export function agyToolDetail(name, args = {}) {
+  if (name === 'call_mcp_tool') {
+    const { ServerName, ToolName, ...rest } = args;
+    const head = `${ServerName ?? ''}/${ToolName ?? ''}`;
+    const body = Object.keys(rest).length ? toolDetail('mcp', rest) : null;
+    return toolDetail('mcp', `${head}${body ? ' ' + body : ''}`);
+  }
+  if (name === 'run_command') return toolDetail('Bash', { command: args.CommandLine ?? '' });
+  const path = args.Path ?? args.AbsolutePath ?? args.TargetFile;
+  if (typeof path === 'string') return toolDetail('Read', { file_path: path });
+  return toolDetail(name, args);
 }
 
 // step_payload 한 줄 → { type, at, text, tool }. 해석하지 못하면 null.
@@ -366,7 +381,7 @@ function readSteps(db, n, last, budget) {
         cur = r.idx;
         hold ??= r.idx;
         if (s) n.open = { ...s, idx: r.idx, status: r.status };
-        if (r.status === APPROVAL) n.wait = { idx: r.idx, what: s?.tool?.what || '도구 허락' };
+        if (r.status === APPROVAL) n.wait = { idx: r.idx, what: s?.tool?.what || '도구 허락', detail: s?.tool?.detail ?? null };
         continue;
       }
       if (!s && r.idx === last) {
@@ -713,6 +728,7 @@ export function collectAgy({ showEnded, budget }) {
       costNoCache,
       costUnknown,
       waitingFor: wait,
+      waitDetail: wait ? (g.wait.detail ?? wait) : null,
       now: g.lastTool ?? g.events.at(-1)?.text ?? '',
       startedAt: null,
       updatedAt: r.updatedAt ?? Date.now(),

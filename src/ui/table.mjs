@@ -63,16 +63,26 @@ export function header(view, W) {
           { t: `${n} ${narrow ? short : long}`, fg: bold ? color : PALETTE.text, bg: B, bold },
         ]
       : [];
-  const leftOf = (narrow) => [
-    { t: ` ${BRAND.logo} `, fg: PALETTE.chipText, bg: PALETTE.brand, bold: true },
-    { t: '  ', bg: B },
-    // 응답 대기가 있으면 사람이 할 일이므로 맨 앞에 둔다.
-    ...(waiting ? [...stat('◆', waiting, '응답 대기', '응답', PALETTE.waiting, true, narrow).map((x, i) => (i === 0 ? { ...x, t: x.t.trimStart() } : x)), { t: '  ', bg: B }] : []),
-    { t: `${live.length} live`, fg: PALETTE.text, bg: B, bold: true },
-    ...stat('⠿', working, '작업 중', '작업', PALETTE.busy, false, narrow),
-    ...stat('●', unseen, '확인 전', '확인', PALETTE.busy, true, narrow),
-    ...stat('○', idle, '대기', '대기', PALETTE.idle, false, narrow),
-  ];
+  // drop: 0 은 모두 보이고, 1 은 live 수(다른 수의 합)를 빼고, 2 는 ○ 대기까지 뺀다.
+  // 빼고 나서 남는 상태 수가 없으면 live 수는 남긴다.
+  const leftOf = (narrow, drop = 0) => {
+    const others = [
+      ...stat('⠿', working, '작업 중', '작업', PALETTE.busy, false, narrow),
+      ...stat('●', unseen, '확인 전', '확인', PALETTE.busy, true, narrow),
+      ...(drop < 2 ? stat('○', idle, '대기', '대기', PALETTE.idle, false, narrow) : []),
+    ];
+    const counts = [
+      ...(drop < 1 || !others.length ? [{ t: `${live.length} live`, fg: PALETTE.text, bg: B, bold: true }] : []),
+      ...others,
+    ].map((x, i) => (i === 0 ? { ...x, t: x.t.trimStart() } : x));
+    return [
+      { t: ` ${BRAND.logo} `, fg: PALETTE.chipText, bg: PALETTE.brand, bold: true },
+      { t: '  ', bg: B },
+      // 응답 대기가 있으면 사람이 할 일이므로 맨 앞에 둔다.
+      ...(waiting ? [...stat('◆', waiting, '응답 대기', '응답', PALETTE.waiting, true, narrow).map((x, i) => (i === 0 ? { ...x, t: x.t.trimStart() } : x)), ...(counts.length ? [{ t: '  ', bg: B }] : [])] : []),
+      ...counts,
+    ];
+  };
   // 오른쪽: 오늘 $52 ($8.40/h) 132M · 7일 $644 1.2B · 12:42:05. 폭이 모자라면 지출 속도, 토큰 수, API 표시, 7일, 오늘 순으로 뺀다 (캐시 제외 기준이면 그 표시는 끝까지 남긴다).
   const u = view.data.usage;
   const dot = { t: ' · ', fg: PALETTE.faint, bg: B };
@@ -84,9 +94,11 @@ export function header(view, W) {
     ...(tok ? [{ t: ` ${fmtTokens(p.tokens)}`, fg: PALETTE.info, bg: B }] : []),
   ];
   // 지출 속도: 최근 1시간 비용(5분 칸 근사)을 시간당으로. 0 이거나 아직 집계 중이면 숨기고, 폭이 모자라면 가장 먼저 뺀다.
+  // 아는 몫이 0 인데 가격표에 없는 모델이 섞였으면 금액 없이 (?/h) 만 보인다.
   const hour = u?.lastHour && u.loading == null ? (net ? u.lastHour.costNoCache : u.lastHour.cost) : null;
   const perHour = (x) => (x >= 10 ? `$${Math.round(x).toLocaleString('en-US')}` : `$${x.toFixed(2)}`);
-  const rate = hour >= 0.005 ? [{ t: ` (${perHour(hour)}${u.lastHour.unknown ? '?' : ''}/h)`, fg: PALETTE.muted, bg: B }] : null;
+  const rateText = hour >= 0.005 ? `${perHour(hour)}${u.lastHour.unknown ? '?' : ''}` : hour != null && u.lastHour.unknown ? '?' : null;
+  const rate = rateText ? [{ t: ` (${rateText}/h)`, fg: PALETTE.muted, bg: B }] : null;
   const week = (tok) => (u.loading != null ? [{ t: `7일 집계 중 ${Math.floor(u.loading * 100)}%`, fg: PALETTE.info, bg: B }] : period('7일', u.week, tok));
   // 장부를 못 읽었으면 화면에 있는 세션(모든 도구)의 누적 토큰이라도 보인다.
   const fallback = [{ t: `Σ ${fmtTokens(sessions.reduce((a, s) => a + (s.tokens?.total ?? 0), 0))} tok`, fg: PALETTE.muted, bg: B }];
@@ -108,14 +120,23 @@ export function header(view, W) {
       ].filter((r) => !net || r[0] === api || r[0] === apiShort || r.length === 1)
     : [[...fallback, dot, clockSeg], [clockSeg]];
   // 사용량 숫자가 상태 이름보다 중요하므로, 이름을 먼저 줄이고 그래도 모자라면 오른쪽을 줄인다.
-  for (const r of rights) {
-    for (const narrow of [false, true]) {
-      const left = leftOf(narrow);
-      const right = [...r, { t: ' ', bg: B }];
-      if (segsWidth(left) + segsWidth(right) + 2 <= W) return line([...left, { t: ' '.repeat(W - segsWidth(left) - segsWidth(right)), bg: B }, ...right], W, B);
-    }
+  // 시각만 남기 전에는 live 수와 ○ 대기를 먼저 빼서 오늘 비용을 지킨다.
+  const fit = (r, narrow, drop) => {
+    const left = leftOf(narrow, drop);
+    const right = [...r, { t: ' ', bg: B }];
+    return segsWidth(left) + segsWidth(right) + 2 <= W ? line([...left, { t: ' '.repeat(W - segsWidth(left) - segsWidth(right)), bg: B }, ...right], W, B) : null;
+  };
+  const kept = rights.slice(0, -1);
+  const tries = [
+    ...kept.flatMap((r) => [[r, false, 0], [r, true, 0]]),
+    ...[1, 2].flatMap((drop) => kept.map((r) => [r, true, drop])),
+    ...[0, 1, 2].map((drop) => [rights.at(-1), true, drop]),
+  ];
+  for (const [r, narrow, drop] of tries) {
+    const out = fit(r, narrow, drop);
+    if (out) return out;
   }
-  return line(leftOf(true), W, B);
+  return line(leftOf(true, 2), W, B);
 }
 
 export function toolStrip(view, W) {
@@ -133,7 +154,9 @@ export function toolStrip(view, W) {
     }
     segs.push({ t: '▍', fg: PALETTE.tools[tool] }, { t: tool, fg: PALETTE.tools[tool], bold: true }, { t: ` ${live}`, fg: PALETTE.text }, { t: ` · ${fmtTokens(tok)}`, fg: PALETTE.muted }, { t: '     ' });
   }
-  if (view.showEnded) segs.push({ t: '종료된 세션 포함 (24시간)', fg: PALETTE.waiting, italic: true });
+  // 종료 세션 표시는 다 들어갈 때만 붙인다 (잘린 조각이 남지 않게).
+  const ended = '종료된 세션 포함 (24시간)';
+  if (view.showEnded && segsWidth(segs) + width(ended) <= W) segs.push({ t: ended, fg: PALETTE.info, italic: true });
   return line(segs, W);
 }
 

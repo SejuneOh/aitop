@@ -14,6 +14,13 @@ test('자르기와 채우기는 표시 폭을 지킨다', () => {
   assert.equal(pad('12', 4, 'right'), '  12');
 });
 
+test('공백만 있는 조각은 … 없이 자른다', () => {
+  assert.equal(truncate('     ', 3), '   ');
+  assert.equal(truncate('     ', 1), ' ');
+  assert.equal(truncate('ab     cd', 5), 'ab…');
+  assert.equal(truncate('abc', 1), '…');
+});
+
 test('비밀값처럼 보이는 문자열은 가린다', () => {
   assert.equal(mask('key sk-ant-api03-abcdefghijklmnopqrst'), 'key ••••');
   assert.equal(mask('export GITHUB_TOKEN=ghp_abcdefghijklmnopqrstuvwxyz12'), 'export GITHUB_TOKEN=••••');

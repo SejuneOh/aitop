@@ -13,6 +13,7 @@ const root = realpathSync(mkdtempSync(join(tmpdir(), 'aitop-agy-')));
 process.env.AITOP_AGY_HOME = root;
 process.env.XDG_CACHE_HOME = join(root, 'cache');
 process.env.CLAUDE_CONFIG_DIR = join(root, 'claude-empty');
+process.env.CODEX_HOME = join(root, 'codex-missing');
 mkdirSync(join(root, 'conversations'));
 mkdirSync(join(root, 'presence'));
 
@@ -237,9 +238,9 @@ test('steps 한 줄에서 종류, 시각, 사용자 입력, 답변, 도구 호�
   assert.deepEqual(readStep(step(prompt('폴더 옮기는 법', T0 + 5))), { type: STEP.PROMPT, at: T0 + 5, text: '폴더 옮기는 법', tool: null });
   const r = readStep(step(reply(null, ['read_file', { Path: '/a/b/SKILL.md' }])));
   assert.equal(r.text, null, '도구만 부른 답변에는 글이 없다');
-  assert.deepEqual(r.tool, { name: 'read_file', what: 'read_file SKILL.md' });
+  assert.deepEqual(r.tool, { name: 'read_file', what: 'read_file SKILL.md', detail: '/a/b/SKILL.md' });
   assert.equal(readStep(step(reply('**완료**했습니다'))).text, '**완료**했습니다');
-  assert.deepEqual(readStep(step(toolStep(['call_mcp_tool', { Arguments: {}, ServerName: 'cms', ToolName: 'whoami' }]))).tool, { name: 'call_mcp_tool', what: 'mcp cms/whoami' });
+  assert.deepEqual(readStep(step(toolStep(['call_mcp_tool', { Arguments: {}, ServerName: 'cms', ToolName: 'whoami' }]))).tool, { name: 'call_mcp_tool', what: 'mcp cms/whoami', detail: 'cms/whoami {"Arguments":{}}' });
   assert.equal(readStep(Buffer.from([0x08, 0x0e, 0x2a, 0x7f, 1])), null, '잘린 줄');
   assert.equal(readStep(null), null);
 });
@@ -321,6 +322,7 @@ test('허락 대기를 본 뒤 -wal 이 바뀌면 agy 가 다시 쓰는 것이�
   makeSteps('s7', [prompt('지워'), toolStep(['run_command', { CommandLine: 'rm x' }], 9)]);
   const g = readConversation('s7', createBudget());
   assert.equal(waitingFor(g), '$ rm x');
+  assert.equal(g.wait.detail, 'rm x', '요청 내용은 $ 없는 실제 명령');
   writeFileSync(`${p}-wal`, '');
   readConversation('s7', createBudget());
   assert.equal(waitingFor(g), null, '-wal 이 생겼다');

@@ -32,7 +32,8 @@ const DARK = {
   idle: '#babec8',
   ended: '#999eae',
   alert: '#f87878',
-  money: '#fcd34d',
+  // 돈은 대기(호박색)와 다른 연두 계열이다. 대기 색은 사람이 응답해야 할 때만 쓴다.
+  money: '#a3e635',
   addBg: '#10261a',
   delBg: '#2c1517',
   tools: { claude: '#e8865f', codex: '#5eead4', gemini: '#8ab4f8' },
@@ -59,7 +60,7 @@ const LIGHT = {
   idle: '#495059',
   ended: '#5f6771',
   alert: '#c5202c',
-  money: '#895c00',
+  money: '#3f6212',
   addBg: '#dafbe1',
   delBg: '#ffebe9',
   tools: { claude: '#ab4500', codex: '#097264', gemini: '#1f5fbf' },

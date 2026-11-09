@@ -2,7 +2,7 @@
 import { JsonlTail } from '../tail.mjs';
 import { loadCache, markDirty } from '../cache.mjs';
 import { claudeCost } from '../pricing.mjs';
-import { emptyTokens, pushEvent, describeTool, isNoisePrompt, parseTs } from './common.mjs';
+import { emptyTokens, pushEvent, describeTool, toolDetail, isNoisePrompt, parseTs } from './common.mjs';
 import { addChange } from './files.mjs';
 
 const MAX_TURNS = 50;
@@ -129,7 +129,7 @@ export class ClaudeTracker {
       for (const c of Array.isArray(m.content) ? m.content : []) {
         if (c.type === 'tool_use') {
           this.lastTool = describeTool(c.name, c.input);
-          this.pending.set(c.id, { name: c.name, what: this.lastTool, agent: c.input?.subagent_type ?? null });
+          this.pending.set(c.id, { name: c.name, what: this.lastTool, detail: toolDetail(c.name, c.input), agent: c.input?.subagent_type ?? null });
           pushEvent(this, x.timestamp, 'tool', this.lastTool);
           this.lastKind = 'tool';
         } else if (c.type === 'text' && c.text?.trim()) {
@@ -154,6 +154,15 @@ export class ClaudeTracker {
         this.pending.clear();
       } else if (Array.isArray(c) && c.some((p) => p.type === 'tool_result')) this.lastKind = 'result';
     }
+  }
+
+  // 허락을 기다리는 동안 보일 요청 내용. 열린 도구 호출 가운데 대기 문구(approve Bash 등)에 이름이 나온 것을 먼저,
+  // 없으면 가장 최근 것을 고른다. 팀원(Agent·Task) 호출만 열려 있으면 없음.
+  waitDetail(waitingFor = '') {
+    const tools = [...this.pending.values()].filter((p) => p.name !== 'Agent' && p.name !== 'Task');
+    const words = new Set(String(waitingFor ?? '').split(/[^A-Za-z0-9_]+/).filter(Boolean));
+    const named = tools.filter((p) => words.has(p.name));
+    return (named.at(-1) ?? tools.at(-1))?.detail ?? null;
   }
 
   // 지금 무엇을 하는 단계인지: 도구 실행 / 팀원 대기 / 생각 중 / 답변 작성 중.

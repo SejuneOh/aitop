@@ -59,7 +59,7 @@ export function gauge(used, total, cells) {
   if (!total) return [{ t: BAR.empty.repeat(cells) + '     ', fg: PALETTE.faint }];
   const r = Math.min(1, Math.max(0, used / total || 0));
   const full = cells ? filledCells(r, cells) : 0;
-  const color = r >= 0.85 ? PALETTE.alert : r >= 0.6 ? PALETTE.waiting : PALETTE.busy;
+  const color = r >= 0.85 ? PALETTE.alert : r >= 0.6 ? PALETTE.text : PALETTE.busy;
   return [
     { t: BAR.fill.repeat(full), fg: color },
     { t: BAR.empty.repeat(cells - full), fg: PALETTE.faint },

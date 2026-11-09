@@ -61,7 +61,7 @@ export function parseLsofCwd(text) {
   return /^n(.+)$/m.exec(String(text))?.[1] ?? null;
 }
 
-const run = (cmd, args) => execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 2000 });
+const run = (cmd, args, env) => execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 2000, env });
 
 function listProc() {
   const list = [];
@@ -129,6 +129,7 @@ export function findProcesses(match) {
   // 끝난 프로세스의 pid 는 다른 프로세스가 다시 쓸 수 있으니, 지금 목록에 없는 pid 의 작업 폴더는 잊는다.
   const alive = new Set(all.map((p) => p.pid));
   for (const pid of cwdCache.keys()) if (!alive.has(pid)) cwdCache.delete(pid);
+  for (const pid of startCache.keys()) if (!alive.has(pid)) startCache.delete(pid);
   return found.map((p) => ({ ...p, cwd: cwdOf(p.pid) }));
 }
 
@@ -164,4 +165,41 @@ export function openFiles(pid) {
     } catch {}
   }
   return out;
+}
+
+let ticksPerSec = null;
+let bootMs = null;
+
+// /proc/<pid>/stat 의 22번째 칸은 부팅 뒤 지난 시간(클럭 틱)이다. 명령 이름에 공백·괄호가 들 수 있어 마지막 ')' 뒤부터 센다.
+function procStartLinux(pid) {
+  if (bootMs === null) {
+    const m = /^btime (\d+)$/m.exec(readFileSync('/proc/stat', 'utf8'));
+    if (!m) return null;
+    bootMs = Number(m[1]) * 1000;
+  }
+  if (ticksPerSec === null) {
+    try {
+      ticksPerSec = Number(run('getconf', ['CLK_TCK']).trim()) || 100;
+    } catch {
+      ticksPerSec = 100;
+    }
+  }
+  const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+  const ticks = Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19]);
+  return Number.isFinite(ticks) ? bootMs + (ticks / ticksPerSec) * 1000 : null;
+}
+
+// 프로세스가 시작한 시각(ms). 알 수 없으면 null. 시작 시각은 바뀌지 않으므로 pid 별로 기억한다.
+const startCache = new Map();
+
+export function processStart(pid) {
+  if (startCache.has(pid)) return startCache.get(pid);
+  let at = null;
+  try {
+    if (HAS_PROC) at = procStartLinux(pid);
+    // lstart 는 로케일에 따라 요일·달 이름이 바뀌므로 영어(C) 로케일로 받는다.
+    else if (OS === 'darwin') at = Date.parse(run('ps', ['-o', 'lstart=', '-p', String(pid)], { ...process.env, LC_ALL: 'C', LANG: 'C' }).trim()) || null;
+  } catch {}
+  if (at !== null) startCache.set(pid, at);
+  return at;
 }
