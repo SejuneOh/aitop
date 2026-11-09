@@ -207,5 +207,11 @@ export function doctorText(result, version, now = Date.now()) {
     if (d.hint) out.push(`         → ${d.hint}`);
   }
   if ('notifier' in result) out.push('', notifierText(result.notifier, result.platform));
+  // 설정 파일: 무시한 키와 값, 받지 않은 onWaiting 을 알린다.
+  const cfg = result.config;
+  if (cfg) {
+    out.push('', `${cfg.problems.length ? '!' : '✓'} 설정   ${pad(cfg.exists ? '있음' : '없음 (기본값)', 10)}${tilde(cfg.path)}`);
+    for (const p of cfg.problems) out.push(`         ! ${p}`);
+  }
   return stripControl(out.join('\n'));
 }

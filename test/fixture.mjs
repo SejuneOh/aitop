@@ -11,6 +11,8 @@ export function makeClaudeHome() {
   mkdirSync(join(home, 'projects'), { recursive: true });
   process.env.CLAUDE_CONFIG_DIR = home;
   process.env.XDG_CACHE_HOME = join(root, 'cache');
+  // 이 PC 의 aitop 설정 파일을 읽지 않게 한다.
+  process.env.XDG_CONFIG_HOME = join(root, 'config');
   // 이 PC 의 실제 agy·Codex 기록을 읽지 않게 한다 (기록 폴더가 없으면 보지 않는다).
   process.env.AITOP_AGY_HOME = join(root, 'agy-missing');
   process.env.CODEX_HOME = join(root, 'codex-missing');

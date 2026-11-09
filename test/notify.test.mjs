@@ -47,6 +47,12 @@ test('--notify, --on-waiting <cmd>, --on-waiting=<cmd> 를 한 곳에서 해석�
   // 설정 파일 값도 같은 함수로 받는다 (명령행이 이긴다).
   assert.deepEqual(notifyOptions(['--on-waiting', 'b'], { notify: true, onWaiting: 'a' }).onWaiting, 'b');
   assert.equal(notifyOptions([], { notify: true }).notify, true);
+  // --no-notify 는 설정 파일의 notify 를 끄고, --notify 와 함께 주면 뒤에 준 쪽을 따른다.
+  assert.deepEqual(notifyOptions(['--no-notify', '--all'], { notify: true }), { notify: false, onWaiting: null, rest: ['--all'], error: null });
+  assert.equal(notifyOptions(['--no-notify', '--notify']).notify, true);
+  assert.equal(notifyOptions(['--notify', '--no-notify']).notify, false);
+  assert.equal(notifyOptions(['--no-on-waiting'], { onWaiting: 'a' }).onWaiting, null);
+  assert.equal(notifyOptions(['--no-on-waiting', '--on-waiting', 'b'], { onWaiting: 'a' }).onWaiting, 'b');
 });
 
 test('환경변수에 세션 정보를 넣고, 대기 사유는 짧게·가려서 넣는다', () => {

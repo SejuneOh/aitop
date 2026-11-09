@@ -54,9 +54,32 @@ aitop --json     세션 목록과 오늘·7일 사용량을 JSON 으로 한 번 
                  0.6.1 부터 비용(cost 등)은 소수 넷째 자리까지 반올림
 aitop --version  설치된 버전
 aitop --doctor   도구별 연결 점검 (기록 폴더, 기록 수, 마지막 기록, 실행 수). --json 과 함께 가능
-aitop --theme light|dark  밝은 배경 / 어두운 배경 색. 없으면 AITOP_THEME 환경변수, 그다음 COLORFGBG 로 고르고, 모르면 어두운 배경
+aitop --theme light|dark  밝은 배경 / 어두운 배경 색. 없으면 AITOP_THEME 환경변수, 설정 파일의 theme, 그다음 COLORFGBG 로 고르고, 모르면 어두운 배경
 aitop --show-requests  응답 대기 요청 전체(명령·경로)를 상세 패널과 --json(waitDetail)에 보인다. AITOP_SHOW_REQUESTS=1 과 같다
+aitop --no-bell · --no-all · --no-show-requests · --no-notify · --no-on-waiting  설정 파일에서 켠 값을 이번 실행만 끈다
+aitop --print-config   설정 값마다 값과 출처(flag/env/file/default), 설정 파일 위치를 보인다. --json 과 함께 가능
 ```
+
+### 설정 파일
+
+`$XDG_CONFIG_HOME/aitop/config.json` (없으면 `~/.config/aitop/config.json`). 옵션 > 환경 변수 > 설정 파일 > 기본값 순서로 정한다.
+
+```json
+{ "theme": "light", "icons": "plain", "bell": true, "showRequests": false, "all": false }
+```
+
+| 키 | 값 | 같은 옵션·환경 변수 |
+|---|---|---|
+| `theme` | `light` · `dark` | `--theme`, `AITOP_THEME` |
+| `icons` | `plain` · `ascii` | `AITOP_ICONS` |
+| `bell` | true · false | `--bell` · `--no-bell` |
+| `showRequests` | true · false | `--show-requests` · `--no-show-requests`, `AITOP_SHOW_REQUESTS=1`·`0` |
+| `all` | true · false | `--all` · `--no-all` |
+| `notify` | true · false | `--notify` · `--no-notify` |
+| `onWaiting` | 명령 문자열 | `--on-waiting` · `--no-on-waiting` |
+| `budgetDay` | 0 보다 큰 수 | 이후 기능용 (값 검사만 한다) |
+
+잘못된 JSON, 모르는 키, 잘못된 값은 그 키만 무시하고 `aitop --doctor` 에 알린다. `showRequests` 는 설정 파일로도 켤 수 있다 (내 파일이라 권한 검사는 하지 않는다). 켜면 위의 `--show-requests` 주의가 그대로 적용된다. `onWaiting` 은 파일 소유자가 나이고 그룹·다른 사용자가 쓸 수 없을 때(예: `chmod 600`)만 받는다.
 
 `--show-requests` 는 기본으로 꺼져 있다. 비밀값 가림은 최선일 뿐이라, 켜면 명령 속 비밀값이 그대로 보일 수 있다. 가림을 거친 요청 내용은 옵션과 관계없이 로컬 캐시(`~/.cache/aitop`)에 저장된다.
 
