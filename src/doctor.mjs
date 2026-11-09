@@ -9,6 +9,7 @@ import { AGY_ROOT } from './sources/antigravity.mjs';
 import { loadSqlite, openReadOnly } from './sqlite.mjs';
 import { fmtAgo, pad, stripControl } from './text.mjs';
 import { BRAND } from './brand.mjs';
+import { findNotifier, isWsl } from './notify.mjs';
 
 const UNIT = { s: '초', m: '분', h: '시간', d: '일' };
 const ago = (ms) => fmtAgo(ms).replace(/[smhd]$/, (u) => UNIT[u]);
@@ -162,7 +163,16 @@ export function checkTools() {
     const r = fn();
     tools[r.tool] = r;
   }
-  return { platform: platform(), processes: canListProcesses(), tools };
+  const n = findNotifier();
+  return { platform: platform(), processes: canListProcesses(), tools, notifier: n ? { kind: n.kind, path: tilde(n.path) } : null };
+}
+
+// --notify 에 쓸 데스크톱 알림 도구.
+export function notifierText(n, plat = platform()) {
+  if (n) return `✓ 알림    ${n.kind} (${n.path}) · --notify 로 켬`;
+  const want = plat === 'darwin' ? 'osascript' : 'notify-send';
+  const wsl = plat === 'linux' && isWsl() ? ' (WSL 은 notify-send 만 쓴다)' : '';
+  return `○ 알림    ${want} 없음 · --notify 를 켜도 알림을 건너뜀${wsl}`;
 }
 
 // JSON 용: 시각은 ISO 문자열로.
@@ -196,5 +206,6 @@ export function doctorText(result, version, now = Date.now()) {
     out.push(`         ${d.detail}`);
     if (d.hint) out.push(`         → ${d.hint}`);
   }
+  if ('notifier' in result) out.push('', notifierText(result.notifier, result.platform));
   return stripControl(out.join('\n'));
 }

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs';
 import { BRAND, userVarsSeq } from '../src/brand.mjs';
+import { notifyOptions } from '../src/notify.mjs';
 
 const HELP = `${BRAND.logo} aitop - 터미널에서 Claude Code · Codex · Antigravity · Gemini 세션을 실시간으로 본다
 
@@ -10,6 +11,9 @@ const HELP = `${BRAND.logo} aitop - 터미널에서 Claude Code · Codex · Anti
   aitop --json     세션 목록과 사용량 합계를 JSON 으로 한 번 출력한다 (--all 과 함께 쓸 수 있다)
   aitop --doctor   Claude · Codex · Antigravity · Gemini 기록과 실행 중인 프로세스를 찾는지 점검한다 (--json 과 함께 쓸 수 있다)
   aitop --bell     응답 대기 세션이 새로 생기면 터미널 벨을 울린다
+  aitop --notify   응답 대기 세션이 새로 생기면 데스크톱 알림을 띄운다 (notify-send · osascript, 없으면 건너뜀)
+  aitop --on-waiting <명령>  응답 대기 세션이 새로 생기면 /bin/sh -c 로 명령을 실행한다 (내 권한으로 실행, 10초 제한)
+                   세션 정보는 환경변수로만: AITOP_TOOL AITOP_PROJECT AITOP_SESSION_ID AITOP_CWD AITOP_WAITING_FOR
   aitop --show-requests  응답 대기 요청 전체를 상세 패널·--json 에 보인다 (AITOP_SHOW_REQUESTS=1). 비밀값 가림은 최선일 뿐이라 명령 속 비밀값이 보일 수 있다
   aitop --theme light|dark  밝은 배경 / 어두운 배경 색 (없으면 COLORFGBG 로 고른다)
   aitop --version  설치된 버전을 보인다
@@ -21,8 +25,14 @@ const KNOWN = new Set(['-h', '--help', '-v', '--version', '--once', '--all', '--
 const THEMES = ['light', 'dark'];
 const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
+// --notify, --on-waiting 은 notifyOptions 한 곳에서 해석한다.
+const alerts = notifyOptions(process.argv.slice(2));
+if (alerts.error) {
+  process.stderr.write(`aitop: ${alerts.error}\n`);
+  process.exit(2);
+}
 // --theme light, --theme=light 처럼 값을 받는 옵션은 따로 꺼낸다.
-const argv = process.argv.slice(2);
+const argv = alerts.rest;
 let theme = null;
 const rest = [];
 for (let i = 0; i < argv.length; i++) {
@@ -64,6 +74,11 @@ const printAndExit = async (text) => {
   process.exit(0);
 };
 
+// 알림은 실시간 화면에서만 동작한다.
+if ((alerts.notify || alerts.onWaiting) && (args.has('--once') || args.has('--json') || args.has('--doctor') || !process.stdout.isTTY)) {
+  process.stderr.write('aitop: --notify, --on-waiting 은 실시간 화면에서만 동작한다 (--once·--json·--doctor·파이프 출력에서는 무시)\n');
+}
+
 const { checkTools, doctorText, toolsJson } = await import('../src/doctor.mjs');
 if (args.has('--doctor')) {
   const result = checkTools();
@@ -76,7 +91,8 @@ const { arrange } = await import('../src/order.mjs');
 const { frameTimer } = await import('../src/frames.mjs');
 const { flushCache } = await import('../src/cache.mjs');
 const { toJson } = await import('../src/json.mjs');
-const { createAttention, updateAttention, markSeen, nextAttention, windowTitle, newlyWaiting, attentionCounts } = await import('../src/attention.mjs');
+const { createAttention, updateAttention, markSeen, nextAttention, windowTitle, createWaitWatch, takeNewlyWaiting, attentionCounts } = await import('../src/attention.mjs');
+const { createNotifier } = await import('../src/notify.mjs');
 const { onKey, fixFocus } = await import('../src/keys.mjs');
 
 // 요청 전체 보기는 기본으로 꺼 둔다. 켜지 않으면 상세 패널에도 --json 에도 나가지 않는다.
@@ -93,9 +109,10 @@ const LOADING_FLUSH_MS = 3000;
 
 const attention = createAttention();
 let tools = null;
-// --bell: 첫 갱신에서 이미 응답 대기인 세션에는 울리지 않는다.
-const waitingSeen = new Set();
-let bellReady = false;
+// --bell · --notify · --on-waiting: 실시간 화면에서만, 첫 갱신에서 이미 응답 대기인 세션은 알리지 않는다.
+const bell = args.has('--bell');
+const waitWatch = createWaitWatch();
+const notifier = !once && (alerts.notify || alerts.onWaiting) ? createNotifier(alerts) : null;
 
 function refresh() {
   const data = collect({ showEnded: view.showEnded, selectedId: view.selectedId, budgetBytes: once ? Infinity : TICK_BUDGET, budgetMs: once ? Infinity : TICK_MS });
@@ -110,9 +127,10 @@ function refresh() {
   if (!tools || Date.now() - tools.at > 30_000) tools = { at: Date.now(), result: checkTools() };
   data.tools = tools.result;
   view.data = data;
-  if (!once && args.has('--bell')) {
-    if (newlyWaiting(waitingSeen, data.sessions) && bellReady) process.stdout.write('\x07');
-    bellReady = true;
+  if (!once && (bell || notifier)) {
+    const fresh = takeNewlyWaiting(waitWatch, data.sessions);
+    if (fresh.length && bell) process.stdout.write('\x07');
+    notifier?.fire(fresh);
   }
   if (view.filter) keepSelectionVisible();
   fixFocus(view);
@@ -181,6 +199,7 @@ function leaveScreen() {
 }
 
 function quit() {
+  notifier?.killAll();
   leaveScreen();
   flushCache();
   process.exit(0);
@@ -190,11 +209,14 @@ enterScreen();
 draw();
 process.on('SIGINT', quit);
 process.on('SIGTERM', quit);
+process.on('SIGHUP', quit);
+process.on('SIGQUIT', quit);
 process.on('SIGCONT', () => {
   enterScreen();
   draw();
 });
 process.on('uncaughtException', (err) => {
+  notifier?.killAll();
   leaveScreen();
   try {
     flushCache();

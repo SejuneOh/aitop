@@ -43,11 +43,28 @@ export function windowTitle(sessions, icon = '') {
   return (icon ? icon + ' ' : '') + (marks.length ? `(${marks.join(' ')}) aitop` : 'aitop');
 }
 
-// 벨: 새로 응답 대기가 된 세션이 있을 때만 true. seen 은 지난번 응답 대기 세션 id 집합이며 여기서 갱신한다.
-export function newlyWaiting(seen, sessions) {
-  const now = new Set(sessions.filter((s) => s.live && s.status === 'waiting').map((s) => s.id));
-  const fresh = [...now].some((id) => !seen.has(id));
+// 새로 응답 대기가 된 세션 목록. seen 은 지난번 응답 대기 세션 id 집합이며 여기서 갱신한다.
+export function freshWaiting(seen, sessions) {
+  const now = sessions.filter((s) => s.live && s.status === 'waiting');
+  const fresh = now.filter((s) => !seen.has(s.id));
   seen.clear();
-  for (const id of now) seen.add(id);
+  for (const s of now) seen.add(s.id);
   return fresh;
+}
+
+// 벨: 새로 응답 대기가 된 세션이 있을 때만 true.
+export function newlyWaiting(seen, sessions) {
+  return freshWaiting(seen, sessions).length > 0;
+}
+
+// --bell · --notify · --on-waiting 이 함께 쓰는 감시. 첫 갱신에서 이미 응답 대기인 세션은 알리지 않는다.
+export function createWaitWatch() {
+  return { seen: new Set(), ready: false };
+}
+
+export function takeNewlyWaiting(watch, sessions) {
+  const fresh = freshWaiting(watch.seen, sessions);
+  const ready = watch.ready;
+  watch.ready = true;
+  return ready ? fresh : [];
 }
