@@ -2,15 +2,23 @@
 import { width } from './text.mjs';
 import { BRAND } from './brand.mjs';
 import { PALETTE } from './ui/theme.mjs';
-import { line, setNow } from './ui/draw.mjs';
-import { TABLE_BOX_H, columns, emptyLines, filterSessions, header, memberRow, sessionRow, tableBox, tableHeader, toolStrip, topCost } from './ui/table.mjs';
+import { glyphMoves, line, setNow } from './ui/draw.mjs';
+import { TABLE_BOX_H, columns, emptyLines, filterSessions, groupRow, header, memberRow, sessionRow, tableBox, tableHeader, toolStrip, topCost } from './ui/table.mjs';
 import { detail } from './ui/detail.mjs';
 import { detailOpen, footer, help } from './ui/chrome.mjs';
+import { arrange } from './order.mjs';
 
 export { PALETTE, style } from './ui/theme.mjs';
 export { money } from './ui/draw.mjs';
 export { filterSessions } from './ui/table.mjs';
 export { DETAIL_MIN_H, detailOpen } from './ui/chrome.mjs';
+
+// 프레임마다 바뀌는 표시(세션 스피너·응답 대기 깜빡임, 일하는 팀원 스피너)가 화면에 있는지.
+// 표에서 가려진 세션까지 셈에 넣으므로, 실제보다 조금 더 자주 그릴 수는 있어도 덜 그리지는 않는다.
+export function animating(view) {
+  if (!view.data || view.help) return false;
+  return filterSessions(view.data.sessions, view.filter).some((s) => glyphMoves(s) || (s.members ?? []).some((m) => m.status !== 'done'));
+}
 
 export function render(view, W, H) {
   setNow(Date.now());
@@ -22,7 +30,7 @@ export function render(view, W, H) {
     return lines;
   }
   const { errors } = view.data;
-  const sessions = filterSessions(view.data.sessions, view.filter);
+  const { sessions, groups } = arrange(filterSessions(view.data.sessions, view.filter), view);
   const boxed = H >= TABLE_BOX_H && W >= 60;
   const TW = boxed ? W - 4 : W;
   const c = columns(TW);
@@ -37,10 +45,16 @@ export function render(view, W, H) {
   const table = [tableHeader(c, TW)];
 
   const rows = [];
-  for (const s of sessions) {
+  const pushSession = (s) => {
     rows.push({ s });
     s.members.forEach((m, i) => rows.push({ s, m, last: i === s.members.length - 1 }));
-  }
+  };
+  if (groups) {
+    for (const g of groups) {
+      rows.push({ g });
+      g.sessions.forEach(pushSession);
+    }
+  } else sessions.forEach(pushSession);
   const sel = sessions.find((s) => s.id === view.selectedId) ?? sessions[0];
   const open = detailOpen(view, H);
   const wantDetail = open && Boolean(sel);
@@ -56,15 +70,18 @@ export function render(view, W, H) {
   }
   const clipped = rows.length > room && room > 1;
   const shown = clipped ? room - 1 : room;
-  const selRow = Math.max(0, rows.findIndex((r) => !r.m && r.s === sel));
+  const selRow = Math.max(0, rows.findIndex((r) => r.s && !r.m && r.s === sel));
   const lastOfSel = selRow + (sel?.members.length ?? 0);
-  const start = Math.min(Math.max(0, lastOfSel - shown + 1), Math.max(0, rows.length - shown), selRow);
+  let start = Math.min(Math.max(0, lastOfSel - shown + 1), Math.max(0, rows.length - shown), selRow);
+  // 고른 세션이 묶음의 첫 행이고 자리가 남으면 그 묶음 머리도 보이게 한 줄 올린다.
+  if (start === selRow && rows[start - 1]?.g && lastOfSel - start + 2 <= shown) start--;
+  const isSession = (r) => r.s && !r.m;
   const visible = rows.slice(start, start + shown);
-  const hot = topCost(visible.filter((r) => !r.m).map((r) => r.s), view.costMode);
+  const hot = topCost(visible.filter(isSession).map((r) => r.s), view.costMode);
   if (!sessions.length) table.push(...(view.filter ? [line([{ t: `   '${view.filter}' 에 맞는 세션이 없습니다.`, fg: PALETTE.muted, italic: true }], TW)] : emptyLines(view, TW)));
-  for (const r of visible) table.push(r.m ? memberRow(r.m, r.last, c, TW, view.frame, r.s.model, view.costMode) : sessionRow(r.s, c, TW, r.s === sel, view.frame, hot, view.costMode));
+  for (const r of visible) table.push(r.g ? groupRow(r.g, TW) : r.m ? memberRow(r.m, r.last, c, TW, view.frame, r.s.model, view.costMode) : sessionRow(r.s, c, TW, r.s === sel, view.frame, hot, view.costMode));
   if (clipped) {
-    const onScreen = new Set(visible.filter((r) => !r.m).map((r) => r.s));
+    const onScreen = new Set(visible.filter(isSession).map((r) => r.s));
     const hidden = sessions.filter((s) => !onScreen.has(s));
     const waitingHidden = hidden.filter((s) => s.status === 'waiting').length;
     table.push(line([{ t: `   … +${hidden.length} 세션`, fg: PALETTE.muted }, ...(waitingHidden ? [{ t: ` (응답 대기 ${waitingHidden})`, fg: PALETTE.waiting, bold: true }] : []), { t: '  ↑↓ 로 이동', fg: PALETTE.info }], TW));

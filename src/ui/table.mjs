@@ -280,3 +280,13 @@ export function tableBox(inner, W, count) {
 
 // 이 높이 이상이면 세션 표를 상자로 감싼다 (상자 테두리에 두 줄이 든다).
 export const TABLE_BOX_H = 30;
+
+// 묶기(g) 화면의 묶음 머리 한 줄: 이름 · 세션 수 · 묶음 비용. 세션 행보다 한 단계 흐리게 둔다.
+export function groupRow(g, W) {
+  return line([
+    { t: '  ▾ ', fg: PALETTE.info },
+    { t: g.name, fg: PALETTE.muted, bold: true },
+    { t: `  ${g.count}개`, fg: PALETTE.info },
+    ...(g.cost > 0 || g.unknown ? [{ t: ' · ', fg: PALETTE.info }, { t: money(g.cost, g.unknown), fg: PALETTE.muted }] : []),
+  ], W);
+}

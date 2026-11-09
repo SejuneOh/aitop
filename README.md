@@ -54,9 +54,32 @@ aitop --json     세션 목록과 오늘·7일 사용량을 JSON 으로 한 번 
                  0.6.1 부터 비용(cost 등)은 소수 넷째 자리까지 반올림
 aitop --version  설치된 버전
 aitop --doctor   도구별 연결 점검 (기록 폴더, 기록 수, 마지막 기록, 실행 수). --json 과 함께 가능
-aitop --theme light|dark  밝은 배경 / 어두운 배경 색. 없으면 AITOP_THEME 환경변수, 그다음 COLORFGBG 로 고르고, 모르면 어두운 배경
+aitop --theme light|dark  밝은 배경 / 어두운 배경 색. 없으면 AITOP_THEME 환경변수, 설정 파일의 theme, 그다음 COLORFGBG 로 고르고, 모르면 어두운 배경
 aitop --show-requests  응답 대기 요청 전체(명령·경로)를 상세 패널과 --json(waitDetail)에 보인다. AITOP_SHOW_REQUESTS=1 과 같다
+aitop --no-bell · --no-all · --no-show-requests · --no-notify · --no-on-waiting  설정 파일에서 켠 값을 이번 실행만 끈다
+aitop --print-config   설정 값마다 값과 출처(flag/env/file/default), 설정 파일 위치를 보인다. --json 과 함께 가능
 ```
+
+### 설정 파일
+
+`$XDG_CONFIG_HOME/aitop/config.json` (없으면 `~/.config/aitop/config.json`). 옵션 > 환경 변수 > 설정 파일 > 기본값 순서로 정한다.
+
+```json
+{ "theme": "light", "icons": "plain", "bell": true, "showRequests": false, "all": false }
+```
+
+| 키 | 값 | 같은 옵션·환경 변수 |
+|---|---|---|
+| `theme` | `light` · `dark` | `--theme`, `AITOP_THEME` |
+| `icons` | `plain` · `ascii` | `AITOP_ICONS` |
+| `bell` | true · false | `--bell` · `--no-bell` |
+| `showRequests` | true · false | `--show-requests` · `--no-show-requests`, `AITOP_SHOW_REQUESTS=1`·`0` |
+| `all` | true · false | `--all` · `--no-all` |
+| `notify` | true · false | `--notify` · `--no-notify` |
+| `onWaiting` | 명령 문자열 | `--on-waiting` · `--no-on-waiting` |
+| `budgetDay` | 0 보다 큰 수 | 이후 기능용 (값 검사만 한다) |
+
+잘못된 JSON, 모르는 키, 잘못된 값은 그 키만 무시하고 `aitop --doctor` 에 알린다. `showRequests` 는 설정 파일로도 켤 수 있다 (내 파일이라 권한 검사는 하지 않는다). 켜면 위의 `--show-requests` 주의가 그대로 적용된다. `onWaiting` 은 파일 소유자가 나이고 그룹·다른 사용자가 쓸 수 없을 때(예: `chmod 600`)만 받는다.
 
 `--show-requests` 는 기본으로 꺼져 있다. 비밀값 가림은 최선일 뿐이라, 켜면 명령 속 비밀값이 그대로 보일 수 있다. 가림을 거친 요청 내용은 옵션과 관계없이 로컬 캐시(`~/.cache/aitop`)에 저장된다.
 
@@ -66,6 +89,25 @@ aitop --show-requests  응답 대기 요청 전체(명령·경로)를 상세 패
 색 없이도(NO_COLOR) 보이도록 비용 상위 두 세션에는 `▲`, 컨텍스트 85% 이상에는 `!` 가 붙는다.
 
 실시간 화면은 창(탭) 제목을 `󰚩 (2◆ 1●) aitop` 처럼 아이콘과 응답 대기·확인 전 수로 바꾼다. `--bell` 을 주면 응답 대기가 새로 생길 때 벨을 한 번 울린다.
+
+다른 창에서 일할 때는 알림을 켤 수 있다 (둘 다 기본으로 꺼져 있고, 실시간 화면에서만 동작한다. `--bell` 처럼 aitop 을 켰을 때 이미 응답 대기인 세션은 알리지 않는다).
+
+```
+aitop --notify                     데스크톱 알림. Linux 는 notify-send, macOS 는 osascript. 없으면 조용히 건너뛴다 (--doctor 에 보임)
+aitop --on-waiting 'my-hook.sh'    응답 대기가 새로 생길 때마다 /bin/sh -c 로 명령 실행 (--on-waiting=<명령> 도 됨)
+```
+
+`--on-waiting` 명령은 **aitop 을 실행한 사용자 권한 그대로** 돈다. 세션 정보는 명령 문자열에 끼워 넣지 않고 환경변수로만 넘긴다 (명령 안에서 쓸 때는 `"$AITOP_PROJECT"` 처럼 따옴표로 감싼다).
+
+| 환경변수 | 값 |
+|---|---|
+| `AITOP_TOOL` | claude · codex · agy 등 |
+| `AITOP_PROJECT` | 프로젝트 이름 |
+| `AITOP_SESSION_ID` | 세션 id |
+| `AITOP_CWD` | 작업 폴더 |
+| `AITOP_WAITING_FOR` | 짧은 대기 사유 (예: `Bash`, 비밀값처럼 보이는 것은 가림) |
+
+출력은 버리고, 10초가 지나면 명령(과 그 자식)을 끝낸다. 한 번에 하나만 실행하며, 실행 중에 새 대기가 생기면 가장 최근 것 하나만 기다렸다가 이어서 실행한다 (그 사이 것은 건너뜀). 그래서 여러 세션이 한꺼번에 응답 대기가 되면, 지금 명령이 끝난 뒤 그중 가장 최근 하나만 실행된다. aitop 을 끝내면 실행 중인 명령도 함께 끝낸다. 한 번 갱신에서 여러 세션이 함께 응답 대기가 되면 첫 세션과 마지막 세션만 실행되고 그 사이 세션은 건너뛴다. 명령이 자식을 백그라운드로 띄우고(`cmd &`) 먼저 끝나면, 그 자식은 10초 제한과 종료 정리 밖에 남으므로 정리는 명령이 맡는다. WSL 에서 notify-send 가 없으면 Windows 알림을 대신 띄우지 않는다. 필요하면 `--on-waiting` 으로 직접 부른다.
 
 ### 로고와 탭 아이콘
 
