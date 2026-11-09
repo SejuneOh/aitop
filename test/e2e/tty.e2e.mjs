@@ -4,7 +4,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { mkdtempSync, existsSync, readFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { BIN, makeSession } from './session.mjs';
+import { assistant, user, usage } from '../fixture.mjs';
 
 const hasScript = spawnSync('script', ['--version'], { encoding: 'utf8' }).stdout?.includes('util-linux');
 
@@ -65,5 +69,43 @@ test('f → ←/→ → Enter → Esc 로 오가고, Esc 로는 끝나지 않고
     assert.ok(out.indexOf('\x1b[22;0t') < out.lastIndexOf('\x1b[23;0t'), '시작할 때 저장한 창 제목을 끝낼 때 되돌린다');
   } finally {
     if (child.exitCode == null) child.kill('SIGKILL');
+  }
+});
+
+// --on-waiting: 처음부터 응답 대기인 세션에는 실행하지 않고, 실행 중 새로 응답 대기가 된 세션에만 실행한다.
+test('--on-waiting 은 새로 응답 대기가 된 세션에만 환경변수로 정보를 넘겨 명령을 실행한다', { skip: !hasScript && 'util-linux script 없음', timeout: 60_000 }, async () => {
+  const fx = makeSession();
+  const dir = mkdtempSync(join(tmpdir(), 'aitop-hook-'));
+  const log = join(dir, 'hook.log');
+  // 두 번째 세션은 다른 살아 있는 pid 가 필요하다.
+  const other = spawn('sleep', ['60'], { stdio: 'ignore' });
+  const wait = (id, name, pid) => {
+    fx.session({ sessionId: id, pid, name, status: 'waiting', waitingFor: 'approve Bash', cwd: '/work/demo' });
+    fx.transcript(id, [user('해줘'), assistant(id, [{ type: 'tool_use', id: 'b1', name: 'Bash', input: { command: 'ls' } }], usage(10, 5))]);
+  };
+  wait('e2eold00-1', '처음부터 대기', process.pid);
+  const cmd = 'stty cols 140 rows 45; exec "$AITOP_NODE" "$AITOP_BIN" --on-waiting "$AITOP_HOOK"';
+  const hook = `printf '%s|%s|%s\\n' "$AITOP_TOOL" "$AITOP_SESSION_ID" "$AITOP_WAITING_FOR" >> hook.log`;
+  // 훅은 aitop 의 작업 폴더(dir)에서 돈다. 세션 id 속 $(touch pwned) 가 실행되면 dir/pwned 가 생긴다.
+  const child = spawn('script', ['-qfec', cmd, '/dev/null'], { cwd: dir, env: { ...process.env, AITOP_NODE: process.execPath, AITOP_BIN: BIN, AITOP_HOOK: hook } });
+  let out = '';
+  child.stdout.setEncoding('utf8');
+  child.stdout.on('data', (d) => (out += d));
+  try {
+    const end = Date.now() + WAIT_MS;
+    while (!out.includes('처음부터 대기') && Date.now() < end) await sleep(50);
+    await sleep(1_500);
+    const evil = 'e2enew00-$(touch pwned)';
+    wait(evil, '새 대기', other.pid);
+    const until = Date.now() + WAIT_MS;
+    while (!(existsSync(log) && readFileSync(log, 'utf8').includes('e2enew00')) && Date.now() < until) await sleep(100);
+    await sleep(500);
+    const lines = existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n') : [];
+    assert.deepEqual(lines, [`claude|${evil}|approve Bash`], '새 대기 세션에만 한 번 실행된다');
+    assert.equal(existsSync(join(dir, 'pwned')), false, '세션 값이 명령으로 실행되지 않는다');
+  } finally {
+    if (child.exitCode == null) child.kill('SIGKILL');
+    other.kill('SIGKILL');
+    rmSync(dir, { recursive: true, force: true });
   }
 });
