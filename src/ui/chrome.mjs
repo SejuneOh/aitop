@@ -2,6 +2,7 @@
 import { pad, width } from '../text.mjs';
 import { NO_COLOR, PALETTE } from './theme.mjs';
 import { box, line, segsWidth } from './draw.mjs';
+import { GROUP_LABEL, SORT_LABEL } from '../order.mjs';
 
 // 상세 패널을 기본으로 여는 최소 화면 높이. 이보다 낮으면 세션 표에 줄을 준다.
 export const DETAIL_MIN_H = 24;
@@ -16,6 +17,8 @@ export const HELP = [
   ['/', '세션 검색 (이름·폴더·모델). Enter 적용, Esc 지우기'],
   ['↑↓ j k', '세션 선택'],
   ['n', '다음 볼 세션으로 이동 (응답 대기 → 완료 · 확인 전)'],
+  ['s', '정렬 바꾸기: 기본 → 비용순 → 컨텍스트순 → 최근순. 응답 대기는 늘 맨 위'],
+  ['g', '묶기 바꾸기: 없음 → 프로젝트 → 도구. 묶음 머리에 세션 수·비용, 응답 대기는 맨 위 묶음'],
   ['f Tab', '변경 파일 목록으로. ←→ 지시 탭, ↑↓ 고르기, Enter diff, [ ] 이전·다음 파일, space 페이지'],
   ['d', '상세 패널 열기·닫기'],
   ['e', '종료된 세션(24시간) 보이기·숨기기'],
@@ -65,6 +68,17 @@ export function hintBar(items, W, right = '') {
   return line(segs, W);
 }
 
+// 정렬·묶기가 기본이 아닐 때만 지금 상태를 짧게 보인다 (예: s:비용 g:프로젝트). 표 순서를 읽는 데 필요하므로 d·e·c 안내보다 늦게 빠진다.
+function orderHint(view) {
+  const parts = [
+    ...(view.sort && view.sort !== 'default' ? [['s', SORT_LABEL[view.sort]]] : []),
+    ...(view.group && view.group !== 'none' ? [['g', GROUP_LABEL[view.group]]] : []),
+  ];
+  if (!parts.length) return null;
+  const segs = parts.flatMap(([k, t], i) => [{ t: i ? ' ' : '', fg: PALETTE.info }, { t: k, fg: PALETTE.muted, bold: true }, { t: `:${t}`, fg: PALETTE.info }]);
+  return { segs: [...segs, { t: '   ' }] };
+}
+
 export function footer(view, W, matched, sel) {
   const tail = [
     { k: '?', t: '도움', keep: true },
@@ -83,6 +97,7 @@ export function footer(view, W, matched, sel) {
   }
   // 세션이 하나도 없으면 쓸 수 있는 키만 남긴다.
   if (!view.filter && !view.data?.sessions?.length) return hintBar([{ k: 'e', t: view.showEnded ? '종료 숨김' : '종료 포함' }, ...tail], W, '⊘ 읽기전용');
+  const order = orderHint(view);
   const search = view.filter
     ? { segs: [{ t: ` /${view.filter} `, fg: PALETTE.chipText, bg: PALETTE.brand, bold: true }, { t: ` ${matched}개 `, fg: PALETTE.muted }, keyChip('Esc'), keyLabel('검색 지우기')], keep: true }
     : { k: '/', t: '검색' };
@@ -90,6 +105,7 @@ export function footer(view, W, matched, sel) {
     search,
     { k: '↑↓', t: '선택' },
     { k: 'n', t: '다음' },
+    ...(order ? [order] : []),
     ...(sel?.files?.length ? [{ k: 'f', t: '파일' }] : []),
     { k: 'd', t: view.showDetail ? '상세 닫기' : '상세 열기' },
     { k: 'e', t: view.showEnded ? '종료 숨김' : '종료 포함' },

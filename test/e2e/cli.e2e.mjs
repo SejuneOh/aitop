@@ -55,5 +55,5 @@ test('요청 전체 보기는 기본으로 꺼져 있고 --show-requests 로 켠
 });
 
 test('--help 는 키 안내를 보이고 0 으로 끝난다', () => {
-  assert.match(run('--help'), /키: .*f 변경 파일.*Esc 뒤로.*q 나가기/);
+  assert.match(run('--help'), /키: .*s 정렬 · g 묶기.*f 변경 파일.*Esc 뒤로.*q 나가기/);
 });
