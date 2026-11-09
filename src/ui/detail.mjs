@@ -51,7 +51,7 @@ export function fileRow(f, cwd, w, selected) {
 // 변경 조각을 고친 순서의 역순(최신 먼저)으로, 조각마다 시각 · 누가 · 위치 머리를 달아 보인다.
 // 같은 파일을 여러 번 고치면 줄 번호 기준이 매번 달라져 하나의 diff 로 합칠 수 없다.
 export function diffBody(f, w) {
-  if (f.hidden) return [[INDENT, { t: '비밀값이 있을 수 있는 파일이라 변경 내용을 숨겼습니다', fg: PALETTE.waiting, italic: true }]];
+  if (f.hidden) return [[INDENT, { t: '비밀값이 있을 수 있는 파일이라 변경 내용을 숨겼습니다', fg: PALETTE.info, italic: true }]];
   if (!f.hunks.length) return [[INDENT, { t: f.deleted ? '이 파일을 삭제했습니다' : '보관된 변경 내용이 없습니다', fg: PALETTE.info, italic: true }]];
   const nums = w >= 50;
   const textW = w - 1 - (nums ? 5 : 0);
@@ -290,7 +290,7 @@ export function detail(s, W, H, frame, view) {
   if (s.cost != null) {
     const net = view?.costMode === 'net';
     L.push([INDENT, { t: pad(net ? '캐시제외' : 'API 환산', 9), fg: PALETTE.muted }, { t: money(net ? s.costNoCache : s.cost, s.costUnknown), fg: PALETTE.money, bold: true }]);
-    more([{ t: net ? `API 환산 ${money(s.cost, s.costUnknown)}` : `캐시 제외 ${money(s.costNoCache, s.costUnknown)}`, fg: PALETTE.info }, ...(s.costUnknown ? [{ t: '  ? 가격표에 없는 모델 포함', fg: PALETTE.waiting }] : [])]);
+    more([{ t: net ? `API 환산 ${money(s.cost, s.costUnknown)}` : `캐시 제외 ${money(s.costNoCache, s.costUnknown)}`, fg: PALETTE.info }, ...(s.costUnknown ? [{ t: '  ? 가격표에 없는 모델 포함', fg: PALETTE.info }] : [])]);
   }
   if (s.context?.window) {
     L.push([INDENT, { t: pad('컨텍스트', 9), fg: PALETTE.muted }, { t: pad(`${fmtTokens(s.context.used)}/${fmtTokens(s.context.window)}`, 11) + ' ', fg: PALETTE.text }, ...gauge(s.context.used, s.context.window, Math.max(4, leftW - width(INDENT.t) - 26))]);

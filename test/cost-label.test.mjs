@@ -1,9 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { render } from '../src/ui.mjs';
+import { PALETTE, hex } from '../src/ui/theme.mjs';
 
 const strip = (x) => x.replace(/\x1b\[[0-9;]*m/g, '');
-const MONEY = '38;2;252;211;77';
+const MONEY = `38;2;${hex(PALETTE.money)}`;
 const at = Date.now();
 const sess = (id, extra = {}) => ({ tool: 'claude', id, name: id, cwd: '/w', status: 'idle', live: true, phase: { kind: 'idle', text: '다음 지시 대기' }, updatedAt: at, tokens: { total: 1000 }, cost: 1, context: {}, members: [], events: [], ...extra });
 const usage = { today: { cost: 52.1, tokens: 1e8 }, week: { cost: 644, tokens: 1e9 }, loading: null };

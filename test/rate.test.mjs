@@ -94,3 +94,13 @@ test('폭이 모자라면 지출 속도를 가장 먼저 빼고, 40~160 칸 어�
   }
   assert.doesNotMatch(head(u, 80), /\/h\)/);
 });
+
+test('아는 1시간 비용이 0 인데 모르는 모델이 섞였으면 (?/h) 를 보인다', () => {
+  for (const cost of [0, 0.001]) {
+    const line = head(usageOf({ cost, costNoCache: cost, unknown: true }), 160);
+    assert.match(line, /오늘 \$194 \(\?\/h\)/, `cost=${cost}`);
+    assert.doesNotMatch(line, /\$0\.00\?/);
+  }
+  assert.match(head(usageOf({ cost: 2, costNoCache: 1, unknown: true }), 160), /\(\$2\.00\?\/h\)/, '아는 몫이 있으면 금액 뒤에 ?');
+  assert.doesNotMatch(head(usageOf({ cost: 0, costNoCache: 0, unknown: true }, 0.5), 160), /\/h\)/, '집계 중이면 숨긴다');
+});

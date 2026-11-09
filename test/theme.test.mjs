@@ -33,6 +33,20 @@ const contrast = (a, b) => {
 const TERMINAL = { dark: ['#0c0c0c', '#000000'], light: ['#ffffff'] };
 const INFO = ['text', 'muted', 'info', 'idle', 'ended', 'busy', 'waiting', 'tool', 'team', 'alert', 'money', 'brand'];
 
+// HSV 색상각(0~360). 두 색이 같은 색 계열인지 보는 데 쓴다.
+const hue = (h) => {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
+  const mx = Math.max(r, g, b);
+  const d = mx - Math.min(r, g, b);
+  if (!d) return 0;
+  const x = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return (x * 60 + 360) % 360;
+};
+const hueGap = (a, b) => {
+  const d = Math.abs(hue(a) - hue(b));
+  return Math.min(d, 360 - d);
+};
+
 for (const [name, P] of Object.entries(PALETTES)) {
   test(`${name}: 정보를 담은 글자색은 모든 배경에서 4.5:1 이상이다`, () => {
     const bgs = [...TERMINAL[name], P.rowSel, P.rowFocus, P.rowWaiting, P.bar];
@@ -47,6 +61,12 @@ for (const [name, P] of Object.entries(PALETTES)) {
       assert.ok(contrast(P.muted, bg) / contrast(P.info, bg) >= 1.3, `muted/info on ${bg}`);
     }
     assert.equal(P.ended, P.info, '종료 행은 info 단계');
+  });
+
+  test(`${name}: 대기 색은 사람이 응답할 때만 쓰므로 다른 색과 겹치지 않고, 돈 색과는 색 계열이 다르다`, () => {
+    for (const [k, c] of [...Object.entries(P).filter(([k, c]) => typeof c === 'string' && k !== 'waiting'), ...Object.entries(P.tools)]) assert.notEqual(c, P.waiting, k);
+    assert.ok(hueGap(P.money, P.waiting) >= 35, `money ${P.money} vs waiting ${P.waiting}: ${hueGap(P.money, P.waiting).toFixed(0)}°`);
+    assert.ok(hueGap(P.money, P.busy) >= 35, `money ${P.money} vs busy ${P.busy}`);
   });
 }
 
