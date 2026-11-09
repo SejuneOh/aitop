@@ -13,6 +13,7 @@ const root = realpathSync(mkdtempSync(join(tmpdir(), 'aitop-agy-')));
 process.env.AITOP_AGY_HOME = root;
 process.env.XDG_CACHE_HOME = join(root, 'cache');
 process.env.CLAUDE_CONFIG_DIR = join(root, 'claude-empty');
+process.env.CODEX_HOME = join(root, 'codex-missing');
 mkdirSync(join(root, 'conversations'));
 mkdirSync(join(root, 'presence'));
 

@@ -1,5 +1,5 @@
 // 날짜별 사용량 장부: 최근 7일 안에 바뀐 Claude 기록(서브에이전트 포함)에서 사용량만 날짜별로 모은다.
-// Antigravity CLI(agy) 사용량은 agy-ledger.mjs 가 같은 모양으로 모으고, 여기서 함께 더한다.
+// Antigravity CLI(agy)·Codex CLI 사용량은 agy-ledger.mjs·codex-ledger.mjs 가 같은 모양으로 모으고, 여기서 함께 더한다.
 // 세션 화면과 상관없이 끝난 세션까지 세야 해서, 세션 tracker 와 따로 가볍게 읽고 캐시도 따로 둔다.
 import { readdirSync, statSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -9,6 +9,7 @@ import { loadCache, markDirty } from '../cache.mjs';
 import { claudeCost } from '../pricing.mjs';
 import { dayKey, lastDays, addSlot, lastHourOf } from './common.mjs';
 import { collectAgyLedger } from './agy-ledger.mjs';
+import { collectCodexLedger } from './codex-ledger.mjs';
 
 export { dayKey };
 
@@ -122,7 +123,7 @@ function recentFiles() {
 
 const trackers = new Map();
 
-// 오늘·최근 7일·최근 1시간 합계 (Claude + agy). 아직 다 읽지 못했으면 loading 에 진행률(0~1).
+// 오늘·최근 7일·최근 1시간 합계 (Claude + agy + Codex). 아직 다 읽지 못했으면 loading 에 진행률(0~1).
 export function collectLedger({ budget, now = Date.now() } = {}) {
   const files = recentFiles();
   const keep = new Set(files);
@@ -136,11 +137,15 @@ export function collectLedger({ budget, now = Date.now() } = {}) {
     pending += t.pending;
     size += t.tail.size;
   }
-  const agy = collectAgyLedger({ budget, now });
-  pending += agy.pending;
-  size += agy.size;
-  const books = [...[...trackers.values()].map((t) => t.days), ...agy.days];
-  const slots = [...[...trackers.values()].map((t) => t.slots), ...agy.slots];
+  const others = [collectAgyLedger({ budget, now }), collectCodexLedger({ budget })];
+  const books = [...trackers.values()].map((t) => t.days);
+  const slots = [...trackers.values()].map((t) => t.slots);
+  for (const o of others) {
+    pending += o.pending;
+    size += o.size;
+    books.push(...o.days);
+    slots.push(...o.slots);
+  }
   const sum = (keys) => {
     const out = { tokens: 0, cost: 0, costNoCache: 0, unknown: false };
     for (const days of books)
