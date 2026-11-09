@@ -1,10 +1,10 @@
 // Codex CLI: 실행 중인 codex 프로세스의 작업 폴더와 ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl 을 짝지어 읽는다.
-import { readdirSync, statSync, existsSync } from 'node:fs';
+import { readdirSync, statSync, existsSync, realpathSync, openSync, readSync, closeSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { JsonlTail } from '../tail.mjs';
 import { loadCache, markDirty } from '../cache.mjs';
-import { findProcesses, isCodex } from '../procs.mjs';
+import { findProcesses, isCodex, openFiles, processStart } from '../procs.mjs';
 import { emptyTokens, pushEvent, describeTool, isNoisePrompt } from './common.mjs';
 import { addChange, mergeFiles } from './files.mjs';
 import { codexCost } from '../pricing.mjs';
@@ -18,10 +18,10 @@ const RECENT_MS = 24 * 3600 * 1000;
 
 const states = new Map();
 
-function dayDirs() {
+function dayDirs(days = 7) {
   const dirs = [];
   // 며칠 동안 켜 둔 세션도 시작한 날짜 폴더에 기록하므로 일주일치 폴더를 본다.
-  for (let back = 0; back < 7; back++) {
+  for (let back = 0; back < days; back++) {
     const d = new Date(Date.now() - back * 86400_000);
     const p = join(ROOT, String(d.getFullYear()), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0'));
     if (existsSync(p)) dirs.push(p);
@@ -50,6 +50,99 @@ function recentFiles() {
     if (Date.now() - m < RECENT_MS) out.push({ path: p, mtime: m });
   }
   return out.sort((a, b) => b.mtime - a.mtime);
+}
+
+// 하루 넘게 쉰 세션은 최근 파일 목록에 없다. 짝을 못 찾은 codex 프로세스에만 같은 작업 폴더에서 가장 최근에
+// 바뀐 파일을 30일치 폴더에서 찾되, 프로세스가 시작한 뒤에 쓰인 파일만 받는다. 그래야 첫 입력 전인 새 codex 에
+// 지난 세션이 붙지 않는다. 시작 시각을 모르면 찾지 않는다.
+// 찾은 파일은 pid 별로 기억한다. 못 찾았으면 날짜 폴더가 바뀔 때(새 파일·새 폴더)까지만 다시 찾지 않는다.
+const OLD_DAYS = 30;
+const HEAD_BYTES = 256 * 1024;
+const cwdByPath = new Map();
+const foundByPid = new Map();
+let headBuf = null;
+
+// session_meta 첫 줄은 지침 글 때문에 길 수 있어 JSON 전체 대신 앞부분의 cwd 만 찾는다.
+function headCwd(path) {
+  if (cwdByPath.has(path)) return cwdByPath.get(path);
+  let cwd = null;
+  try {
+    const fd = openSync(path, 'r');
+    try {
+      headBuf ??= Buffer.alloc(HEAD_BYTES);
+      const m = /"cwd":("(?:[^"\\]|\\.)*")/.exec(headBuf.toString('utf8', 0, readSync(fd, headBuf, 0, HEAD_BYTES, 0)));
+      if (m) cwd = JSON.parse(m[1]);
+    } finally {
+      closeSync(fd);
+    }
+  } catch {}
+  cwdByPath.set(path, cwd);
+  return cwd;
+}
+
+let realRoot = null;
+
+function isRollout(p) {
+  if (realRoot === null) {
+    try {
+      realRoot = realpathSync(ROOT);
+    } catch {}
+  }
+  return (p.startsWith(ROOT + '/') || (realRoot !== null && p.startsWith(realRoot + '/'))) && /\/rollout-[^/]*\.jsonl$/.test(p);
+}
+
+// 날짜 폴더에 파일이 생기면 그 폴더의 수정 시각이 바뀐다.
+function foldersSignature(dirs) {
+  return dirs
+    .map((d) => {
+      try {
+        return d + ':' + statSync(d).mtimeMs;
+      } catch {
+        return d;
+      }
+    })
+    .join('|');
+}
+
+function latestFor(dirs, cwd, since, taken) {
+  let best = null;
+  const listed = new Set();
+  for (const dir of dirs) {
+    let names;
+    try {
+      names = readdirSync(dir);
+    } catch {
+      continue;
+    }
+    for (const n of names) {
+      const p = join(dir, n);
+      if (!n.endsWith('.jsonl')) continue;
+      listed.add(p);
+      if (taken.has(p)) continue;
+      let m;
+      try {
+        m = statSync(p).mtimeMs;
+      } catch {
+        continue;
+      }
+      if (m >= since && (!best || m > best.mtime) && headCwd(p) === cwd) best = { path: p, mtime: m };
+    }
+  }
+  for (const p of cwdByPath.keys()) if (!listed.has(p)) cwdByPath.delete(p);
+  return best?.path ?? null;
+}
+
+function searchByCwd(pid, cwd, taken, startOf) {
+  const memo = foundByPid.get(pid);
+  if (memo?.path) return taken.has(memo.path) ? null : memo.path;
+  const dirs = dayDirs(OLD_DAYS);
+  const sig = foldersSignature(dirs);
+  if (memo && memo.sig === sig) return null;
+  const since = startOf(pid);
+  if (since === null) return null;
+  const path = latestFor(dirs, cwd, since, taken);
+  foundByPid.set(pid, { path, sig });
+  return path;
 }
 
 const SAVED = ['id', 'cwd', 'branch', 'model', 'busy', 'tokens', 'context', 'window', 'events', 'lastTool', 'startedAt', 'lastKind', 'files', 'turns', 'turnCount'];
@@ -163,28 +256,64 @@ function applyLine(st, x) {
 
 export const _test = { newState, applyLine, phaseOf, snapshot };
 
-export function collectCodex({ showEnded, budget }) {
+export function collectCodex({ showEnded, budget, filesOf = openFiles, startOf = processStart }) {
   const procs = findProcesses(isCodex);
   if (!procs.length && !showEnded) return [];
 
   const files = recentFiles();
-  const seen = new Set(files.map((f) => f.path));
-  for (const path of states.keys()) if (!seen.has(path)) states.delete(path);
-  for (const f of files) {
-    let st = states.get(f.path);
-    if (!st) states.set(f.path, (st = newState(f.path)));
-    if (st.tail.read((x) => applyLine(st, x), budget)) markDirty(f.path, () => snapshot(st));
+  const read = (path) => {
+    let st = states.get(path);
+    if (!st) states.set(path, (st = newState(path)));
+    if (st.tail.read((x) => applyLine(st, x), budget)) markDirty(path, () => snapshot(st));
+  };
+  for (const f of files) read(f.path);
+
+  const liveByPath = new Map();
+  const claim = (path, pid) => {
+    if (!files.some((f) => f.path === path)) {
+      try {
+        files.push({ path, mtime: statSync(path).mtimeMs });
+      } catch {
+        return false;
+      }
+    }
+    read(path);
+    liveByPath.set(path, pid);
+    return true;
+  };
+
+  // 프로세스가 열어 둔 rollout 파일(Linux)이 가장 정확하므로 먼저 짝짓는다.
+  const rest = [];
+  for (const p of procs) {
+    const opened = filesOf(p.pid)?.find((f) => isRollout(f) && !liveByPath.has(f));
+    if (!opened || !claim(opened, p.pid)) rest.push(p);
   }
 
-  // 같은 폴더에서 돌고 있는 codex 프로세스 수만큼, 가장 최근에 바뀐 세션 파일을 '실행 중'으로 본다.
-  const liveByPath = new Map();
+  // 남은 프로세스는 같은 폴더에서 돌고 있는 수만큼, 가장 최근에 바뀐 세션 파일을 '실행 중'으로 본다.
+  // 시작 시각을 아는 프로세스에는 시작한 뒤에 쓰인 파일만 준다. 새 codex 에 방금 끝난 세션이 붙지 않게 한다.
   const slots = new Map();
-  for (const p of procs) slots.set(p.cwd, [...(slots.get(p.cwd) ?? []), p.pid]);
+  for (const p of rest) slots.set(p.cwd, [...(slots.get(p.cwd) ?? []), p.pid]);
   for (const f of files) {
-    const st = states.get(f.path);
-    const free = slots.get(st.cwd);
-    if (free?.length) liveByPath.set(f.path, free.shift());
+    if (liveByPath.has(f.path)) continue;
+    const free = slots.get(states.get(f.path).cwd);
+    const i = free?.findIndex((pid) => {
+      const since = startOf(pid);
+      return since === null || f.mtime >= since;
+    }) ?? -1;
+    if (i >= 0) liveByPath.set(f.path, free.splice(i, 1)[0]);
   }
+
+  const alive = new Set(procs.map((p) => p.pid));
+  for (const pid of foundByPid.keys()) if (!alive.has(pid)) foundByPid.delete(pid);
+  for (const [cwd, pids] of slots) {
+    for (const pid of [...pids]) {
+      const path = searchByCwd(pid, cwd, liveByPath, startOf);
+      if (path && claim(path, pid)) pids.splice(pids.indexOf(pid), 1);
+    }
+  }
+
+  const seen = new Set(files.map((f) => f.path));
+  for (const path of states.keys()) if (!seen.has(path)) states.delete(path);
 
   const out = [];
   for (const f of files) {
