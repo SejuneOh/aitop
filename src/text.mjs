@@ -31,6 +31,8 @@ export function truncate(s, max) {
     out += ch;
     w += cw;
   }
+  // 공백만 있는 조각은 … 없이 그냥 자른다 (조각 사이 간격이 … 로 바뀌지 않게).
+  if (!s.trim()) return ' '.repeat(max);
   // 원래 글이 … 로 끝나는 곳에서 잘리면 … 가 두 번 붙지 않게 한다.
   return out.replace(/[…\s]+$/u, '') + '…';
 }
