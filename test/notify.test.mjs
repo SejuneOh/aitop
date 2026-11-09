@@ -88,11 +88,11 @@ test('시간을 넘긴 명령은 자식까지 끝낸다', async () => {
   const dir = tmp();
   const late = join(dir, 'late');
   const r = createRunner({ timeoutMs: 300 });
-  const t0 = Date.now();
+  const t0 = performance.now();
   r.run({ file: '/bin/sh', args: ['-c', `sleep 2; touch ${late}`], env: process.env });
   assert.equal(r.busy, true);
   await until(() => !r.busy, 3000);
-  assert.ok(Date.now() - t0 < 1500, '시간 제한에 걸려 일찍 끝났다');
+  assert.ok(performance.now() - t0 < 1500, '시간 제한에 걸려 일찍 끝났다');
   assert.equal(r.stats.timedOut, 1);
   await new Promise((res) => setTimeout(res, 2200));
   assert.equal(existsSync(late), false, 'sleep 뒤의 명령이 돌지 않았다 (그룹째 종료)');

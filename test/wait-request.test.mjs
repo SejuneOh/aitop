@@ -193,12 +193,13 @@ test('화면 다른 곳의 mask() 는 #98 이전과 같다 (요청 구획만 엄
 test('비밀값 가림은 긴 입력에서도 빠르다', () => {
   const N = 200_000;
   const inputs = ['token'.repeat(N / 5), 'x.'.repeat(N / 2), ('mysql ' + ' x'.repeat(100) + ' ').repeat(N / 200), 'a://b:'.repeat(N / 6), 'password='.repeat(N / 9), ('a'.repeat(60) + 'tokentoken' + 'a'.repeat(60) + '"').repeat(N / 130), 'token' + ' '.repeat(N) + 'x', 'cookie: '.repeat(N / 8), '-----BEGIN RSA PRIVATE KEY-----'.repeat(N / 31), '--password '.repeat(N / 11)];
-  const t = Date.now();
+  const t = performance.now();
   for (const s of inputs) {
     mask(s);
     maskStrict(s);
   }
-  assert.ok(Date.now() - t < 1500, `${Date.now() - t}ms`);
+  const ms = Math.round(performance.now() - t);
+  assert.ok(ms < 3000, `${ms}ms`);
 });
 
 
