@@ -18,7 +18,7 @@ const RECENT_MS = 24 * 3600 * 1000;
 
 const states = new Map();
 
-function dayDirs(days = 7) {
+export function dayDirs(days = 7) {
   const dirs = [];
   // 며칠 동안 켜 둔 세션도 시작한 날짜 폴더에 기록하므로 일주일치 폴더를 본다.
   for (let back = 0; back < days; back++) {
