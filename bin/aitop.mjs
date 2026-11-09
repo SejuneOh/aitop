@@ -16,7 +16,7 @@ const HELP = `${BRAND.logo} aitop - 터미널에서 Claude Code · Codex · Anti
 
   AITOP_ICONS=plain  창 제목의 Nerd Font 아이콘과 WezTerm 탭 값을 끈다 (ascii 면 로고도 ASCII)
 
-  키: / 검색 · ↑↓/jk 선택 · n 다음 볼 세션 · f 변경 파일 · d 상세 · e 종료 세션 토글 · Esc 뒤로 · ? 도움말 · q 나가기`;
+  키: / 검색 · ↑↓/jk 선택 · n 다음 볼 세션 · s 정렬 · g 묶기 · f 변경 파일 · d 상세 · e 종료 세션 토글 · Esc 뒤로 · ? 도움말 · q 나가기`;
 const KNOWN = new Set(['-h', '--help', '-v', '--version', '--once', '--all', '--json', '--doctor', '--bell', '--show-requests']);
 const THEMES = ['light', 'dark'];
 const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
@@ -72,6 +72,7 @@ if (args.has('--doctor')) {
 
 const { collect } = await import('../src/collect.mjs');
 const { render, filterSessions } = await import('../src/ui.mjs');
+const { arrange } = await import('../src/order.mjs');
 const { flushCache } = await import('../src/cache.mjs');
 const { toJson } = await import('../src/json.mjs');
 const { createAttention, updateAttention, markSeen, nextAttention, windowTitle, newlyWaiting, attentionCounts } = await import('../src/attention.mjs');
@@ -79,7 +80,7 @@ const { onKey, fixFocus } = await import('../src/keys.mjs');
 
 // 요청 전체 보기는 기본으로 꺼 둔다. 켜지 않으면 상세 패널에도 --json 에도 나가지 않는다.
 const showRequests = args.has('--show-requests') || process.env.AITOP_SHOW_REQUESTS === '1';
-const view = { showRequests, data: null, selectedId: null, showDetail: 'auto', showEnded: args.has('--all'), frame: 0, filter: '', searching: false, help: false, focus: null, filePath: null, diffScroll: 0, tab: 'now', costMode: 'api' };
+const view = { showRequests, data: null, selectedId: null, showDetail: 'auto', showEnded: args.has('--all'), frame: 0, filter: '', searching: false, help: false, focus: null, filePath: null, diffScroll: 0, tab: 'now', costMode: 'api', sort: 'default', group: 'none' };
 const once = args.has('--once') || args.has('--json') || !process.stdout.isTTY;
 // 실시간 화면에서 한 번 갱신할 때 읽는 기록 양과 시간. 큰 기록은 여러 번에 나눠 읽어서 키 입력이 막히지 않게 한다.
 const TICK_BUDGET = 24 * 1024 * 1024;
@@ -98,7 +99,7 @@ let bellReady = false;
 function refresh() {
   const data = collect({ showEnded: view.showEnded, selectedId: view.selectedId, budgetBytes: once ? Infinity : TICK_BUDGET, budgetMs: once ? Infinity : TICK_MS });
   if (!data.sessions.some((s) => s.id === view.selectedId)) {
-    view.selectedId = data.sessions[0]?.id ?? null;
+    view.selectedId = arrange(data.sessions, view).sessions[0]?.id ?? null;
     view.focus = null;
     view.tab = 'now';
   }
@@ -196,7 +197,8 @@ out.on('resize', () => {
   draw();
 });
 
-const visible = () => filterSessions(view.data?.sessions ?? [], view.filter);
+// 화면에 그린 순서 그대로 (정렬·묶기 반영). ↑↓ 와 n 이 이 순서를 따른다.
+const visible = () => arrange(filterSessions(view.data?.sessions ?? [], view.filter), view).sessions;
 
 function move(delta) {
   const list = visible();
