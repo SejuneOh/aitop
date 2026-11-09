@@ -55,8 +55,9 @@ async function rowOf(pid, opts = {}) {
 }
 
 const skip = !canListProcesses() && '이 OS 는 프로세스 목록을 지원하지 않음';
+const linuxOnly = (!canListProcesses() || process.platform !== 'linux') && 'Linux /proc 에서만 열린 파일을 안다';
 
-test('25시간 쉰 codex 세션은 프로세스가 열어 둔 기록 파일로 짝짓는다', { skip }, async () => {
+test('25시간 쉰 codex 세션은 프로세스가 열어 둔 기록 파일로 짝짓는다', { skip: linuxOnly }, async () => {
   const cwd = project('idle-day');
   const path = rollout('idle-day', cwd, 25 * 3600_000);
   const child = fakeCodex(cwd, path);
@@ -143,7 +144,7 @@ test('처음엔 기록이 없던 codex 도 나중에 생긴 기록이 하루 넘
   }
 });
 
-test('같은 폴더의 codex 두 개는 각자 열어 둔 기록과 짝짓는다', { skip: (!canListProcesses() || process.platform !== 'linux') && 'Linux /proc 에서만 열린 파일을 안다' }, async () => {
+test('같은 폴더의 codex 두 개는 각자 열어 둔 기록과 짝짓는다', { skip: linuxOnly }, async () => {
   // 프로세스 목록 순서와 상관없이 확인하도록, 쉬는 쪽을 먼저 띄운 폴더와 나중에 띄운 폴더를 둘 다 둔다.
   const kids = [];
   const want = [];
