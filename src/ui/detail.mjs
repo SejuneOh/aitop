@@ -145,9 +145,49 @@ export function tabNote(tab, files) {
   return [{ t: p ? `${hhmm(p.at)} "${p.text}"` : '지시 기록 없음', fg: PALETTE.info, italic: true }, ...(edits ? [{ t: `  편집 ${edits}회`, fg: PALETTE.muted }] : [])];
 }
 
+// 허락을 기다리는 요청을 폭에 맞춰 여러 줄로 나눈다. 명령은 띄어쓰기와 상관없이 글자 단위로 끊어 빠짐없이 보인다.
+export const REQUEST_LINES = 6;
+
+export function wrapText(text, w) {
+  const out = [];
+  for (const para of String(text).split('\n')) {
+    let cur = '';
+    let cw = 0;
+    for (const ch of para) {
+      const k = width(ch);
+      if (cw + k > w && cur) {
+        out.push(cur);
+        cur = '';
+        cw = 0;
+      }
+      cur += ch;
+      cw += k;
+    }
+    out.push(cur);
+  }
+  return out;
+}
+
+// ── 요청 ── 구획: 응답 대기 중이고 요청 내용을 알 때만. 최대 max 줄, 넘치면 마지막 줄 끝을 … 로 바꾼다.
+export function requestBlock(s, w, max = REQUEST_LINES) {
+  if (s.status !== 'waiting' || !s.waitDetail || max < 1) return [];
+  const textW = Math.max(1, w - width(INDENT.t));
+  let lines = wrapText(s.waitDetail, textW);
+  if (lines.length > max) {
+    lines = lines.slice(0, max);
+    const last = [...lines[max - 1]];
+    while (last.length && width(last.join('')) + 1 > textW) last.pop();
+    lines[max - 1] = last.join('') + '…';
+  }
+  return [rule([{ t: '요청', fg: PALETTE.waiting, bold: true }], '', w), ...lines.map((l) => [INDENT, { t: l, fg: PALETTE.text }])];
+}
+
 // 오른쪽 칸: 고친 파일이 없으면 최근 활동만, 있으면 위쪽 절반까지 변경 파일 구획(배경 띠), 파일을 열면 diff.
 // 머리는 안쪽 줄 수에 따라: 16 이상 가로줄+탭+지시, 11~15 가로줄+탭(지시는 탭 줄 오른쪽), 10 이하 가로줄만.
 export function rightColumn(s, w, rows, view) {
+  // --show-requests 를 켰고 응답 대기 중이면 요청 내용을 맨 위에 두고, 아래 구획에는 적어도 4줄을 남긴다.
+  const req = view?.showRequests ? requestBlock(s, w, Math.min(REQUEST_LINES, rows - 5)) : [];
+  if (req.length) return [...req, ...rightColumn({ ...s, waitDetail: null }, w, rows - req.length, view)];
   const all = s.files ?? [];
   const focused = view?.focus === 'files';
   const activityRule = () => rule([{ t: '최근 활동', fg: focused ? PALETTE.muted : PALETTE.text, bold: true }], '', w);

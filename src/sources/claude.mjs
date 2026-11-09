@@ -323,6 +323,7 @@ export function collectClaude({ showEnded, budget, selectedId }) {
       statusGuessed: e.alive && !e.waitingFor && !['busy', 'shell', 'idle'].includes(e.status),
       phase: withRunningMembers(phaseOf(status, e, t), status, members),
       waitingFor: e.waitingFor ?? null,
+      waitDetail: status === 'waiting' ? (t?.waitDetail(e.waitingFor) ?? null) : null,
       now: t?.lastTool ?? t?.events.at(-1)?.text ?? '',
       startedAt: e.startedAt,
       updatedAt: mtime,
