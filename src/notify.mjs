@@ -8,8 +8,8 @@ import { mask, stripControl } from './text.mjs';
 export const HOOK_TIMEOUT_MS = 10_000;
 const LABEL_MAX = 120;
 
-// 옵션 해석은 여기 한 곳에서 한다. 나중에 설정 파일(notify, onWaiting)을 붙일 때 config 를 넘기면 된다.
-// argv 에서 --notify, --on-waiting <cmd>, --on-waiting=<cmd> 를 꺼내고 나머지는 rest 로 돌려준다.
+// 옵션 해석은 여기 한 곳에서 한다. config 에는 설정 파일 값(notify, onWaiting)을 넘기고, 명령줄 옵션이 그 위를 덮는다.
+// argv 에서 --notify, --no-notify, --on-waiting <cmd>, --on-waiting=<cmd>, --no-on-waiting 을 꺼내고 나머지는 rest 로 돌려준다.
 // 값을 따로 받는 다른 옵션(valueOpts)의 값은 건드리지 않고 그대로 넘긴다 (그 옵션의 해석과 같게 - 로 시작하지 않는 다음 인자).
 export const VALUE_OPTS = ['--theme'];
 export function notifyOptions(argv, config = {}, valueOpts = VALUE_OPTS) {
@@ -26,6 +26,14 @@ export function notifyOptions(argv, config = {}, valueOpts = VALUE_OPTS) {
     }
     if (a === '--notify') {
       notify = true;
+      continue;
+    }
+    if (a === '--no-notify') {
+      notify = false;
+      continue;
+    }
+    if (a === '--no-on-waiting') {
+      onWaiting = null;
       continue;
     }
     const m = /^--on-waiting(?:=([\s\S]*))?$/.exec(a);

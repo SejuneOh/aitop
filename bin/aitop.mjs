@@ -1,38 +1,21 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs';
-import { BRAND, userVarsSeq } from '../src/brand.mjs';
+import { configJson, configText, resolveConfig } from '../src/config.mjs';
 import { notifyOptions } from '../src/notify.mjs';
 
-const HELP = `${BRAND.logo} aitop - 터미널에서 Claude Code · Codex · Antigravity · Gemini 세션을 실시간으로 본다
-
-  aitop            실시간 화면
-  aitop --once     현재 상태를 한 번 출력하고 끝낸다
-  aitop --all      종료된 세션(24시간 이내)도 함께 본다
-  aitop --json     세션 목록과 사용량 합계를 JSON 으로 한 번 출력한다 (--all 과 함께 쓸 수 있다)
-  aitop --doctor   Claude · Codex · Antigravity · Gemini 기록과 실행 중인 프로세스를 찾는지 점검한다 (--json 과 함께 쓸 수 있다)
-  aitop --bell     응답 대기 세션이 새로 생기면 터미널 벨을 울린다
-  aitop --notify   응답 대기 세션이 새로 생기면 데스크톱 알림을 띄운다 (notify-send · osascript, 없으면 건너뜀)
-  aitop --on-waiting <명령>  응답 대기 세션이 새로 생기면 /bin/sh -c 로 명령을 실행한다 (내 권한으로 실행, 10초 제한)
-                   세션 정보는 환경변수로만: AITOP_TOOL AITOP_PROJECT AITOP_SESSION_ID AITOP_CWD AITOP_WAITING_FOR
-  aitop --show-requests  응답 대기 요청 전체를 상세 패널·--json 에 보인다 (AITOP_SHOW_REQUESTS=1). 비밀값 가림은 최선일 뿐이라 명령 속 비밀값이 보일 수 있다
-  aitop --theme light|dark  밝은 배경 / 어두운 배경 색 (없으면 COLORFGBG 로 고른다)
-  aitop --version  설치된 버전을 보인다
-
-  AITOP_ICONS=plain  창 제목의 Nerd Font 아이콘과 WezTerm 탭 값을 끈다 (ascii 면 로고도 ASCII)
-
-  키: / 검색 · ↑↓/jk 선택 · n 다음 볼 세션 · s 정렬 · g 묶기 · f 변경 파일 · d 상세 · e 종료 세션 토글 · Esc 뒤로 · ? 도움말 · q 나가기`;
-const KNOWN = new Set(['-h', '--help', '-v', '--version', '--once', '--all', '--json', '--doctor', '--bell', '--show-requests']);
+const KNOWN = new Set(['-h', '--help', '-v', '--version', '--once', '--all', '--json', '--doctor', '--bell', '--show-requests', '--print-config', '--no-bell', '--no-all', '--no-show-requests']);
 const THEMES = ['light', 'dark'];
 const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
-// --notify, --on-waiting 은 notifyOptions 한 곳에서 해석한다.
-const alerts = notifyOptions(process.argv.slice(2));
-if (alerts.error) {
-  process.stderr.write(`aitop: ${alerts.error}\n`);
+// --notify, --no-notify, --on-waiting, --no-on-waiting 은 notifyOptions 한 곳에서 해석한다. 여기서는 명령줄에서 준 값만 본다.
+const cliArgs = process.argv.slice(2);
+const cli = notifyOptions(cliArgs);
+if (cli.error) {
+  process.stderr.write(`aitop: ${cli.error}\n`);
   process.exit(2);
 }
 // --theme light, --theme=light 처럼 값을 받는 옵션은 따로 꺼낸다.
-const argv = alerts.rest;
+const argv = cli.rest;
 let theme = null;
 const rest = [];
 for (let i = 0; i < argv.length; i++) {
@@ -40,25 +23,75 @@ for (let i = 0; i < argv.length; i++) {
   if (!m) rest.push(argv[i]);
   else theme = m[1] ?? (argv[i + 1]?.startsWith('-') ? '' : (argv[++i] ?? ''));
 }
+const args = new Set(rest);
+
+// 옵션 > 환경 변수 > 설정 파일 > 기본값. 잘못된 --theme 값은 아래에서 모르는 옵션으로 알린다.
+// --bell 과 --no-bell 처럼 켜고 끄는 옵션은 뒤에 준 쪽을 따른다.
+const flag = (name) => {
+  const on = rest.lastIndexOf(`--${name}`);
+  const off = rest.lastIndexOf(`--no-${name}`);
+  return on < 0 && off < 0 ? undefined : on > off;
+};
+// notify 는 --notify 가 뒤에 오면 true, --no-notify 가 뒤에 오면 false, 둘 다 없으면 정하지 않은 것이다.
+const notifyFlag = cli.notify ? true : notifyOptions(cliArgs, { notify: true }).notify ? undefined : false;
+// onWaiting 은 --on-waiting 이 뒤에 오면 그 명령, --no-on-waiting 이 뒤에 오면 null(끔), 둘 다 없으면 정하지 않은 것이다.
+const onWaitingFlag = cli.onWaiting ?? (notifyOptions(cliArgs, { onWaiting: 'x' }).onWaiting === null ? null : undefined);
+const config = resolveConfig({ flags: { theme: THEMES.includes(theme) ? theme : undefined, bell: flag('bell'), showRequests: flag('show-requests'), all: flag('all'), notify: notifyFlag, onWaiting: onWaitingFlag } });
+const opt = Object.fromEntries(Object.entries(config.values).map(([k, v]) => [k, v.value]));
+// 알림은 설정 파일 값(onWaiting 은 권한 검사를 통과한 것만)을 깔고 명령줄 옵션이 덮는다.
+const fromFile = (k) => (config.values[k].source === 'file' ? config.values[k].value : undefined);
+const alerts = notifyOptions(cliArgs, { notify: fromFile('notify'), onWaiting: fromFile('onWaiting') });
+// 화면 모듈과 표식 모듈은 불러올 때 테마·아이콘을 고르므로 그 전에 넘긴다.
+if (opt.theme) process.env.AITOP_THEME = opt.theme;
+if (config.values.icons.source === 'file') process.env.AITOP_ICONS = opt.icons;
+const { BRAND, userVarsSeq } = await import('../src/brand.mjs');
+
+const HELP = `${BRAND.logo} aitop - 터미널에서 Claude Code · Codex · Antigravity · Gemini 세션을 실시간으로 본다
+
+  aitop            실시간 화면
+  aitop --once     현재 상태를 한 번 출력하고 끝낸다
+  aitop --all      종료된 세션(24시간 이내)도 함께 본다
+  aitop --json     세션 목록과 사용량 합계를 JSON 으로 한 번 출력한다 (--all 과 함께 쓸 수 있다)
+  aitop --doctor   Claude · Codex · Antigravity · Gemini 기록과 실행 중인 프로세스, 설정 파일을 점검한다 (--json 과 함께 쓸 수 있다)
+  aitop --bell     응답 대기 세션이 새로 생기면 터미널 벨을 울린다
+  aitop --notify   응답 대기 세션이 새로 생기면 데스크톱 알림을 띄운다 (notify-send · osascript, 없으면 건너뜀)
+  aitop --on-waiting <명령>  응답 대기 세션이 새로 생기면 /bin/sh -c 로 명령을 실행한다 (내 권한으로 실행, 10초 제한)
+                   세션 정보는 환경변수로만: AITOP_TOOL AITOP_PROJECT AITOP_SESSION_ID AITOP_CWD AITOP_WAITING_FOR
+  aitop --show-requests  응답 대기 요청 전체를 상세 패널·--json 에 보인다 (AITOP_SHOW_REQUESTS=1). 비밀값 가림은 최선일 뿐이라 명령 속 비밀값이 보일 수 있다
+  aitop --theme light|dark  밝은 배경 / 어두운 배경 색 (없으면 COLORFGBG 로 고른다)
+  aitop --no-bell · --no-all · --no-show-requests · --no-notify · --no-on-waiting  설정 파일에서 켠 값을 이번 실행만 끈다
+  aitop --print-config  설정 값마다 값과 출처(flag/env/file/default), 설정 파일 위치를 보인다 (--json 과 함께 쓸 수 있다)
+  aitop --version  설치된 버전을 보인다
+
+  AITOP_ICONS=plain  창 제목의 Nerd Font 아이콘과 WezTerm 탭 값을 끈다 (ascii 면 로고도 ASCII)
+
+  설정 파일: ${config.path}
+    예) { "theme": "light", "icons": "plain", "bell": true, "notify": true, "onWaiting": "say 대기" }
+    onWaiting 은 파일 소유자가 나이고 그룹·다른 사용자가 쓸 수 없을 때(chmod 600)만 받는다.
+    옵션 > 환경 변수 > 설정 파일 순서로 정한다. 잘못된 값은 무시하고 --doctor 에 알린다.
+
+  키: / 검색 · ↑↓/jk 선택 · n 다음 볼 세션 · s 정렬 · g 묶기 · f 변경 파일 · d 상세 · e 종료 세션 토글 · Esc 뒤로 · ? 도움말 · q 나가기`;
+
 if (theme === '') {
   process.stderr.write(`aitop: --theme 값이 없습니다 (light 또는 dark)\n`);
   process.exit(2);
 }
-const args = new Set(rest);
 const unknown = [...args].filter((a) => !KNOWN.has(a));
 if (theme != null && !THEMES.includes(theme)) unknown.push(`--theme ${theme}`);
 if (unknown.length) {
   process.stderr.write(`aitop: 모르는 옵션 ${unknown.join(' ')}\n\n${HELP}\n`);
   process.exit(2);
 }
-// 화면 모듈이 불러올 때 테마를 고르므로 그 전에 넘긴다.
-if (theme) process.env.AITOP_THEME = theme;
 if (args.has('-h') || args.has('--help')) {
   console.log(HELP);
   process.exit(0);
 }
 if (args.has('-v') || args.has('--version')) {
   console.log(VERSION);
+  process.exit(0);
+}
+if (args.has('--print-config')) {
+  console.log(args.has('--json') ? JSON.stringify(configJson(config), null, 2) : configText(config));
   process.exit(0);
 }
 
@@ -75,13 +108,13 @@ const printAndExit = async (text) => {
 };
 
 // 알림은 실시간 화면에서만 동작한다.
-if ((alerts.notify || alerts.onWaiting) && (args.has('--once') || args.has('--json') || args.has('--doctor') || !process.stdout.isTTY)) {
+if ((cli.notify || cli.onWaiting) && (args.has('--once') || args.has('--json') || args.has('--doctor') || !process.stdout.isTTY)) {
   process.stderr.write('aitop: --notify, --on-waiting 은 실시간 화면에서만 동작한다 (--once·--json·--doctor·파이프 출력에서는 무시)\n');
 }
 
 const { checkTools, doctorText, toolsJson } = await import('../src/doctor.mjs');
 if (args.has('--doctor')) {
-  const result = checkTools();
+  const result = { ...checkTools(), config: configJson(config) };
   await printAndExit(args.has('--json') ? JSON.stringify({ version: VERSION, ...result, tools: toolsJson(result.tools) }, null, 2) : doctorText(result, VERSION));
 }
 
@@ -96,8 +129,8 @@ const { createNotifier } = await import('../src/notify.mjs');
 const { onKey, fixFocus } = await import('../src/keys.mjs');
 
 // 요청 전체 보기는 기본으로 꺼 둔다. 켜지 않으면 상세 패널에도 --json 에도 나가지 않는다.
-const showRequests = args.has('--show-requests') || process.env.AITOP_SHOW_REQUESTS === '1';
-const view = { showRequests, data: null, selectedId: null, showDetail: 'auto', showEnded: args.has('--all'), frame: 0, filter: '', searching: false, help: false, focus: null, filePath: null, diffScroll: 0, tab: 'now', costMode: 'api', sort: 'default', group: 'none' };
+const showRequests = opt.showRequests;
+const view = { showRequests, data: null, selectedId: null, showDetail: 'auto', showEnded: opt.all, frame: 0, filter: '', searching: false, help: false, focus: null, filePath: null, diffScroll: 0, tab: 'now', costMode: 'api', sort: 'default', group: 'none' };
 const once = args.has('--once') || args.has('--json') || !process.stdout.isTTY;
 // 실시간 화면에서 한 번 갱신할 때 읽는 기록 양과 시간. 큰 기록은 여러 번에 나눠 읽어서 키 입력이 막히지 않게 한다.
 const TICK_BUDGET = 24 * 1024 * 1024;
@@ -110,7 +143,7 @@ const LOADING_FLUSH_MS = 3000;
 const attention = createAttention();
 let tools = null;
 // --bell · --notify · --on-waiting: 실시간 화면에서만, 첫 갱신에서 이미 응답 대기인 세션은 알리지 않는다.
-const bell = args.has('--bell');
+const bell = opt.bell;
 const waitWatch = createWaitWatch();
 const notifier = !once && (alerts.notify || alerts.onWaiting) ? createNotifier(alerts) : null;
 
