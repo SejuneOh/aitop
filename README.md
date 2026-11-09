@@ -55,7 +55,10 @@ aitop --json     세션 목록과 오늘·7일 사용량을 JSON 으로 한 번 
 aitop --version  설치된 버전
 aitop --doctor   도구별 연결 점검 (기록 폴더, 기록 수, 마지막 기록, 실행 수). --json 과 함께 가능
 aitop --theme light|dark  밝은 배경 / 어두운 배경 색. 없으면 AITOP_THEME 환경변수, 그다음 COLORFGBG 로 고르고, 모르면 어두운 배경
+aitop --show-requests  응답 대기 요청 전체(명령·경로)를 상세 패널과 --json(waitDetail)에 보인다. AITOP_SHOW_REQUESTS=1 과 같다
 ```
+
+`--show-requests` 는 기본으로 꺼져 있다. 비밀값 가림은 최선일 뿐이라, 켜면 명령 속 비밀값이 그대로 보일 수 있다. 가림을 거친 요청 내용은 옵션과 관계없이 로컬 캐시(`~/.cache/aitop`)에 저장된다.
 
 동료 PC 에서 Codex · Gemini 가 잡히는지 볼 때는 `aitop --doctor` 결과를 그대로 붙여 넣으면 된다. 기록 내용은 나오지 않는다 (Gemini 는 형식 확인용 JSON 키 이름만).
 `--json` 에는 `version` 과 같은 점검 결과 `tools` 가 들어 있다.

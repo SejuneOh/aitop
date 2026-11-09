@@ -13,7 +13,8 @@ const lastHourOf = (h) => (h ? { cost: money(h.cost), costNoCache: money(h.costN
 const usageOf = (u) => (u ? { ...u, ...('cost' in u ? { cost: money(u.cost) } : {}) } : u);
 
 // version 은 aitop 버전, tools 는 aitop --doctor 와 같은 도구별 점검 결과다.
-export function toJson(data, version = null) {
+// opts.showRequests: 응답 대기 요청 전체(waitDetail)를 넣는다. 기본은 꺼져 있다.
+export function toJson(data, version = null, opts = {}) {
   return {
     version,
     at: iso(data.at),
@@ -33,6 +34,8 @@ export function toJson(data, version = null) {
       status: s.status,
       phase: s.phase?.text ?? null,
       waitingFor: s.waitingFor ?? null,
+      // 허락을 기다리는 요청의 전체 내용 (Bash 명령, 파일 경로 등). --show-requests 를 켰을 때만 넣는다. 비밀값 가림은 최선을 다할 뿐이다.
+      ...(opts.showRequests ? { waitDetail: s.waitDetail ?? null } : {}),
       now: s.now || null,
       startedAt: iso(s.startedAt),
       updatedAt: iso(s.updatedAt),

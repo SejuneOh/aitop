@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { mask, oneLine, plainText } from '../text.mjs';
+import { mask, maskStrict, oneLine, plainText, stripControl, STRICT_NAME } from '../text.mjs';
 
 export const MAX_EVENTS = 40;
 // 끝난 서브에이전트(팀원)는 이 시간 동안 "완료"로 보였다가 목록에서 사라진다.
@@ -112,6 +112,70 @@ function rawDescribeTool(name, input) {
       const first = Object.values(input).find((v) => typeof v === 'string');
       return first ? `${name} ${first}` : name;
     }
+  }
+}
+
+// 허락을 기다리는 도구 호출의 전체 내용. 한 줄 설명(describeTool)과 달리 Bash 는 설명 대신 실제 명령을, 파일 도구는 전체 경로를 남긴다.
+// 화면 색을 바꾸는 ANSI 순서와 제어문자를 지우고 비밀값을 가린 뒤 DETAIL_MAX 자에서 자른다. 줄바꿈은 남긴다.
+export const DETAIL_MAX = 2048;
+const ANSI = /\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-Z\\-_])/g;
+
+export function toolDetail(name, input = {}) {
+  const raw = rawToolDetail(name, input);
+  if (!raw) return null;
+  const clean = maskStrict(stripControl(String(raw).replace(ANSI, '').replace(/\r\n?/g, '\n').replace(/\t/g, '  '))).trim();
+  if (!clean) return null;
+  return clean.length > DETAIL_MAX ? clean.slice(0, DETAIL_MAX - 1) + '…' : clean;
+}
+
+// 이름이 비밀값처럼 보이는 키(api_key, token, password, cookie 등)의 값은 문자열·숫자·객체·배열 가리지 않고 통째로 가린다.
+// { name: 'API_KEY', value: '…' } 처럼 이름과 값을 나눠 담은 항목도 value 를 가린다. 너무 깊은 곳은 통째로 가린다.
+const MAX_DEPTH = 32;
+const secretLabel = (x) => typeof x === 'string' && STRICT_NAME.test(x.replace(/^-{1,2}/, '').replace(/[:=]$/, ''));
+
+export function maskKeys(v, depth = 0) {
+  if (!v || typeof v !== 'object') return v;
+  if (depth > MAX_DEPTH) return '••••';
+  // ["--token", "x"], ["Authorization", "x"]: 비밀 이름 바로 다음 칸을 가린다.
+  if (Array.isArray(v)) {
+    let after = false;
+    return v.map((x) => {
+      const hide = after && x != null && typeof x !== 'boolean';
+      after = !hide && secretLabel(x);
+      return hide ? '••••' : maskKeys(x, depth + 1);
+    });
+  }
+  const label = v.name ?? v.Name ?? v.key ?? v.Key;
+  const pair = typeof label === 'string' && STRICT_NAME.test(label);
+  return Object.fromEntries(
+    Object.entries(v).map(([k, x]) => {
+      const secret = STRICT_NAME.test(k) || (pair && /^value$/i.test(k));
+      return [k, secret && x != null && typeof x !== 'boolean' ? '••••' : maskKeys(x, depth + 1)];
+    }),
+  );
+}
+
+function rawToolDetail(name, input) {
+  if (typeof input === 'string') return input;
+  if (!input || typeof input !== 'object') return null;
+  switch (name) {
+    case 'Bash':
+    case 'exec_command':
+    case 'shell': {
+      const cmd = input.command ?? input.cmd;
+      return Array.isArray(cmd) ? cmd.join(' ') : cmd;
+    }
+    case 'Read':
+    case 'Write':
+    case 'Edit':
+    case 'NotebookEdit':
+      return input.file_path ?? input.notebook_path;
+    default:
+      try {
+        return Object.keys(input).length ? JSON.stringify(maskKeys(input)) : null;
+      } catch {
+        return null;
+      }
   }
 }
 

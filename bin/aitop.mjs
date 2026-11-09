@@ -10,13 +10,14 @@ const HELP = `${BRAND.logo} aitop - 터미널에서 Claude Code · Codex · Anti
   aitop --json     세션 목록과 사용량 합계를 JSON 으로 한 번 출력한다 (--all 과 함께 쓸 수 있다)
   aitop --doctor   Claude · Codex · Antigravity · Gemini 기록과 실행 중인 프로세스를 찾는지 점검한다 (--json 과 함께 쓸 수 있다)
   aitop --bell     응답 대기 세션이 새로 생기면 터미널 벨을 울린다
+  aitop --show-requests  응답 대기 요청 전체를 상세 패널·--json 에 보인다 (AITOP_SHOW_REQUESTS=1). 비밀값 가림은 최선일 뿐이라 명령 속 비밀값이 보일 수 있다
   aitop --theme light|dark  밝은 배경 / 어두운 배경 색 (없으면 COLORFGBG 로 고른다)
   aitop --version  설치된 버전을 보인다
 
   AITOP_ICONS=plain  창 제목의 Nerd Font 아이콘과 WezTerm 탭 값을 끈다 (ascii 면 로고도 ASCII)
 
   키: / 검색 · ↑↓/jk 선택 · n 다음 볼 세션 · f 변경 파일 · d 상세 · e 종료 세션 토글 · Esc 뒤로 · ? 도움말 · q 나가기`;
-const KNOWN = new Set(['-h', '--help', '-v', '--version', '--once', '--all', '--json', '--doctor', '--bell']);
+const KNOWN = new Set(['-h', '--help', '-v', '--version', '--once', '--all', '--json', '--doctor', '--bell', '--show-requests']);
 const THEMES = ['light', 'dark'];
 const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
@@ -76,7 +77,9 @@ const { toJson } = await import('../src/json.mjs');
 const { createAttention, updateAttention, markSeen, nextAttention, windowTitle, newlyWaiting, attentionCounts } = await import('../src/attention.mjs');
 const { onKey, fixFocus } = await import('../src/keys.mjs');
 
-const view = { data: null, selectedId: null, showDetail: 'auto', showEnded: args.has('--all'), frame: 0, filter: '', searching: false, help: false, focus: null, filePath: null, diffScroll: 0, tab: 'now', costMode: 'api' };
+// 요청 전체 보기는 기본으로 꺼 둔다. 켜지 않으면 상세 패널에도 --json 에도 나가지 않는다.
+const showRequests = args.has('--show-requests') || process.env.AITOP_SHOW_REQUESTS === '1';
+const view = { showRequests, data: null, selectedId: null, showDetail: 'auto', showEnded: args.has('--all'), frame: 0, filter: '', searching: false, help: false, focus: null, filePath: null, diffScroll: 0, tab: 'now', costMode: 'api' };
 const once = args.has('--once') || args.has('--json') || !process.stdout.isTTY;
 // 실시간 화면에서 한 번 갱신할 때 읽는 기록 양과 시간. 큰 기록은 여러 번에 나눠 읽어서 키 입력이 막히지 않게 한다.
 const TICK_BUDGET = 24 * 1024 * 1024;
@@ -128,7 +131,7 @@ if (once) {
   const size = (v) => (Number(v) > 0 ? Math.floor(Number(v)) : 0);
   const W = process.stdout.columns || size(process.env.COLUMNS) || 140;
   const H = process.stdout.rows || size(process.env.LINES) || 40;
-  await printAndExit(args.has('--json') ? JSON.stringify(toJson(view.data, VERSION), null, 2) : render(view, W, H).join('\n'));
+  await printAndExit(args.has('--json') ? JSON.stringify(toJson(view.data, VERSION, { showRequests }), null, 2) : render(view, W, H).join('\n'));
 }
 
 const out = process.stdout;
