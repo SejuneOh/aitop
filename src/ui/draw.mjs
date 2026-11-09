@@ -44,6 +44,9 @@ export function glyph(s, frame) {
   return { t: SPIN[frame % SPIN.length], fg: PHASE_COLOR[k] ?? PALETTE.busy, bold: true };
 }
 
+// glyph 가 frame 에 따라 모양을 바꾸는지 (응답 대기 깜빡임, 작업 중 스피너).
+export const glyphMoves = (s) => s.status === 'waiting' || !['ended', 'done', 'unseen', 'idle'].includes(s.phase?.kind);
+
 // 막대는 같은 높이의 얇은 블록(▃)으로 그리고 채운 칸과 빈칸은 색으로 나눈다. 칸 높이가 모두 같아 끝이 튀어나오지 않는다.
 // 색이 없으면 빈칸을 가장 얇은 ▁ 로 그려 모양으로 구분한다.
 export const BAR = { fill: '▃', empty: NO_COLOR ? '▁' : '▃' };
