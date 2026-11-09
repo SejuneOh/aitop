@@ -16,8 +16,8 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           registry-url: https://npm.pkg.github.com
@@ -30,20 +30,46 @@ jobs:
         timeout-minutes: 5
       - name: 실행 확인 (세션 없는 환경)
         run: node bin/aitop.mjs --once > /dev/null
+      # 배포될 tarball 을 임시 prefix 에 설치해 실행한다. package.json 의 files 에 필요한 폴더가 빠지면 여기서 실패한다.
+      - name: 설치 확인 (npm pack)
+        shell: bash
+        run: |
+          set -euo pipefail
+          PACK="$RUNNER_TEMP/pack"
+          PREFIX="$RUNNER_TEMP/p"
+          rm -rf "$PACK" "$PREFIX"
+          mkdir -p "$PACK"
+          npm pack --pack-destination "$PACK"
+          npm i -g --prefix "$PREFIX" "$PACK"/*.tgz
+          EXPECTED=$(node -p "require('./package.json').version")
+          cd "$RUNNER_TEMP"
+          GOT=$("$PREFIX/bin/aitop" --version)
+          echo "aitop --version: $GOT"
+          test "$GOT" = "$EXPECTED"
+          "$PREFIX/bin/aitop" --once > /dev/null
 
+      # 배포와 태그·릴리스를 따로 판단한다. 배포는 됐는데 릴리스 만들기가 실패한 실행을 다시 돌리면
+      # 배포는 건너뛰고 태그·릴리스만 만든다.
       - name: 배포할 버전인지 확인
         id: version
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION=$(node -p "require('./package.json').version")
           NAME=$(node -p "require('./package.json').name")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
-            echo "$NAME@$VERSION 은 이미 배포됨, 건너뜀"
+            echo "$NAME@$VERSION 은 이미 배포됨, 배포 건너뜀"
             echo "publish=false" >> "$GITHUB_OUTPUT"
           else
             echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "v$VERSION 릴리스가 이미 있음, 릴리스 건너뜀"
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "release=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: GitHub Packages 에 배포
@@ -52,8 +78,9 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm publish
 
+      # 태그만 있고 릴리스가 없으면 gh 가 그 태그로 릴리스를 만든다 (--target 은 무시된다).
       - name: 태그와 릴리스 만들기
-        if: steps.version.outputs.publish == 'true'
+        if: steps.version.outputs.release == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release create "v${{ steps.version.outputs.version }}" --target "$GITHUB_SHA" --title "v${{ steps.version.outputs.version }}" --generate-notes
