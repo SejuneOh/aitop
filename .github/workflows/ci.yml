@@ -6,6 +6,10 @@ on:
   push:
     branches: [dev]
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     runs-on: ${{ matrix.os }}
@@ -13,14 +17,14 @@ jobs:
       matrix:
         os: [ubuntu-latest]
         # 22.13.0 은 node:sqlite 는 있지만 file: 주소를 열지 못해 agy 를 프로세스만으로 보여야 하고, 22.15.0 부터 열 수 있다.
-        node: [20, 22, 22.13.0, 22.15.0, 24]
+        node: [22, 22.13.0, 22.15.0, 24]
         # macOS 는 ps·lsof 로 프로세스를 찾는다. 가상 터미널 e2e 는 util-linux script 가 없어 건너뛴다.
         include:
           - os: macos-latest
             node: 22
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ matrix.node }}
       - name: 단위 테스트
@@ -31,3 +35,20 @@ jobs:
         timeout-minutes: 5
       - name: 실행 확인 (세션 없는 환경)
         run: node bin/aitop.mjs --once > /dev/null
+      # 배포될 tarball 을 임시 prefix 에 설치해 실행한다. package.json 의 files 에 필요한 폴더가 빠지면 여기서 실패한다.
+      - name: 설치 확인 (npm pack)
+        shell: bash
+        run: |
+          set -euo pipefail
+          PACK="$RUNNER_TEMP/pack"
+          PREFIX="$RUNNER_TEMP/p"
+          rm -rf "$PACK" "$PREFIX"
+          mkdir -p "$PACK"
+          npm pack --pack-destination "$PACK"
+          npm i -g --prefix "$PREFIX" "$PACK"/*.tgz
+          EXPECTED=$(node -p "require('./package.json').version")
+          cd "$RUNNER_TEMP"
+          GOT=$("$PREFIX/bin/aitop" --version)
+          echo "aitop --version: $GOT"
+          test "$GOT" = "$EXPECTED"
+          "$PREFIX/bin/aitop" --once > /dev/null
