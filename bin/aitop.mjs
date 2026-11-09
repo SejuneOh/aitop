@@ -71,8 +71,9 @@ if (args.has('--doctor')) {
 }
 
 const { collect } = await import('../src/collect.mjs');
-const { render, filterSessions } = await import('../src/ui.mjs');
+const { render, filterSessions, animating } = await import('../src/ui.mjs');
 const { arrange } = await import('../src/order.mjs');
+const { frameTimer } = await import('../src/frames.mjs');
 const { flushCache } = await import('../src/cache.mjs');
 const { toJson } = await import('../src/json.mjs');
 const { createAttention, updateAttention, markSeen, nextAttention, windowTitle, newlyWaiting, attentionCounts } = await import('../src/attention.mjs');
@@ -139,8 +140,18 @@ const out = process.stdout;
 const stdin = process.stdin;
 let last = '';
 let lastTitle = '';
+// 스피너처럼 움직이는 표시가 있을 때만 120ms 마다 다시 그린다. 없으면 데이터 갱신·키 입력·창 크기 변경 때만 그린다.
+const frames = frameTimer({
+  ms: 120,
+  animating: () => animating(view),
+  onFrame: () => {
+    view.frame++;
+    draw();
+  },
+});
 
 function draw() {
+  frames.sync();
   view.rows = out.rows;
   const frame = render(view, out.columns, out.rows).join('\r\n');
   const title = windowTitle(view.data?.sessions ?? [], BRAND.tab);
@@ -247,7 +258,3 @@ function tick() {
 }
 
 setTimeout(tick, 30);
-setInterval(() => {
-  view.frame++;
-  draw();
-}, 120);

@@ -2,7 +2,7 @@
 import { width } from './text.mjs';
 import { BRAND } from './brand.mjs';
 import { PALETTE } from './ui/theme.mjs';
-import { line, setNow } from './ui/draw.mjs';
+import { glyphMoves, line, setNow } from './ui/draw.mjs';
 import { TABLE_BOX_H, columns, emptyLines, filterSessions, groupRow, header, memberRow, sessionRow, tableBox, tableHeader, toolStrip, topCost } from './ui/table.mjs';
 import { detail } from './ui/detail.mjs';
 import { detailOpen, footer, help } from './ui/chrome.mjs';
@@ -12,6 +12,13 @@ export { PALETTE, style } from './ui/theme.mjs';
 export { money } from './ui/draw.mjs';
 export { filterSessions } from './ui/table.mjs';
 export { DETAIL_MIN_H, detailOpen } from './ui/chrome.mjs';
+
+// 프레임마다 바뀌는 표시(세션 스피너·응답 대기 깜빡임, 일하는 팀원 스피너)가 화면에 있는지.
+// 표에서 가려진 세션까지 셈에 넣으므로, 실제보다 조금 더 자주 그릴 수는 있어도 덜 그리지는 않는다.
+export function animating(view) {
+  if (!view.data || view.help) return false;
+  return filterSessions(view.data.sessions, view.filter).some((s) => glyphMoves(s) || (s.members ?? []).some((m) => m.status !== 'done'));
+}
 
 export function render(view, W, H) {
   setNow(Date.now());
