@@ -16,8 +16,6 @@ export const VIEWS = {
       ['d', '상세 패널 열기·닫기', '상세'],
       ['e', '종료된 세션(24시간) 보이기·숨기기', '종료 세션 토글'],
       ['Esc', '한 단계 뒤로 (도움말·검색 닫기, diff → 파일 목록 → 세션). 종료하지 않음', '뒤로'],
-      ['?', '이 도움말 열기·닫기', '도움말'],
-      ['q Ctrl-C', '나가기', '나가기'],
     ],
   },
   detail: {
@@ -66,6 +64,15 @@ export const VIEWS = {
   },
 };
 
+// 어느 화면에서나 듣는 키. 화면마다 되풀이하지 않고 도움말에서는 지금 화면 키 바로 아래 한 번만 보인다.
+export const COMMON = {
+  title: '어디서나',
+  keys: [
+    ['?', '이 도움말 열기·닫기', '도움말'],
+    ['q Ctrl-C', '나가기', '나가기'],
+  ],
+};
+
 // 화면 안 도움말의 옵션 묶음. 자세한 설명은 aitop --help.
 export const OPTIONS = [
   ['--notify', '응답 대기가 생기면 데스크톱 알림'],
@@ -84,11 +91,12 @@ export function helpContext(view) {
 
 const cliKey = ([k, , , cli]) => cli ?? k.split(' ')[0];
 // 한 화면의 키를 한 줄로: '/ 검색 · ↑↓/jk 선택 · ...'
-export const keysLine = (name) => VIEWS[name].keys.map((e) => `${cliKey(e)} ${e[2]}`).join(' · ');
+// 'common' 은 어디서나 쓰는 키. 없는 화면 이름은 예전처럼 오류로 드러낸다.
+export const keysLine = (name) => (name === 'common' ? COMMON : VIEWS[name]).keys.map((e) => `${cliKey(e)} ${e[2]}`).join(' · ');
 
 // aitop --help 끝의 키 안내.
 export function keysText() {
-  return [`키: ${keysLine('table')}`, ...['files', 'diff', 'filtered', 'search'].map((n) => `  ${VIEWS[n].title}: ${keysLine(n)}`)].join('\n');
+  return [`키: ${keysLine('table')} · ${keysLine('common')}`, ...['files', 'diff', 'filtered', 'search'].map((n) => `  ${VIEWS[n].title}: ${keysLine(n)}`)].join('\n');
 }
 
 // 지금 설정 값 한 줄 (예: 예산 $50 · 알림 켜짐 · 디버그 꺼짐). settings 가 없으면 null.

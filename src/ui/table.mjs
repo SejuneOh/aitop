@@ -143,10 +143,11 @@ export function header(view, W) {
   const apiShort = { t: net ? '캐시제외 ' : 'API ', fg: net ? PALETTE.brand : PALETTE.info, bg: B };
   // 오른쪽 한 줄의 구성. 위에서부터 차례로 시도한다.
   // api: 'long' | 'short' | null, tok: 토큰 수, week: 7일 칸, bar: 7일 막대, budget: 'full'(/$50 와 예상) | 'proj'(예상만) | 'only'(오늘 금액 없이 예상만).
-  const right = ({ api: a = null, rate: withRate = false, tok = false, week: withWeek = false, bar: withBar = false, budget = 'full' }) => {
+  // clock: false 면 시각을 뺀다 (캐시 제외 기준에서 오늘 비용을 지킬 때만 쓴다).
+  const right = ({ api: a = null, rate: withRate = false, tok = false, week: withWeek = false, bar: withBar = false, budget = 'full', clock = true }) => {
     const label = a === 'long' ? [api] : a === 'short' ? [apiShort] : [];
     const today = budget === 'only' ? [projApi] : [...period('오늘', u.today, tok, withRate ? rate : [], budget === 'full' && !net ? ofBudget : []), ...budgetPart(budget)];
-    return [...label, ...today, ...(withWeek ? [dot, ...week(tok, withBar)] : []), dot, clockSeg];
+    return [...label, ...today, ...(withWeek ? [dot, ...week(tok, withBar)] : []), ...(clock ? [dot, clockSeg] : [])];
   };
   // 7일 막대는 지출 속도 다음으로 먼저 뺀다 (토큰 수보다 먼저).
   const shapes = [
@@ -174,9 +175,12 @@ export function header(view, W) {
     return segsWidth(left) + segsWidth(right) + 2 <= W ? line([...left, { t: ' '.repeat(W - segsWidth(left) - segsWidth(right)), bg: B }, ...right], W, B) : null;
   };
   const kept = rights.slice(0, -1);
+  // 캐시 제외 기준은 '캐시제외' 표시 때문에 9칸이 더 든다. 시각만 남기기 전에 시각을 빼고 '캐시제외 오늘 $5.20' 을 남긴다.
+  const bare = u && net ? [right({ api: 'short', clock: false })] : [];
   const tries = [
     ...kept.flatMap((r) => [[r, false, 0], [r, true, 0]]),
     ...[1, 2].flatMap((drop) => kept.map((r) => [r, true, drop])),
+    ...[0, 1, 2].flatMap((drop) => bare.map((r) => [r, true, drop])),
     ...[0, 1, 2].map((drop) => [rights.at(-1), true, drop]),
   ];
   for (const [r, narrow, drop] of tries) {
