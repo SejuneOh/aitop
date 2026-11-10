@@ -5,7 +5,7 @@ import { homedir } from 'node:os';
 import { JsonlTail } from '../tail.mjs';
 import { loadCache, markDirty } from '../cache.mjs';
 import { findProcesses, isCodex, openFiles, processStart } from '../procs.mjs';
-import { emptyTokens, pushEvent, describeTool, isNoisePrompt } from './common.mjs';
+import { addActivity, emptyTokens, parseTs, pushEvent, describeTool, isNoisePrompt } from './common.mjs';
 import { addChange, mergeFiles } from './files.mjs';
 import { codexCost } from '../pricing.mjs';
 import { parsePatch, extractPatch, patchSucceeded } from './patch.mjs';
@@ -151,10 +151,10 @@ function searchByCwd(pid, cwd, taken, startOf) {
   return path;
 }
 
-const SAVED = ['id', 'cwd', 'branch', 'model', 'busy', 'tokens', 'context', 'window', 'events', 'lastTool', 'startedAt', 'lastKind', 'files', 'turns', 'turnCount'];
+const SAVED = ['id', 'cwd', 'branch', 'model', 'busy', 'tokens', 'context', 'window', 'events', 'lastTool', 'startedAt', 'lastKind', 'files', 'turns', 'turnCount', 'activity'];
 
 function newState(path) {
-  const st = { tail: new JsonlTail(path), id: basename(path), cwd: null, branch: null, model: null, busy: false, tokens: emptyTokens(), context: 0, window: 0, events: [], lastTool: null, startedAt: null, pending: new Map(), lastKind: null, files: [], turns: [], turnCount: 0, patches: {} };
+  const st = { tail: new JsonlTail(path), id: basename(path), cwd: null, branch: null, model: null, busy: false, tokens: emptyTokens(), context: 0, window: 0, events: [], lastTool: null, startedAt: null, pending: new Map(), lastKind: null, files: [], turns: [], turnCount: 0, patches: {}, activity: {} };
   const c = loadCache(path);
   if (c) {
     st.tail.offset = c.offset;
@@ -204,6 +204,8 @@ function applyLine(st, x) {
         const t = p.info?.total_token_usage;
         if (t) {
           const cached = t.cached_input_tokens ?? 0;
+          // 누적값이라 직전 합계와의 차이를 그 줄의 시각 칸에 더한다.
+          addActivity(st.activity, parseTs(x.timestamp), (t.total_tokens ?? 0) - st.tokens.total);
           st.tokens = { input: (t.input_tokens ?? 0) - cached, output: t.output_tokens ?? 0, cacheRead: cached, cacheWrite: 0, total: t.total_tokens ?? 0 };
         }
         if (p.info?.last_token_usage) st.context = p.info.last_token_usage.total_tokens ?? 0;
@@ -357,6 +359,7 @@ export function collectCodex({ showEnded, budget, filesOf = openFiles, startOf =
       events: st.events,
       files: mergeFiles([{ agent: '메인', files: st.files }]),
       turns: st.turns,
+      activity: st.activity,
       members: [],
     });
   }

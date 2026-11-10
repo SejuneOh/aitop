@@ -8,7 +8,7 @@ import { PRICE_TAG } from './pricing.mjs';
 import { debug, debugIo } from './log.mjs';
 
 // 캐시 형식이 바뀌면 VERSION 을, 가격표가 바뀌면 PRICE_TAG 가 폴더 이름을 바꿔서 예전 캐시를 버린다.
-const VERSION = 12;
+const VERSION = 13;
 const ROOT = join(process.env.XDG_CACHE_HOME ?? join(homedir(), '.cache'), 'aitop');
 const NAME = `v${VERSION}-${PRICE_TAG}`;
 const DIR = join(ROOT, NAME);

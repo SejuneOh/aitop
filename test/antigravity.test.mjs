@@ -187,7 +187,10 @@ test('토큰은 호출마다 더하고, 새 줄만 이어 읽는다', { skip: no
   assert.equal(g.model, 'gemini-3.8-flash');
   assert.equal(g.prompt, 420, '컨텍스트는 마지막 호출의 입력 + 캐시');
   makeConversation('u1', [{ input: 1, output: 1, cacheRead: 1 }]);
-  assert.equal(readConversation('u1', createBudget()).tokens.total, 588);
+  const g2 = readConversation('u1', createBudget());
+  assert.equal(g2.tokens.total, 588);
+  // 시간별 토큰: 단계 시각이 없으면 기록 파일 수정 시각 칸에 들어가고, 칸 합계는 세션 토큰과 같다.
+  assert.equal(Object.values(g2.activity).reduce((a, b) => a + b, 0), 588);
 });
 
 test('기록을 읽어도 agy 폴더에 -wal·-shm 같은 파일을 만들지 않는다', { skip: noSqlite }, () => {
