@@ -45,7 +45,7 @@ export function budgetDayOption(argv) {
 
 // env: 환경 변수 이름과 그 값을 옵션 값으로 바꾸는 함수 (undefined 면 설정하지 않은 것으로 본다).
 // envProblem: 환경 변수 값이 잘못되면 무시하고 problems 에 남긴다 (--doctor, --print-config 가 보인다).
-// notify, onWaiting 은 응답 대기 알림(notify.mjs)이 쓴다. budgetDay 는 하루 예산(달러)으로, 헤더와 --json 의 예상 비용 경고(budget.mjs)가 쓴다.
+// notify, onWaiting 은 응답 대기 알림(notify.mjs)이 쓴다. debug 는 디버그 로그(log.mjs)를 켠다. budgetDay 는 하루 예산(달러)으로, 헤더와 --json 의 예상 비용 경고(budget.mjs)가 쓴다.
 export const KEYS = {
   theme: { ok: oneOf('light', 'dark'), expect: 'light 또는 dark', def: null, env: ['AITOP_THEME', (v) => (v === 'light' || v === 'dark' ? v : undefined)] },
   icons: { ok: oneOf('plain', 'ascii'), expect: 'plain 또는 ascii', def: 'full', env: ['AITOP_ICONS', (v) => (v === 'plain' || v === 'ascii' ? v : undefined)] },
@@ -54,6 +54,7 @@ export const KEYS = {
   all: { ok: bool, expect: 'true 또는 false', def: false },
   notify: { ok: bool, expect: 'true 또는 false', def: false },
   onWaiting: { ok: (v) => typeof v === 'string' && v.trim() !== '', expect: '실행할 명령 문자열', def: null },
+  debug: { ok: bool, expect: 'true 또는 false', def: false, env: ['AITOP_DEBUG', (v) => (v === '1' ? true : v === '0' ? false : undefined)], envProblem: true, envExpect: '1 또는 0' },
   budgetDay: { ok: (v) => typeof v === 'number' && Number.isFinite(v) && v > 0, expect: '0 보다 큰 수', def: null, env: ['AITOP_BUDGET_DAY', (v) => usd(v) ?? undefined], envProblem: true },
 };
 
@@ -138,7 +139,7 @@ export function resolveConfig({ flags = {}, env = process.env, file } = {}) {
   const problems = [...file.problems];
   for (const [key, spec] of Object.entries(KEYS)) {
     const fromEnv = spec.env && env[spec.env[0]] != null ? spec.env[1](env[spec.env[0]]) : undefined;
-    if (spec.envProblem && env[spec.env[0]] != null && fromEnv === undefined) problems.push(`환경 변수 ${spec.env[0]} 값 ${show(env[spec.env[0]])} 이 잘못되어 무시합니다 (${spec.expect})`);
+    if (spec.envProblem && env[spec.env[0]] != null && fromEnv === undefined) problems.push(`환경 변수 ${spec.env[0]} 값 ${show(env[spec.env[0]])} 이 잘못되어 무시합니다 (${spec.envExpect ?? spec.expect})`);
     if (flags[key] !== undefined) values[key] = { value: flags[key], source: 'flag' };
     else if (fromEnv !== undefined) values[key] = { value: fromEnv, source: 'env' };
     else if (key in file.values) values[key] = { value: file.values[key], source: 'file' };

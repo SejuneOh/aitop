@@ -10,6 +10,7 @@ import { claudeCost } from '../pricing.mjs';
 import { dayKey, lastDays, addSlot, lastHourOf, recentTodayOf } from './common.mjs';
 import { collectAgyLedger } from './agy-ledger.mjs';
 import { collectCodexLedger } from './codex-ledger.mjs';
+import { debugIo } from '../log.mjs';
 
 export { dayKey };
 
@@ -99,12 +100,15 @@ function recentFiles() {
   let dirs = [];
   try {
     dirs = readdirSync(PROJECTS);
-  } catch {}
+  } catch (e) {
+    debugIo('ledger', 'claude projects read failed', e);
+  }
   for (const dir of dirs) {
     let names = [];
     try {
       names = readdirSync(join(PROJECTS, dir));
-    } catch {
+    } catch (e) {
+      debugIo('ledger', 'claude project folder read failed', e, dir);
       continue;
     }
     for (const n of names) {

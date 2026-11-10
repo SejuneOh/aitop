@@ -11,6 +11,7 @@ import { openReadOnly, loadSqlite } from '../sqlite.mjs';
 import { findProcesses, isAgy, openFiles } from '../procs.mjs';
 import { emptyTokens, pushEvent, describeTool, toolDetail, isNoisePrompt, MEMBER_FADE_MS } from './common.mjs';
 import { contextWindow, geminiCost } from '../pricing.mjs';
+import { debug, debugIo } from '../log.mjs';
 
 // /proc/<pid>/fd 의 링크는 늘 심볼릭 링크를 푼 절대 경로라서, 기록 폴더도 같은 모양으로 바꿔 둔다
 // (끝의 /, 상대 경로, 심볼릭 링크로 걸린 ~/.gemini). 폴더가 없으면 절대 경로까지만 바꾼다.
@@ -88,7 +89,8 @@ export function readGeneration(data) {
       let kv;
       try {
         kv = pbFields(v);
-      } catch {
+      } catch (e) {
+        debug('agy', 'gen_metadata field decode failed', e);
         continue;
       }
       if (msg(kv, 1)?.toString('utf8') !== 'last_step_index') continue;
@@ -100,7 +102,8 @@ export function readGeneration(data) {
     if (!usage) return { model, usage: null, step };
     const u = pbFields(usage);
     return { model, usage: { input: int(u, 2), output: int(u, 3), cacheWrite: int(u, 4), cacheRead: int(u, 5) }, step };
-  } catch {
+  } catch (e) {
+    debug('agy', 'gen_metadata decode failed', e);
     return null;
   }
 }
@@ -143,7 +146,9 @@ export function stepTime(data) {
       else if (w === 5) i += 4;
       else return null;
     }
-  } catch {}
+  } catch (e) {
+    debug('agy', 'step time decode failed', e);
+  }
   return null;
 }
 
@@ -176,7 +181,9 @@ function toolOf(call) {
   let args = {};
   try {
     args = JSON.parse(msg(f, 3)?.toString('utf8') ?? '{}');
-  } catch {}
+  } catch (e) {
+    debug('agy', 'tool arguments parse failed', e);
+  }
   const a = args && typeof args === 'object' ? args : {};
   return { name, what: describeAgyTool(name, a), detail: agyToolDetail(name, a) };
 }
@@ -211,7 +218,8 @@ export function readStep(data) {
       step.tool = toolOf(msg(b, 7));
     } else if (type === STEP.TOOL) step.tool = toolOf(msg(meta, 4));
     return step;
-  } catch {
+  } catch (e) {
+    debug('agy', 'step decode failed', e);
     return null;
   }
 }
@@ -489,7 +497,8 @@ export function readConversation(id, budget) {
     }
     // 읽는 동안 agy 가 본 파일에 썼으면 읽은 내용을 믿을 수 없으니 버리고 다음 갱신에 다시 읽는다.
     ok = sigOf(path, false) === mainSig;
-  } catch {
+  } catch (e) {
+    debugIo('agy', 'conversation read failed', e, path);
     // agy 가 쓰는 중이라 잠겨 있으면 다음 갱신에 다시 읽는다.
   } finally {
     db?.close();
@@ -511,7 +520,8 @@ export function cwdOf(workspaceUris) {
     const first = JSON.parse(workspaceUris || '[]')[0];
     if (!first) return null;
     return first.startsWith('file:') ? fileURLToPath(first) : first;
-  } catch {
+  } catch (e) {
+    debug('agy', 'workspace_uris parse failed', e);
     return null;
   }
 }
@@ -538,7 +548,8 @@ function readSummaries() {
       .all()
       .map((r) => ({ ...r, cwd: cwdOf(r.ws), updatedAt: parseTime(r.modified), running: r.status === RUNNING || Boolean(r.busy) }));
     if (sigOf(path, false) === mainSig) summaries = { sig, rows };
-  } catch {
+  } catch (e) {
+    debugIo('agy', 'conversation_summaries read failed', e, path);
     // 다음 갱신에 다시 읽는다.
   } finally {
     db?.close();

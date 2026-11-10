@@ -1,10 +1,11 @@
 // 큰 세션 기록을 매번 처음부터 다시 읽지 않도록, 파일별로 "어디까지 읽었고 그때 합계가 얼마였는지"를
-// ~/.cache/aitop 에 저장한다. 이 프로그램이 디스크에 쓰는 곳은 여기뿐이다.
+// ~/.cache/aitop 에 저장한다. 이 프로그램이 디스크에 쓰는 곳은 여기와 --debug 때의 디버그 로그(log.mjs)뿐이다.
 import { readFileSync, writeFileSync, mkdirSync, renameSync, statSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { PRICE_TAG } from './pricing.mjs';
+import { debug, debugIo } from './log.mjs';
 
 // 캐시 형식이 바뀌면 VERSION 을, 가격표가 바뀌면 PRICE_TAG 가 폴더 이름을 바꿔서 예전 캐시를 버린다.
 const VERSION = 12;
@@ -28,7 +29,9 @@ function removeOldDirs() {
       const ver = Number(/^v(\d+)(?:-|$)/.exec(d)?.[1]);
       if (ver < VERSION || Date.now() - statSync(p).mtimeMs > STALE_DIR_MS) rmSync(p, { recursive: true, force: true });
     }
-  } catch {}
+  } catch (e) {
+    debugIo('cache', 'old cache cleanup failed', e);
+  }
 }
 
 // kind: 같은 기록 파일을 다른 용도로 읽는 tracker 가 각자 캐시를 갖도록 구분한다 (예: 세션 화면용, 날짜별 사용량용).
@@ -41,7 +44,8 @@ export function loadCache(path, kind = '') {
     const st = statSync(path);
     if (c.path !== path || c.ino !== st.ino || st.size < c.offset) return null;
     return c;
-  } catch {
+  } catch (e) {
+    debugIo('cache', 'cache load failed', e);
     return null;
   }
 }
@@ -54,7 +58,8 @@ export function flushCache() {
   if (!dirty.size) return;
   try {
     mkdirSync(DIR, { recursive: true, mode: 0o700 });
-  } catch {
+  } catch (e) {
+    debug('cache', 'cache folder create failed', e);
     return;
   }
   if (!cleaned) removeOldDirs();
@@ -65,7 +70,9 @@ export function flushCache() {
       const file = join(DIR, key + '.json');
       writeFileSync(file + '.tmp', JSON.stringify({ ...data, path, ino: statSync(path).ino }), { mode: 0o600 });
       renameSync(file + '.tmp', file);
-    } catch {}
+    } catch (e) {
+      debugIo('cache', 'cache write failed', e);
+    }
   }
   dirty.clear();
 }

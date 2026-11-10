@@ -2,8 +2,9 @@
 import { readFileSync } from 'node:fs';
 import { budgetDayOption, configJson, configText, resolveConfig } from '../src/config.mjs';
 import { notifyOptions } from '../src/notify.mjs';
+import { mask, stripControl } from '../src/text.mjs';
 
-const KNOWN = new Set(['-h', '--help', '-v', '--version', '--once', '--all', '--json', '--doctor', '--bell', '--show-requests', '--print-config', '--no-bell', '--no-all', '--no-show-requests']);
+const KNOWN = new Set(['-h', '--help', '-v', '--version', '--once', '--all', '--json', '--doctor', '--bell', '--show-requests', '--print-config', '--no-bell', '--no-all', '--no-show-requests', '--debug', '--no-debug']);
 const THEMES = ['light', 'dark'];
 const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
@@ -42,7 +43,7 @@ const flag = (name) => {
 const notifyFlag = cli.notify ? true : notifyOptions(cliArgs, { notify: true }).notify ? undefined : false;
 // onWaiting 은 --on-waiting 이 뒤에 오면 그 명령, --no-on-waiting 이 뒤에 오면 null(끔), 둘 다 없으면 정하지 않은 것이다.
 const onWaitingFlag = cli.onWaiting ?? (notifyOptions(cliArgs, { onWaiting: 'x' }).onWaiting === null ? null : undefined);
-const config = resolveConfig({ flags: { theme: THEMES.includes(theme) ? theme : undefined, bell: flag('bell'), showRequests: flag('show-requests'), all: flag('all'), notify: notifyFlag, onWaiting: onWaitingFlag, budgetDay: budget.value } });
+const config = resolveConfig({ flags: { theme: THEMES.includes(theme) ? theme : undefined, bell: flag('bell'), showRequests: flag('show-requests'), all: flag('all'), debug: flag('debug'), notify: notifyFlag, onWaiting: onWaitingFlag, budgetDay: budget.value } });
 const opt = Object.fromEntries(Object.entries(config.values).map(([k, v]) => [k, v.value]));
 // 알림은 설정 파일 값(onWaiting 은 권한 검사를 통과한 것만)을 깔고 명령줄 옵션이 덮는다.
 const fromFile = (k) => (config.values[k].source === 'file' ? config.values[k].value : undefined);
@@ -51,6 +52,19 @@ const alerts = notifyOptions(cliArgs, { notify: fromFile('notify'), onWaiting: f
 if (opt.theme) process.env.AITOP_THEME = opt.theme;
 if (config.values.icons.source === 'file') process.env.AITOP_ICONS = opt.icons;
 const { BRAND, userVarsSeq } = await import('../src/brand.mjs');
+const { debug, initLog, logPath } = await import('../src/log.mjs');
+
+// 실시간 화면에 들어간 뒤에는 restore 가 터미널을 되돌리고 훅을 끝낸다. 그 전에는 할 일이 없다.
+let restore = () => {};
+process.on('unhandledRejection', (reason) => {
+  debug('aitop', 'unhandledRejection', reason);
+  try {
+    restore();
+  } catch {}
+  const why = reason instanceof Error ? reason.message : String(reason);
+  process.stderr.write(`aitop: 처리되지 않은 오류로 끝냅니다 (${stripControl(mask(why)).slice(0, 200)})\n`);
+  process.exit(1);
+});
 
 const HELP = `${BRAND.logo} aitop - 터미널에서 Claude Code · Codex · Antigravity · Gemini 세션을 실시간으로 본다
 
@@ -67,7 +81,9 @@ const HELP = `${BRAND.logo} aitop - 터미널에서 Claude Code · Codex · Anti
   aitop --budget-day <달러>  하루 예산. 헤더에 오늘 $12.30/$50 처럼 보이고, 오늘 끝 예상 비용(오늘 + 최근 속도 × 자정까지, 늘 API 환산)이
                    80% 를 넘으면 '예상 $45', 100% 를 넘으면 '예상 $60!' 로 알린다 (AITOP_BUDGET_DAY, 설정 파일 budgetDay)
   aitop --theme light|dark  밝은 배경 / 어두운 배경 색 (없으면 COLORFGBG 로 고른다)
-  aitop --no-bell · --no-all · --no-show-requests · --no-notify · --no-on-waiting · --no-budget-day  설정 파일에서 켠 값을 이번 실행만 끈다
+  aitop --no-bell · --no-all · --no-show-requests · --no-notify · --no-on-waiting · --no-budget-day · --no-debug  설정 파일에서 켠 값을 이번 실행만 끈다
+  aitop --debug    디버그 로그를 남긴다 (AITOP_DEBUG=1, 설정 파일 debug). 기록 형식이 바뀌어 값이 빌 때 원인 확인용
+                   ${logPath()} (1MB 넘으면 .1 로 하나만 남김, 오류 이름·파일 이름만 쓰고 비밀값은 가림)
   aitop --print-config  설정 값마다 값과 출처(flag/env/file/default), 설정 파일 위치를 보인다 (--json 과 함께 쓸 수 있다)
   aitop --version  설치된 버전을 보인다
 
@@ -103,6 +119,10 @@ if (args.has('--print-config')) {
   process.exit(0);
 }
 
+// 디버그 로그는 켰을 때만 파일을 만든다. --help·--version·--print-config 처럼 바로 끝나는 경우에는 만들지 않는다.
+const log = initLog({ enabled: opt.debug, version: VERSION });
+if (opt.debug && !log.on) process.stderr.write(`aitop: 디버그 로그를 열 수 없어 끕니다 (${log.path})\n`);
+
 // 파이프나 파일로 받을 때는 색 코드를 넣지 않는다. 화면 모듈이 불러올 때 NO_COLOR 를 읽으므로 그 전에 정한다.
 const forced = process.env.FORCE_COLOR != null && !['', '0', 'false'].includes(process.env.FORCE_COLOR);
 if (!process.stdout.isTTY && !forced && !process.env.NO_COLOR) process.env.NO_COLOR = '1';
@@ -122,7 +142,7 @@ if ((cli.notify || cli.onWaiting) && (args.has('--once') || args.has('--json') |
 
 const { checkTools, doctorText, toolsJson } = await import('../src/doctor.mjs');
 if (args.has('--doctor')) {
-  const result = { ...checkTools(), config: configJson(config) };
+  const result = { ...checkTools(), config: configJson(config), log: { on: log.on, path: log.path } };
   await printAndExit(args.has('--json') ? JSON.stringify({ version: VERSION, ...result, tools: toolsJson(result.tools) }, null, 2) : doctorText(result, VERSION));
 }
 
@@ -239,6 +259,12 @@ function leaveScreen() {
   if (stdin.isTTY) stdin.setRawMode(false);
 }
 
+restore = () => {
+  notifier?.killAll();
+  leaveScreen();
+  flushCache();
+};
+
 function quit() {
   notifier?.killAll();
   leaveScreen();
@@ -257,6 +283,7 @@ process.on('SIGCONT', () => {
   draw();
 });
 process.on('uncaughtException', (err) => {
+  debug('aitop', 'uncaughtException', err);
   notifier?.killAll();
   leaveScreen();
   try {
