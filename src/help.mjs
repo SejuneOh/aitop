@@ -83,6 +83,7 @@ export const OPTIONS = [
   ['--color-blind', '적록 색약용 색 (대기·돈·경고를 노랑·파랑 계열로)'],
   ['--debug', '디버그 로그를 남긴다'],
   ['--print-config', '설정 값과 출처, 설정 파일 위치'],
+  ['AITOP_AMBIGUOUS=wide', '·→─● 를 2칸으로 그리는 터미널용 (1칸 기호로)'],
 ];
 
 // 지금 보는 화면: 파일 목록·diff 에 들어가 있으면 그 화면, 아니면 세션 표. 검색어는 표에 붙는 것이라 helpSections 가 따로 본다.

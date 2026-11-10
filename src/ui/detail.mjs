@@ -1,10 +1,11 @@
 // 선택한 세션 상세 패널: 왼쪽 요약, 오른쪽 변경 파일·지시 탭·diff·최근 활동. 100칸 미만에서는 요약을 위쪽 두 줄로 접는다.
-import { fmtAgo, fmtTokens, pad, truncateLeft, width } from '../text.mjs';
+import { ellipsis, fmtAgo, fmtTokens, pad, truncateLeft, width } from '../text.mjs';
 import { currentTab, filesForTab, turnTabs } from '../turns.mjs';
 import { isAbsolute, relative } from 'node:path';
 import { PALETTE, PHASE_COLOR } from './theme.mjs';
 import { NOW, box, clock, fill, gauge, glyph, hhmm, levelBar, money, rule, segsWidth, tilde } from './draw.mjs';
 import { activitySeries } from '../sources/common.mjs';
+import { glyphs } from './glyphs.mjs';
 
 // 세션 폴더 기준 상대 경로. 폴더 밖이면 ~ 로 줄인다.
 export function relPath(cwd, p) {
@@ -95,7 +96,7 @@ export function diffView(s, files, f, w, rows, view) {
 // 사용자 입력(❯)만 진하게 두고 나머지 본문은 흐리게. 파일 목록에 들어가 있으면(dim) 전부 흐리게.
 export function activity(s, n, dim = false) {
   const tc = PALETTE.tools[s.tool];
-  const icon = { prompt: { t: '❯ ', fg: tc, bold: true }, tool: { t: '• ', fg: PALETTE.tool }, reply: { t: '↳ ', fg: PALETTE.muted } };
+  const icon = { prompt: { t: '❯ ', fg: tc, bold: true }, tool: { t: `${glyphs().event} `, fg: PALETTE.tool }, reply: { t: '↳ ', fg: PALETTE.muted } };
   // 기록 줄 순서와 시각이 어긋날 때가 있어(병렬 도구 호출 등) 시각 순으로 다시 정렬한다. 같은 시각이면 기록 순서를 지킨다.
   const events = [...(s.events ?? [])].sort((a, b) => a.at - b.at).slice(-n);
   if (!events.length) return [[INDENT, { t: '아직 기록된 활동이 없습니다', fg: PALETTE.info, italic: true }]];
@@ -192,8 +193,9 @@ export function requestBlock(s, w, max = REQUEST_LINES) {
   if (lines.length > max) {
     lines = lines.slice(0, max);
     const last = [...lines[max - 1]];
-    while (last.length && width(last.join('')) + 1 > textW) last.pop();
-    lines[max - 1] = last.join('') + '…';
+    const mark = ellipsis(textW);
+    while (last.length && width(last.join('')) + width(mark) > textW) last.pop();
+    lines[max - 1] = last.join('') + mark;
   }
   return [rule([{ t: '요청', fg: PALETTE.waiting, bold: true }], '', w), ...lines.map((l) => [INDENT, { t: l, fg: PALETTE.text }])];
 }
@@ -220,8 +222,8 @@ export function rightColumn(s, w, rows, view) {
   }
 
   // 목록에 들어가 있으면 구획 왼쪽에 ▌ 막대를 세우고 가로줄을 강조색으로 바꾼다.
-  const gutter = focused ? [{ t: '▌', fg: PALETTE.brand }] : [];
-  const inner = w - gutter.length;
+  const gutter = focused ? [{ t: glyphs().select, fg: PALETTE.brand }] : [];
+  const inner = w - segsWidth(gutter);
   const tier = rows >= ROOMY ? 3 : rows >= 11 ? 2 : 1;
   const label = [{ t: '변경 파일', fg: focused ? PALETTE.brand : PALETTE.text, bold: true }, ...(tier === 1 ? [{ t: ` · ${tab.label}`, fg: PALETTE.muted }] : [])];
   // git diff 가 아니라 Edit/Write 기록이고 Bash 로 바꾼 파일은 빠진다는 것을 화면에서 바로 알 수 있게 한다.

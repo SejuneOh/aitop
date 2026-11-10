@@ -1,7 +1,8 @@
 // 그리기 기본: 조각(segment) 줄 만들기·자르기·채우기, 상자, 가로줄, 게이지, 시각·금액 표기.
 import { pad, stripControl, truncate, width } from '../text.mjs';
 import { homedir } from 'node:os';
-import { EDGE, NO_COLOR, PALETTE, PHASE_COLOR, RESET, style } from './theme.mjs';
+import { NO_COLOR, PALETTE, PHASE_COLOR, RESET, style } from './theme.mjs';
+import { glyphs } from './glyphs.mjs';
 
 // segs: [{ t: 텍스트, ...style }]. 폭 W 에 맞춰 자르고, 남는 칸은 bg 로 채운다.
 // 화면에 나가는 글자는 모두 여기를 지나므로, 기록에서 온 제어문자도 여기서 한 번 더 지운다.
@@ -36,11 +37,12 @@ export const SPIN = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏';
 
 export function glyph(s, frame) {
   const k = s.phase?.kind;
-  if (s.status === 'waiting') return { t: frame % 8 < 5 ? '◆' : '◇', fg: PALETTE.waiting, bold: true };
-  if (k === 'ended') return { t: '·', fg: PALETTE.ended };
+  const G = glyphs();
+  if (s.status === 'waiting') return { t: frame % 8 < 5 ? G.waiting : G.waitingBlink, fg: PALETTE.waiting, bold: true };
+  if (k === 'ended') return { t: G.ended, fg: PALETTE.ended };
   if (k === 'done') return { t: '✓', fg: PALETTE.info };
-  if (k === 'unseen') return { t: '●', fg: PALETTE.busy, bold: true };
-  if (k === 'idle') return s.status === 'live' ? { t: '●', fg: PALETTE.tools[s.tool] } : { t: '○', fg: PALETTE.idle };
+  if (k === 'unseen') return { t: G.unseen, fg: PALETTE.busy, bold: true };
+  if (k === 'idle') return s.status === 'live' ? { t: G.live, fg: PALETTE.tools[s.tool] } : { t: G.idle, fg: PALETTE.idle };
   return { t: SPIN[frame % SPIN.length], fg: PHASE_COLOR[k] ?? PALETTE.busy, bold: true };
 }
 
@@ -48,8 +50,7 @@ export function glyph(s, frame) {
 export const glyphMoves = (s) => s.status === 'waiting' || !['ended', 'done', 'unseen', 'idle'].includes(s.phase?.kind);
 
 // 막대는 같은 높이의 얇은 블록(▃)으로 그리고 채운 칸과 빈칸은 색으로 나눈다. 칸 높이가 모두 같아 끝이 튀어나오지 않는다.
-// 색이 없으면 빈칸을 가장 얇은 ▁ 로 그려 모양으로 구분한다.
-export const BAR = { fill: '▃', empty: NO_COLOR ? '▁' : '▃' };
+// 색이 없으면 빈칸을 가장 얇은 ▁ 로 그려 모양으로 구분한다. 기호는 glyphs().bar 에 있다.
 
 // 0% 보다 크면 최소 1칸, 100% 가 아니면 마지막 칸은 비워 둔다.
 export function filledCells(r, cells) {
@@ -59,6 +60,7 @@ export function filledCells(r, cells) {
 }
 
 export function gauge(used, total, cells) {
+  const BAR = glyphs().bar;
   if (!total) return [{ t: BAR.empty.repeat(cells) + '     ', fg: PALETTE.faint }];
   const r = Math.min(1, Math.max(0, used / total || 0));
   const full = cells ? filledCells(r, cells) : 0;
@@ -109,7 +111,8 @@ export function fill(segs, n, bg) {
 
 // title: 조각 배열 또는 문자열. leftLines 가 null 이면 칸을 나누지 않고 rightLines 가 안쪽 전체 폭(W - 4)을 쓴다.
 export function box(title, W, H, leftLines, rightLines, leftW, accent, focused = false) {
-  const e = focused && NO_COLOR ? EDGE.heavy : EDGE.normal;
+  const E = glyphs().edge;
+  const e = focused && NO_COLOR ? E.heavy : E.normal;
   const fg = focused ? PALETTE.brand : PALETTE.line;
   const out = [];
   const titleSegs = typeof title === 'string' ? [{ t: title, fg: accent, bold: true }] : title;
@@ -130,18 +133,20 @@ export const hhmm = (ms) => clock(ms).slice(0, 5);
 // ── 라벨 ───────── 메타 ─. 오른쪽 칸의 구획(변경 파일·최근 활동·diff)을 나누는 가로줄.
 // 폭이 모자라면 메타부터 뺀다.
 export function rule(label, meta, w, color = PALETTE.line) {
-  const head = [{ t: '── ', fg: color }, ...label];
+  const h = glyphs().rule;
+  const head = [{ t: h + h + ' ', fg: color }, ...label];
   const headW = head.reduce((a, x) => a + width(x.t), 0);
-  const tail = meta && headW + width(meta) + 4 <= w ? [{ t: ` ${meta} `, fg: PALETTE.info }, { t: '─', fg: color }] : [];
+  const tail = meta && headW + width(meta) + 4 <= w ? [{ t: ` ${meta} `, fg: PALETTE.info }, { t: h, fg: color }] : [];
   const used = [...head, ...tail].reduce((a, x) => a + width(x.t), 0);
-  return [...head, { t: ' ' + '─'.repeat(Math.max(0, w - used - 1)), fg: color }, ...tail];
+  return [...head, { t: ' ' + h.repeat(Math.max(0, w - used - 1)), fg: color }, ...tail];
 }
 
 // 값 목록을 ▁▂…█ 막대로. 가장 큰 값을 █ 로 맞추고, 0 은 장식 색(faint) ▁, 0 보다 크면 ▂ 이상이라 색이 없어도 갈린다.
 // 헤더 7일 막대(table.mjs weekBar)와 상세 패널의 시간별 활동 막대가 같이 쓴다.
-export const BAR_GLYPHS = '▁▂▃▄▅▆▇█';
+// AITOP_AMBIGUOUS=wide 이면 ▁…█ 대신 1칸 ASCII 막대(glyphs().week)를 쓴다.
 export function levelBar(values) {
+  const bars = glyphs().week;
   const v = values.map((x) => Math.max(0, x ?? 0));
   const max = Math.max(0, ...v);
-  return v.map((x) => (!(x > 0) || !(max > 0) ? { t: BAR_GLYPHS[0], fg: PALETTE.faint } : { t: BAR_GLYPHS[Math.min(7, Math.max(1, Math.ceil((x / max) * 7)))], fg: PALETTE.info }));
+  return v.map((x) => (!(x > 0) || !(max > 0) ? { t: bars[0], fg: PALETTE.faint } : { t: bars[Math.min(7, Math.max(1, Math.ceil((x / max) * 7)))], fg: PALETTE.info }));
 }

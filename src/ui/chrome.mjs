@@ -2,6 +2,7 @@
 import { pad, width } from '../text.mjs';
 import { NO_COLOR, PALETTE } from './theme.mjs';
 import { box, line, segsWidth } from './draw.mjs';
+import { glyphs, legendMark } from './glyphs.mjs';
 import { GROUP_LABEL, SORT_LABEL } from '../order.mjs';
 import { COMMON, OPTIONS, VIEWS, helpContext, keysLine, settingsLine } from '../help.mjs';
 
@@ -48,7 +49,7 @@ export function helpSections(view = {}, open = false) {
     ...(view.settings?.configPath ? [['설정 파일', view.settings.configPath, 'dim']] : []),
     ...(now ? [['지금', now]] : []),
   ];
-  return { keys: [...keys, ...rest], more: [...options, ['', ''], ...LEGEND] };
+  return { keys: [...keys, ...rest], more: [...options, ['', ''], ...LEGEND.map(([k, t]) => [legendMark(k), t])] };
 }
 
 // 키 칸 폭은 제목 줄 사이 묶음마다 그 묶음의 가장 긴 키에 맞춘다 (12~21칸).
@@ -128,7 +129,7 @@ export function footer(view, W, matched, sel) {
   if (view.help) return hintBar([{ k: '↑↓', t: '스크롤' }, { k: '?', t: '도움 닫기', keep: true }, { k: 'Esc', t: '닫기' }, { k: 'q', t: '나가기', keep: true }], W, '⊘ 읽기전용');
   if (view.searching) {
     const input = NO_COLOR ? [{ t: '[/]' }] : [{ t: ' / ', fg: PALETTE.chipText, bg: PALETTE.brand, bold: true }];
-    return hintBar([{ segs: [...input, { t: ` ${view.filter ?? ''}`, fg: PALETTE.text, bold: true }, { t: '▏', fg: PALETTE.brand }, { t: `  ${matched}개   `, fg: PALETTE.muted }], keep: true }, { k: '⏎', t: '적용', keep: true }, { k: 'Esc', t: '지우기', keep: true }], W);
+    return hintBar([{ segs: [...input, { t: ` ${view.filter ?? ''}`, fg: PALETTE.text, bold: true }, { t: glyphs().cursor, fg: PALETTE.brand }, { t: `  ${matched}개   `, fg: PALETTE.muted }], keep: true }, { k: '⏎', t: '적용', keep: true }, { k: 'Esc', t: '지우기', keep: true }], W);
   }
   if (view.focus) {
     const keys =
