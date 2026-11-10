@@ -55,9 +55,10 @@ aitop --json     세션 목록과 오늘·7일 사용량을 JSON 으로 한 번 
 aitop --version  설치된 버전
 aitop --doctor   도구별 연결 점검 (기록 폴더, 기록 수, 마지막 기록, 실행 수). --json 과 함께 가능
 aitop --theme light|dark  밝은 배경 / 어두운 배경 색. 없으면 AITOP_THEME 환경변수, 설정 파일의 theme, 그다음 COLORFGBG 로 고르고, 모르면 어두운 배경
+aitop --color-blind  적록 색약(1형·2형)용 색. --theme 과 따로 고르며 밝은·어두운 배경 모두 있다 (AITOP_COLOR_BLIND=1, 설정 파일 colorBlind). 아래 '색약 팔레트' 참고
 aitop --show-requests  응답 대기 요청 전체(명령·경로)를 상세 패널과 --json(waitDetail)에 보인다. AITOP_SHOW_REQUESTS=1 과 같다
 aitop --budget-day <달러>  하루 예산 (AITOP_BUDGET_DAY, 설정 파일 budgetDay). 아래 '하루 예산' 참고
-aitop --no-bell · --no-all · --no-show-requests · --no-notify · --no-on-waiting · --no-budget-day · --no-debug  설정 파일에서 켠 값을 이번 실행만 끈다
+aitop --no-bell · --no-all · --no-show-requests · --no-notify · --no-on-waiting · --no-budget-day · --no-debug · --no-color-blind  설정 파일에서 켠 값을 이번 실행만 끈다
 aitop --debug    디버그 로그 (AITOP_DEBUG=1, 설정 파일 debug). 아래 '디버그 로그' 참고
 aitop --print-config   설정 값마다 값과 출처(flag/env/file/default), 설정 파일 위치를 보인다. --json 과 함께 가능
 ```
@@ -73,6 +74,7 @@ aitop --print-config   설정 값마다 값과 출처(flag/env/file/default), �
 | 키 | 값 | 같은 옵션·환경 변수 |
 |---|---|---|
 | `theme` | `light` · `dark` | `--theme`, `AITOP_THEME` |
+| `colorBlind` | true · false | `--color-blind` · `--no-color-blind`, `AITOP_COLOR_BLIND=1`·`0` |
 | `icons` | `plain` · `ascii` | `AITOP_ICONS` |
 | `bell` | true · false | `--bell` · `--no-bell` |
 | `showRequests` | true · false | `--show-requests` · `--no-show-requests`, `AITOP_SHOW_REQUESTS=1`·`0` |
@@ -95,6 +97,20 @@ CLI 기록 형식이 바뀌어 값이 비어 보이면 `aitop --debug` 로 실�
 `--json` 에는 `version` 과 같은 점검 결과 `tools` 가 들어 있다.
 
 색 없이도(NO_COLOR) 보이도록 비용 상위 두 세션에는 `▲`, 컨텍스트 85% 이상에는 `!` 가 붙는다.
+
+### 색약 팔레트
+
+`aitop --color-blind` (또는 `AITOP_COLOR_BLIND=1`, 설정 파일 `"colorBlind": true`) 는 적록 색약이 헷갈리는 색 쌍을 노랑 계열과 파랑 계열로 가른다. Okabe-Ito 색 계열을 바탕으로 했다.
+
+| 뜻 | 기본 (어두운 배경) | 색약 (어두운 · 밝은 배경) | 색 말고 구분하는 기호 |
+|---|---|---|---|
+| 응답 대기 | 호박색 | 노랑 `#f0e442` · `#6e5f00` | `◆`, 행 배경, 헤더 `◆ N 응답 대기` |
+| 돈 (비용) | 연두 | 옅은 파랑 `#d4dcff` · `#3a4fc0` | `$`, 비용 상위 `▲` |
+| 작업 중 · diff 더한 줄 | 초록 | 청록 `#3cc8a0` · `#00735a` | 스피너, STATUS 글, 줄 앞 `+` |
+| 경고 · diff 지운 줄 | 빨강 | 주홍 `#ff8060` · `#c03010` | `!`, 줄 앞 `-` |
+| 예산 주의 | 분홍 | 자주 `#e8a0c8` · `#9a3d76` | `예상 $45` (경고는 `예상 $60!`) |
+
+밝기(`--theme`)와는 따로 고르므로 `COLORFGBG` 자동 판별도 그대로 쓴다. 글자 대비 규칙(배경·선택 행·대기 행·띠 위 4.5:1 이상)은 기본 팔레트와 같다. 청황 색약(3형)용 팔레트는 아직 없다.
 
 실시간 화면은 창(탭) 제목을 `󰚩 (2◆ 1●) aitop` 처럼 아이콘과 응답 대기·확인 전 수로 바꾼다. `--bell` 을 주면 응답 대기가 새로 생길 때 벨을 한 번 울린다.
 

@@ -21,7 +21,7 @@ function configHome(body, mode = 0o600) {
 }
 const env = (xdg, extra = {}) => {
   const e = { ...process.env, XDG_CONFIG_HOME: xdg, ...extra };
-  for (const k of ['AITOP_THEME', 'AITOP_ICONS', 'AITOP_SHOW_REQUESTS', 'COLORFGBG']) if (!(k in extra)) delete e[k];
+  for (const k of ['AITOP_THEME', 'AITOP_ICONS', 'AITOP_SHOW_REQUESTS', 'AITOP_COLOR_BLIND', 'COLORFGBG']) if (!(k in extra)) delete e[k];
   return e;
 };
 const run = (xdg, args, extra) => execFileSync(process.execPath, [BIN, ...args], { env: env(xdg, extra), encoding: 'utf8', timeout: 20_000 });
@@ -71,6 +71,25 @@ test('파일의 theme·icons 가 화면 모듈을 불러오기 전에 반영된�
   // 환경 변수가 파일보다 앞선다.
   assert.match(run(light, ['--once'], { FORCE_COLOR: '1', AITOP_THEME: 'dark' }), /125;211;252/);
   assert.match(run(light, ['--help']), /^>_ai aitop/);
+});
+
+test('색약 팔레트: --color-blind > AITOP_COLOR_BLIND > 파일 colorBlind, 밝기와 따로 고른다', () => {
+  fx.transcript('e2ecfgcb-1', [user('색'), assistant('cb1', [], usage(1000, 10))]);
+  const { xdg } = configHome({ colorBlind: true, theme: 'light' });
+  assert.match(run(xdg, ['--print-config']), /^colorBlind +true +file$/m);
+  assert.match(run(xdg, ['--print-config'], { AITOP_COLOR_BLIND: '0' }), /^colorBlind +false +env$/m);
+  assert.match(run(xdg, ['--print-config', '--no-color-blind'], { AITOP_COLOR_BLIND: '1' }), /^colorBlind +false +flag$/m);
+  // 돈 색: 밝은 색약 #3a4fc0, 밝은 기본 #3f6212, 어두운 색약 #d4dcff
+  const money = { lightCb: /38;2;58;79;192m/, light: /38;2;63;98;18m/, darkCb: /38;2;212;220;255m/ };
+  const lightCb = run(xdg, ['--once'], { FORCE_COLOR: '1' });
+  assert.match(lightCb, money.lightCb);
+  assert.doesNotMatch(lightCb, money.light);
+  assert.match(run(xdg, ['--once', '--no-color-blind'], { FORCE_COLOR: '1' }), money.light);
+  const plain = configHome({}).xdg;
+  assert.match(run(plain, ['--once', '--color-blind', '--theme', 'dark'], { FORCE_COLOR: '1' }), money.darkCb);
+  assert.match(run(plain, ['--once'], { FORCE_COLOR: '1', AITOP_COLOR_BLIND: '1', COLORFGBG: '0;15' }), money.lightCb, 'COLORFGBG 자동 판별과 함께');
+  const doc = JSON.parse(run(plain, ['--doctor', '--json'], { AITOP_COLOR_BLIND: 'yes' }));
+  assert.ok(doc.config.problems.some((p) => /AITOP_COLOR_BLIND 값 "yes"/.test(p)));
 });
 
 test('잘못된 설정은 무시하고 --doctor 에 알린다 (JSON 도)', () => {

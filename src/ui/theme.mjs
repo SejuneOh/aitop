@@ -67,9 +67,47 @@ const LIGHT = {
   chipText: '#ffffff',
 };
 
+// 색약(적록 색약: 1형·2형) 팔레트. Okabe-Ito 색 계열을 터미널 배경에 맞게 밝기만 조정했다.
+// 적록 색약은 빨강·초록·노랑을 노랑 계열 한 가지로, 파랑·보라를 파랑 계열로 본다. 그래서 꼭 갈라야 하는 쌍을 노랑 계열과 파랑 계열로 나눈다.
+// 응답 대기(노랑) ↔ 돈(파랑), 작업 중·diff 더한 줄(청록) ↔ 경고·diff 지운 줄(주홍), 예산 주의(자주) ↔ 경고(주홍).
+// 대기와 경고는 둘 다 노랑 계열로 보이지만 ◆ 와 ! 기호로 갈린다.
+// 어두운 배경의 돈은 도구 실행(하늘색)과 같은 행에 서므로 같은 파랑 계열 안에서 훨씬 밝게 둔다.
+// 글자·배경·도구 색은 기본 팔레트와 같고, 상태색과 diff 배경만 바꾼다. 대비 규칙은 기본 팔레트와 같다.
+const DARK_CB = {
+  ...DARK,
+  rowWaiting: '#2b2808',
+  busy: '#3cc8a0',
+  waiting: '#f0e442',
+  tool: '#56b4e9',
+  team: '#e8a0c8',
+  alert: '#ff8060',
+  money: '#d4dcff',
+  addBg: '#0d2333',
+  delBg: '#331b0a',
+};
+
+const LIGHT_CB = {
+  ...LIGHT,
+  rowWaiting: '#fbf3c0',
+  busy: '#00735a',
+  waiting: '#6e5f00',
+  tool: '#0060a0',
+  team: '#9a3d76',
+  alert: '#c03010',
+  money: '#3a4fc0',
+  addBg: '#dcefff',
+  delBg: '#ffe8d6',
+};
+
+// AITOP_COLOR_BLIND=1 (bin 의 --color-blind, 설정 파일 colorBlind) 이면 배경에 맞는 색약 팔레트를 쓴다.
+// 밝기(light/dark)와 색약 여부는 따로 고른다. 그래야 COLORFGBG 자동 판별을 색약 팔레트에서도 그대로 쓴다.
+export const pickColorBlind = (env = process.env) => env.AITOP_COLOR_BLIND === '1';
+export const paletteName = (theme, colorBlind) => (colorBlind ? `${theme}-cb` : theme);
+
 export const THEME = pickTheme();
-export const PALETTES = { dark: DARK, light: LIGHT };
-export const PALETTE = THEME === 'light' ? LIGHT : DARK;
+export const COLOR_BLIND = pickColorBlind();
+export const PALETTES = { dark: DARK, light: LIGHT, 'dark-cb': DARK_CB, 'light-cb': LIGHT_CB };
+export const PALETTE = PALETTES[paletteName(THEME, COLOR_BLIND)];
 
 export const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)).join(';');
 

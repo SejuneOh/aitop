@@ -56,6 +56,8 @@ export const KEYS = {
   onWaiting: { ok: (v) => typeof v === 'string' && v.trim() !== '', expect: '실행할 명령 문자열', def: null },
   debug: { ok: bool, expect: 'true 또는 false', def: false, env: ['AITOP_DEBUG', (v) => (v === '1' ? true : v === '0' ? false : undefined)], envProblem: true, envExpect: '1 또는 0' },
   budgetDay: { ok: (v) => typeof v === 'number' && Number.isFinite(v) && v > 0, expect: '0 보다 큰 수', def: null, env: ['AITOP_BUDGET_DAY', (v) => usd(v) ?? undefined], envProblem: true },
+  // colorBlind 는 적록 색약 팔레트(ui/theme.mjs)를 고른다. theme(밝기)과 따로 정한다.
+  colorBlind: { ok: bool, expect: 'true 또는 false', def: false, env: ['AITOP_COLOR_BLIND', (v) => (v === '1' ? true : v === '0' ? false : undefined)], envProblem: true, envExpect: '1 또는 0' },
 };
 
 export function configPath(env = process.env, home = homedir()) {

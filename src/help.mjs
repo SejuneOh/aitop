@@ -72,6 +72,7 @@ export const OPTIONS = [
   ['--on-waiting <명령>', '응답 대기가 생기면 명령 실행'],
   ['--budget-day <달러>', '하루 예산. 헤더에 예상 비용 경고'],
   ['--show-requests', '응답 대기 요청 전체를 상세·--json 에'],
+  ['--color-blind', '적록 색약용 색 (대기·돈·경고를 노랑·파랑 계열로)'],
   ['--debug', '디버그 로그를 남긴다'],
   ['--print-config', '설정 값과 출처, 설정 파일 위치'],
 ];
