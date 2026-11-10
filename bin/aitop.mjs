@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs';
-import { configJson, configText, resolveConfig } from '../src/config.mjs';
+import { budgetDayOption, configJson, configText, resolveConfig } from '../src/config.mjs';
 import { notifyOptions } from '../src/notify.mjs';
 
 const KNOWN = new Set(['-h', '--help', '-v', '--version', '--once', '--all', '--json', '--doctor', '--bell', '--show-requests', '--print-config', '--no-bell', '--no-all', '--no-show-requests']);
@@ -14,8 +14,14 @@ if (cli.error) {
   process.stderr.write(`aitop: ${cli.error}\n`);
   process.exit(2);
 }
+// --budget-day <usd>, --budget-day=<usd>, --no-budget-day 는 budgetDayOption 이 꺼낸다.
+const budget = budgetDayOption(cli.rest);
+if (budget.error) {
+  process.stderr.write(`aitop: ${budget.error}\n`);
+  process.exit(2);
+}
 // --theme light, --theme=light 처럼 값을 받는 옵션은 따로 꺼낸다.
-const argv = cli.rest;
+const argv = budget.rest;
 let theme = null;
 const rest = [];
 for (let i = 0; i < argv.length; i++) {
@@ -36,7 +42,7 @@ const flag = (name) => {
 const notifyFlag = cli.notify ? true : notifyOptions(cliArgs, { notify: true }).notify ? undefined : false;
 // onWaiting 은 --on-waiting 이 뒤에 오면 그 명령, --no-on-waiting 이 뒤에 오면 null(끔), 둘 다 없으면 정하지 않은 것이다.
 const onWaitingFlag = cli.onWaiting ?? (notifyOptions(cliArgs, { onWaiting: 'x' }).onWaiting === null ? null : undefined);
-const config = resolveConfig({ flags: { theme: THEMES.includes(theme) ? theme : undefined, bell: flag('bell'), showRequests: flag('show-requests'), all: flag('all'), notify: notifyFlag, onWaiting: onWaitingFlag } });
+const config = resolveConfig({ flags: { theme: THEMES.includes(theme) ? theme : undefined, bell: flag('bell'), showRequests: flag('show-requests'), all: flag('all'), notify: notifyFlag, onWaiting: onWaitingFlag, budgetDay: budget.value } });
 const opt = Object.fromEntries(Object.entries(config.values).map(([k, v]) => [k, v.value]));
 // 알림은 설정 파일 값(onWaiting 은 권한 검사를 통과한 것만)을 깔고 명령줄 옵션이 덮는다.
 const fromFile = (k) => (config.values[k].source === 'file' ? config.values[k].value : undefined);
@@ -58,15 +64,17 @@ const HELP = `${BRAND.logo} aitop - 터미널에서 Claude Code · Codex · Anti
   aitop --on-waiting <명령>  응답 대기 세션이 새로 생기면 /bin/sh -c 로 명령을 실행한다 (내 권한으로 실행, 10초 제한)
                    세션 정보는 환경변수로만: AITOP_TOOL AITOP_PROJECT AITOP_SESSION_ID AITOP_CWD AITOP_WAITING_FOR
   aitop --show-requests  응답 대기 요청 전체를 상세 패널·--json 에 보인다 (AITOP_SHOW_REQUESTS=1). 비밀값 가림은 최선일 뿐이라 명령 속 비밀값이 보일 수 있다
+  aitop --budget-day <달러>  하루 예산. 헤더에 오늘 $12.30/$50 처럼 보이고, 오늘 끝 예상 비용(오늘 + 최근 속도 × 자정까지, 늘 API 환산)이
+                   80% 를 넘으면 '예상 $45', 100% 를 넘으면 '예상 $60!' 로 알린다 (AITOP_BUDGET_DAY, 설정 파일 budgetDay)
   aitop --theme light|dark  밝은 배경 / 어두운 배경 색 (없으면 COLORFGBG 로 고른다)
-  aitop --no-bell · --no-all · --no-show-requests · --no-notify · --no-on-waiting  설정 파일에서 켠 값을 이번 실행만 끈다
+  aitop --no-bell · --no-all · --no-show-requests · --no-notify · --no-on-waiting · --no-budget-day  설정 파일에서 켠 값을 이번 실행만 끈다
   aitop --print-config  설정 값마다 값과 출처(flag/env/file/default), 설정 파일 위치를 보인다 (--json 과 함께 쓸 수 있다)
   aitop --version  설치된 버전을 보인다
 
   AITOP_ICONS=plain  창 제목의 Nerd Font 아이콘과 WezTerm 탭 값을 끈다 (ascii 면 로고도 ASCII)
 
   설정 파일: ${config.path}
-    예) { "theme": "light", "icons": "plain", "bell": true, "notify": true, "onWaiting": "say 대기" }
+    예) { "theme": "light", "icons": "plain", "bell": true, "notify": true, "onWaiting": "say 대기", "budgetDay": 50 }
     onWaiting 은 파일 소유자가 나이고 그룹·다른 사용자가 쓸 수 없을 때(chmod 600)만 받는다.
     옵션 > 환경 변수 > 설정 파일 순서로 정한다. 잘못된 값은 무시하고 --doctor 에 알린다.
 
@@ -130,7 +138,7 @@ const { onKey, fixFocus } = await import('../src/keys.mjs');
 
 // 요청 전체 보기는 기본으로 꺼 둔다. 켜지 않으면 상세 패널에도 --json 에도 나가지 않는다.
 const showRequests = opt.showRequests;
-const view = { showRequests, data: null, selectedId: null, showDetail: 'auto', showEnded: opt.all, frame: 0, filter: '', searching: false, help: false, focus: null, filePath: null, diffScroll: 0, tab: 'now', costMode: 'api', sort: 'default', group: 'none' };
+const view = { showRequests, budgetDay: opt.budgetDay, data: null, selectedId: null, showDetail: 'auto', showEnded: opt.all, frame: 0, filter: '', searching: false, help: false, focus: null, filePath: null, diffScroll: 0, tab: 'now', costMode: 'api', sort: 'default', group: 'none' };
 const once = args.has('--once') || args.has('--json') || !process.stdout.isTTY;
 // 실시간 화면에서 한 번 갱신할 때 읽는 기록 양과 시간. 큰 기록은 여러 번에 나눠 읽어서 키 입력이 막히지 않게 한다.
 const TICK_BUDGET = 24 * 1024 * 1024;
@@ -184,7 +192,7 @@ if (once) {
   const size = (v) => (Number(v) > 0 ? Math.floor(Number(v)) : 0);
   const W = process.stdout.columns || size(process.env.COLUMNS) || 140;
   const H = process.stdout.rows || size(process.env.LINES) || 40;
-  await printAndExit(args.has('--json') ? JSON.stringify(toJson(view.data, VERSION, { showRequests }), null, 2) : render(view, W, H).join('\n'));
+  await printAndExit(args.has('--json') ? JSON.stringify(toJson(view.data, VERSION, { showRequests, budgetDay: opt.budgetDay }), null, 2) : render(view, W, H).join('\n'));
 }
 
 const out = process.stdout;

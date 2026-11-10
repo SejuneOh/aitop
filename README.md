@@ -56,7 +56,8 @@ aitop --version  설치된 버전
 aitop --doctor   도구별 연결 점검 (기록 폴더, 기록 수, 마지막 기록, 실행 수). --json 과 함께 가능
 aitop --theme light|dark  밝은 배경 / 어두운 배경 색. 없으면 AITOP_THEME 환경변수, 설정 파일의 theme, 그다음 COLORFGBG 로 고르고, 모르면 어두운 배경
 aitop --show-requests  응답 대기 요청 전체(명령·경로)를 상세 패널과 --json(waitDetail)에 보인다. AITOP_SHOW_REQUESTS=1 과 같다
-aitop --no-bell · --no-all · --no-show-requests · --no-notify · --no-on-waiting  설정 파일에서 켠 값을 이번 실행만 끈다
+aitop --budget-day <달러>  하루 예산 (AITOP_BUDGET_DAY, 설정 파일 budgetDay). 아래 '하루 예산' 참고
+aitop --no-bell · --no-all · --no-show-requests · --no-notify · --no-on-waiting · --no-budget-day  설정 파일에서 켠 값을 이번 실행만 끈다
 aitop --print-config   설정 값마다 값과 출처(flag/env/file/default), 설정 파일 위치를 보인다. --json 과 함께 가능
 ```
 
@@ -77,7 +78,7 @@ aitop --print-config   설정 값마다 값과 출처(flag/env/file/default), �
 | `all` | true · false | `--all` · `--no-all` |
 | `notify` | true · false | `--notify` · `--no-notify` |
 | `onWaiting` | 명령 문자열 | `--on-waiting` · `--no-on-waiting` |
-| `budgetDay` | 0 보다 큰 수 | 이후 기능용 (값 검사만 한다) |
+| `budgetDay` | 0 보다 큰 수 (달러) | `--budget-day <usd>` · `--budget-day=<usd>` · `--no-budget-day`, `AITOP_BUDGET_DAY` |
 
 잘못된 JSON, 모르는 키, 잘못된 값은 그 키만 무시하고 `aitop --doctor` 에 알린다. `showRequests` 는 설정 파일로도 켤 수 있다 (내 파일이라 권한 검사는 하지 않는다). 켜면 위의 `--show-requests` 주의가 그대로 적용된다. `onWaiting` 은 파일 소유자가 나이고 그룹·다른 사용자가 쓸 수 없을 때(예: `chmod 600`)만 받는다.
 
@@ -158,6 +159,7 @@ end)
 
 - 헤더 오른쪽: 오늘·최근 7일 Claude · Codex CLI · Antigravity CLI 사용량(토큰, API 환산 비용). 최근 7일 안에 바뀐 기록(서브에이전트 포함)을 날짜별로 모은다. agy 는 호출마다 그 직전 단계의 만든 시각을 호출 날짜로 본다. Codex 는 `token_count` 누적값이 직전보다 늘어난 만큼을 그 줄의 시각에, 그 앞의 마지막 모델 가격으로 더한다 (누적값이 줄면 새로 시작한 것으로 본다). 처음 실행 때는 `7일 집계 중 N%` 로 채워진다. 폭이 모자라면 토큰 수, 7일, 오늘 순으로 줄인다.
 - 지출 속도: `오늘 $194 ($31/h)` 의 괄호는 최근 1시간(5분 단위 근사) 비용이다. 0 이면 숨기고, 폭이 모자라면 가장 먼저 뺀다. `--json` 에는 `usage.lastHour` 로 나간다.
+- 하루 예산(`budgetDay`): 오늘 금액 옆에 `오늘 $12.30/$50` 처럼 보인다. 예상 비용 = 오늘 비용 + 최근 지출 속도 × 로컬 자정까지 남은 시간. 속도는 최근 1시간 중 자정 이후 몫만 시간당으로 늘린 값이고, 자정 뒤 15분이 안 됐거나 집계 중이면 예상 = 오늘 비용이다. 예상이 예산의 80% 이상이면 `· 예상 $45`, 100% 이상이면 경고 색과 `· 예상 $60!`. 예산은 비용 기준(`c`)과 상관없이 늘 API 환산으로 보며, 캐시 제외 화면에서는 `예산 $12.30/$50` 칸이 따로 붙는다. 폭이 모자라면 `/$50`, 오늘 금액 순으로 빼서 예상 경고를 시각 다음으로 오래 남긴다. 잘못된 `AITOP_BUDGET_DAY` 는 무시하고 `--doctor` 에 알린다. `--json` 에는 예산이 있을 때만 `usage.budget: { day, projected, unknown, level: ok·caution·warn }` 로 나간다 (화면과 같은 단계).
 - 화면 높이가 30줄 이상이면 세션 표를 `세션 N` 상자로 감싼다. 비용 색은 화면에서 가장 큰 금액 두 개에만 칠한다.
 - 키 안내 줄은 폭이 모자라면 오른쪽부터 줄이고 `?`·`q` 는 늘 남긴다. `NO_COLOR` 이면 키가 `[q]` 처럼 괄호로 보이고, 포커스된 상자는 굵은 선(`┏━┃`)으로 그린다.
 - `● 완료 · 확인 전`: 작업 중이던 세션이 끝났는데 아직 선택해 보지 않은 세션. aitop 을 다시 켜면 초기화된다.

@@ -86,6 +86,10 @@ export function style({ fg, bg, bold, dim, italic } = {}) {
 
 export const RESET = NO_COLOR ? '' : '\x1b[0m';
 
+// 하루 예산 경고. 주의(예상이 예산의 80% 이상)는 대기 색과 헷갈리지 않게 팀원 색을, 초과 예상은 경고 색을 쓴다.
+export const BUDGET_TOKEN = { caution: 'team', warn: 'alert' };
+export const BUDGET_COLOR = { caution: PALETTE[BUDGET_TOKEN.caution], warn: PALETTE[BUDGET_TOKEN.warn] };
+
 export const PHASE_COLOR = { tool: PALETTE.tool, team: PALETTE.team, think: PALETTE.busy, write: PALETTE.busy, waiting: PALETTE.waiting, idle: PALETTE.idle, ended: PALETTE.ended, done: PALETTE.info, unseen: PALETTE.busy };
 
 // 상자 테두리. 포커스가 있으면 강조색으로, 색이 없으면 굵은 선으로 구분한다.
