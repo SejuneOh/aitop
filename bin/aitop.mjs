@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { budgetDayOption, configJson, configText, resolveConfig } from '../src/config.mjs';
 import { notifyOptions } from '../src/notify.mjs';
-import { mask, stripControl } from '../src/text.mjs';
+import { mask, setAmbiguous, stripControl } from '../src/text.mjs';
 
 const KNOWN = new Set(['-h', '--help', '-v', '--version', '--once', '--all', '--json', '--doctor', '--bell', '--show-requests', '--print-config', '--no-bell', '--no-all', '--no-show-requests', '--debug', '--no-debug', '--color-blind', '--no-color-blind']);
 const THEMES = ['light', 'dark'];
@@ -52,6 +52,8 @@ const alerts = notifyOptions(cliArgs, { notify: fromFile('notify'), onWaiting: f
 if (opt.theme) process.env.AITOP_THEME = opt.theme;
 process.env.AITOP_COLOR_BLIND = opt.colorBlind ? '1' : '0';
 if (config.values.icons.source === 'file') process.env.AITOP_ICONS = opt.icons;
+// 폭이 모호한 기호를 2칸으로 셀지는 글자 폭 계산(text.mjs)이 쓴다. 화면 모듈은 그릴 때마다 이 값을 본다.
+setAmbiguous(opt.ambiguous);
 const { BRAND, userVarsSeq } = await import('../src/brand.mjs');
 const { keysText } = await import('../src/help.mjs');
 const { debug, initLog, logPath } = await import('../src/log.mjs');
@@ -91,9 +93,10 @@ const HELP = `${BRAND.logo} aitop - 터미널에서 Claude Code · Codex · Anti
   aitop --version  설치된 버전을 보인다
 
   AITOP_ICONS=plain  창 제목의 Nerd Font 아이콘과 WezTerm 탭 값을 끈다 (ascii 면 로고도 ASCII)
+  AITOP_AMBIGUOUS=wide  ·, →, ─, ● 같은 폭이 모호한 기호를 2칸으로 그리는 터미널(동아시아 폭 설정)용. 표·상자 기호를 1칸 기호로 바꿔 줄이 밀리지 않게 한다 (설정 파일 ambiguous)
 
   설정 파일: ${config.path}
-    예) { "theme": "light", "icons": "plain", "bell": true, "notify": true, "onWaiting": "say 대기", "budgetDay": 50 }
+    예) { "theme": "light", "icons": "plain", "bell": true, "notify": true, "onWaiting": "say 대기", "budgetDay": 50, "ambiguous": "wide" }
     onWaiting 은 파일 소유자가 나이고 그룹·다른 사용자가 쓸 수 없을 때(chmod 600)만 받는다.
     옵션 > 환경 변수 > 설정 파일 순서로 정한다. 잘못된 값은 무시하고 --doctor 에 알린다.
 
