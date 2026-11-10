@@ -3,7 +3,7 @@
 // view.tab: 변경 파일을 보는 지시 탭 ('now' 이번 지시, 지시 번호, 'all' 전체). turns.mjs 참고.
 import { turnTabs, visibleFiles } from './turns.mjs';
 import { detailOpen } from './ui/chrome.mjs';
-import { nextGroup, nextSort } from './order.mjs';
+import { nextGroup, nextSort, togglePin } from './order.mjs';
 
 export const KEY = { up: '\x1b[A', down: '\x1b[B', right: '\x1b[C', left: '\x1b[D', pageUp: '\x1b[5~', pageDown: '\x1b[6~', esc: '\x1b', enter: '\r', tab: '\t', ctrlC: '\x03', backspace: '\x7f' };
 
@@ -137,6 +137,11 @@ export function onKey(view, key, act) {
   // 정렬·묶기는 순서만 바꾸고 선택은 같은 세션 id 에 남는다.
   else if (key === 's') view.sort = nextSort(view.sort);
   else if (key === 'g') view.group = nextGroup(view.group);
+  // 고정(p)은 이번 실행에만 기억한다. 고른 세션은 그대로 남고 자리만 위로 옮긴다.
+  // 파일 목록·diff 에 들어가 있을 때는 키 안내에 없으므로 받지 않는다.
+  else if (key === 'p') {
+    if (view.selectedId != null && !view.focus) view.pins = togglePin(view.pins, view.selectedId);
+  }
   else if (key === 'c') view.costMode = view.costMode === 'net' ? 'api' : 'net';
   else if (key === 'd') {
     // view.rows: 마지막으로 그린 화면 높이. 'auto' 일 때 지금 보이는 상태를 뒤집는 데 쓴다.

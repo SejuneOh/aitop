@@ -220,7 +220,9 @@ export function tableHeader(c, W) {
 
 // 표에서는 세션 이름과 상태가 먼저 보이도록 나머지 열은 흐리게 둔다.
 // hot: 화면에서 비용이 가장 큰 세션들. 그 비용만 돈 색으로 칠한다.
-export function sessionRow(s, c, W, selected, frame, hot, costMode = 'api') {
+// pinned: p 로 고정한 세션. SESSION 칸 앞에 PIN 기호를 붙여 색이 없어도 보이게 한다.
+export const PIN = '★';
+export function sessionRow(s, c, W, selected, frame, hot, costMode = 'api', pinned = false) {
   const waiting = s.status === 'waiting';
   const bg = selected ? PALETTE.rowFocus : waiting ? PALETTE.rowWaiting : undefined;
   // IDLE: 마지막 활동 후 지난 시간. 지금 일하고 있는 세션은 'now'.
@@ -240,7 +242,9 @@ export function sessionRow(s, c, W, selected, frame, hot, costMode = 'api') {
     { t: pad(s.tool, c.tool) + ' ', fg: ended ? PALETTE.ended : tc, bold: !ended },
   ];
   if (c.showModel) segs.push({ t: pad(shortModel(s.model), c.model) + ' ', fg: ended ? PALETTE.ended : PALETTE.muted });
-  segs.push({ t: pad(s.name ?? '', c.name) + ' ', fg: ended ? PALETTE.ended : PALETTE.text, bold: selected });
+  // 좁아도 고정 표시는 남기고 이름 칸을 먼저 줄인다 (이름 칸이 2칸 이하면 기호만).
+  const pin = pinned ? [{ t: c.name >= 3 ? `${PIN} ` : PIN, fg: ended ? PALETTE.ended : PALETTE.brand, bold: true }] : [];
+  segs.push(...pin, { t: pad(s.name ?? '', c.name - segsWidth(pin)) + ' ', fg: ended ? PALETTE.ended : PALETTE.text, bold: selected });
   if (c.showProject) segs.push({ t: pad(s.project ?? '', c.project) + ' ', fg: ended ? PALETTE.ended : PALETTE.muted });
   segs.push(
     { t: pad(phaseText, c.status) + ' ', fg: pc, bold: s.status === 'waiting' },

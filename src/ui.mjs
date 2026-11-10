@@ -79,7 +79,7 @@ export function render(view, W, H) {
   const visible = rows.slice(start, start + shown);
   const hot = topCost(visible.filter(isSession).map((r) => r.s), view.costMode);
   if (!sessions.length) table.push(...(view.filter ? [line([{ t: `   '${view.filter}' 에 맞는 세션이 없습니다.`, fg: PALETTE.muted, italic: true }], TW)] : emptyLines(view, TW)));
-  for (const r of visible) table.push(r.g ? groupRow(r.g, TW) : r.m ? memberRow(r.m, r.last, c, TW, view.frame, r.s.model, view.costMode) : sessionRow(r.s, c, TW, r.s === sel, view.frame, hot, view.costMode));
+  for (const r of visible) table.push(r.g ? groupRow(r.g, TW) : r.m ? memberRow(r.m, r.last, c, TW, view.frame, r.s.model, view.costMode) : sessionRow(r.s, c, TW, r.s === sel, view.frame, hot, view.costMode, Boolean(view.pins?.includes(r.s.id))));
   if (clipped) {
     const onScreen = new Set(visible.filter(isSession).map((r) => r.s));
     const hidden = sessions.filter((s) => !onScreen.has(s));

@@ -21,6 +21,7 @@ export const LEGEND = [
   ['●', '완료 · 확인 전 (작업이 끝났는데 아직 선택해 보지 않음)'],
   ['○', '다음 지시 대기'],
   ['·', '종료'],
+  ['★', '고정한 세션 (p). SESSION 칸 앞에 붙는다'],
   ['', ''],
   ['열', null],
   ['STATUS', '지금 단계. 큰 기록을 처음 읽는 동안은 기록 읽는 중 N%'],
@@ -151,6 +152,8 @@ export function footer(view, W, matched, sel) {
     { k: 'd', t: view.showDetail ? '상세 닫기' : '상세 열기' },
     { k: 'e', t: view.showEnded ? '종료 숨김' : '종료 포함' },
     { k: 'c', t: '비용 기준' },
+    // 고정은 폭이 모자라면 가장 먼저 빠진다.
+    ...(sel ? [{ k: 'p', t: view.pins?.includes(sel.id) ? '고정 해제' : '고정' }] : []),
     ...tail,
   ];
   return hintBar(items, W, '⊘ 읽기전용');
