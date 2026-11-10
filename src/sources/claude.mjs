@@ -9,6 +9,7 @@ import { isAlive } from '../procs.mjs';
 import { ClaudeTracker } from './claude-tracker.mjs';
 import { emptyTokens, MEMBER_FADE_MS } from './common.mjs';
 import { mergeFiles } from './files.mjs';
+import { debug, debugIo } from '../log.mjs';
 
 const HOME = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude');
 const SESSIONS = join(HOME, 'sessions');
@@ -24,7 +25,8 @@ const pathCache = new Map();
 function readJson(p) {
   try {
     return JSON.parse(readFileSync(p, 'utf8'));
-  } catch {
+  } catch (e) {
+    debugIo('claude', 'session file read failed', e, p);
     return null;
   }
 }
@@ -41,7 +43,9 @@ function findTranscript(sessionId) {
         break;
       }
     }
-  } catch {}
+  } catch (e) {
+    debugIo('claude', 'projects read failed', e);
+  }
   pathCache.set(sessionId, { path, at: Date.now() });
   return path;
 }
@@ -176,12 +180,15 @@ function recentTranscripts() {
   let dirs = [];
   try {
     dirs = readdirSync(PROJECTS);
-  } catch {}
+  } catch (e) {
+    debugIo('claude', 'projects read failed', e);
+  }
   for (const dir of dirs) {
     let names;
     try {
       names = readdirSync(join(PROJECTS, dir));
-    } catch {
+    } catch (e) {
+      debugIo('claude', 'project folder read failed', e, dir);
       continue;
     }
     for (const n of names) {
@@ -212,7 +219,8 @@ function readHead(path, mtime) {
       let x;
       try {
         x = JSON.parse(line);
-      } catch {
+      } catch (e) {
+        debug('claude', 'transcript head line parse failed', e, path);
         continue;
       }
       head.cwd ??= x.cwd ?? null;
@@ -220,7 +228,9 @@ function readHead(path, mtime) {
       if (x.timestamp) head.startedAt ??= Date.parse(x.timestamp) || null;
       if (x.type === 'ai-title' && x.aiTitle) head.title = x.aiTitle;
     }
-  } catch {}
+  } catch (e) {
+    debugIo('claude', 'transcript head read failed', e, path);
+  }
   heads.set(path, head);
   return head;
 }
@@ -280,7 +290,8 @@ export function collectClaude({ showEnded, budget, selectedId }) {
   let files;
   try {
     files = readdirSync(SESSIONS).filter((n) => n.endsWith('.json'));
-  } catch {
+  } catch (e) {
+    debugIo('claude', 'sessions read failed', e);
     return [];
   }
   seen = new Set();

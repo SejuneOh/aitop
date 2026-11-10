@@ -3,7 +3,7 @@
 터미널에서 지금 돌고 있는 AI 코딩 세션(Claude Code · Codex CLI · Antigravity CLI · Gemini CLI)과 진행 내용, 토큰을 실시간으로 보는 읽기 전용 모니터.
 
 - 포트를 열지 않고, 네트워크 요청을 하지 않는다. 각 CLI 가 내 PC 에 남기는 세션 파일만 읽는다.
-- 세션 파일은 읽기 전용으로만 연다. 디스크에 쓰는 곳은 읽은 위치·합계를 기억하는 `~/.cache/aitop` 뿐이다 (지워도 된다).
+- 세션 파일은 읽기 전용으로만 연다. 디스크에 쓰는 곳은 읽은 위치·합계를 기억하는 `~/.cache/aitop` 뿐이다 (지워도 된다). `--debug` 를 켰을 때만 디버그 로그를 따로 쓴다.
 - 화면에 표시되는 텍스트 중 API 키·토큰처럼 보이는 값은 `••••` 로 가린다.
 - 외부 라이브러리 없음 (Node 22 이상). Antigravity CLI 의 세부 정보는 Node 내장 `node:sqlite` 로 기록을 immutable(파일을 하나도 만들거나 고치지 않는 열기)로 열 수 있는 Node 22.15 이상에서만 읽는다.
 
@@ -57,7 +57,8 @@ aitop --doctor   도구별 연결 점검 (기록 폴더, 기록 수, 마지막 �
 aitop --theme light|dark  밝은 배경 / 어두운 배경 색. 없으면 AITOP_THEME 환경변수, 설정 파일의 theme, 그다음 COLORFGBG 로 고르고, 모르면 어두운 배경
 aitop --show-requests  응답 대기 요청 전체(명령·경로)를 상세 패널과 --json(waitDetail)에 보인다. AITOP_SHOW_REQUESTS=1 과 같다
 aitop --budget-day <달러>  하루 예산 (AITOP_BUDGET_DAY, 설정 파일 budgetDay). 아래 '하루 예산' 참고
-aitop --no-bell · --no-all · --no-show-requests · --no-notify · --no-on-waiting · --no-budget-day  설정 파일에서 켠 값을 이번 실행만 끈다
+aitop --no-bell · --no-all · --no-show-requests · --no-notify · --no-on-waiting · --no-budget-day · --no-debug  설정 파일에서 켠 값을 이번 실행만 끈다
+aitop --debug    디버그 로그 (AITOP_DEBUG=1, 설정 파일 debug). 아래 '디버그 로그' 참고
 aitop --print-config   설정 값마다 값과 출처(flag/env/file/default), 설정 파일 위치를 보인다. --json 과 함께 가능
 ```
 
@@ -78,11 +79,17 @@ aitop --print-config   설정 값마다 값과 출처(flag/env/file/default), �
 | `all` | true · false | `--all` · `--no-all` |
 | `notify` | true · false | `--notify` · `--no-notify` |
 | `onWaiting` | 명령 문자열 | `--on-waiting` · `--no-on-waiting` |
+| `debug` | true · false | `--debug` · `--no-debug`, `AITOP_DEBUG=1`·`0` |
 | `budgetDay` | 0 보다 큰 수 (달러) | `--budget-day <usd>` · `--budget-day=<usd>` · `--no-budget-day`, `AITOP_BUDGET_DAY` |
 
 잘못된 JSON, 모르는 키, 잘못된 값은 그 키만 무시하고 `aitop --doctor` 에 알린다. `showRequests` 는 설정 파일로도 켤 수 있다 (내 파일이라 권한 검사는 하지 않는다). 켜면 위의 `--show-requests` 주의가 그대로 적용된다. `onWaiting` 은 파일 소유자가 나이고 그룹·다른 사용자가 쓸 수 없을 때(예: `chmod 600`)만 받는다.
 
 `--show-requests` 는 기본으로 꺼져 있다. 비밀값 가림은 최선일 뿐이라, 켜면 명령 속 비밀값이 그대로 보일 수 있다. 가림을 거친 요청 내용은 옵션과 관계없이 로컬 캐시(`~/.cache/aitop`)에 저장된다.
+
+### 디버그 로그
+
+CLI 기록 형식이 바뀌어 값이 비어 보이면 `aitop --debug` 로 실행해 `$XDG_STATE_HOME/aitop/aitop.log` (없으면 `~/.local/state/aitop/aitop.log`) 를 본다. 꺼져 있으면 파일을 만들지 않는다.
+읽기·해석 실패마다 출처, 오류 이름·코드, 파일 이름만 한 줄로 남긴다. 기록 내용·도구 입력은 쓰지 않고 비밀값처럼 보이는 글은 가린다. 같은 실패는 1분에 한 줄, 1MB 를 넘으면 `aitop.log.1` 로 옮겨 하나만 남긴다. 폴더는 0700, 파일은 0600. 위치와 켜짐 여부는 `--doctor` 에 보인다.
 
 동료 PC 에서 Codex · Gemini 가 잡히는지 볼 때는 `aitop --doctor` 결과를 그대로 붙여 넣으면 된다. 기록 내용은 나오지 않는다 (Gemini 는 형식 확인용 JSON 키 이름만).
 `--json` 에는 `version` 과 같은 점검 결과 `tools` 가 들어 있다.

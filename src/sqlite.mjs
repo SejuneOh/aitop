@@ -3,6 +3,7 @@
 // 처음 불러올 때 나오는 ExperimentalWarning 은 화면을 깨뜨리므로 이 경고만 삼킨다.
 import { existsSync } from 'node:fs';
 import { pathToFileURL, fileURLToPath } from 'node:url';
+import { basename } from 'node:path';
 
 let sqlite;
 
@@ -44,6 +45,6 @@ function opensUri(mod) {
 export function openReadOnly(path) {
   const s = loadSqlite();
   if (!s) return null;
-  if (!existsSync(path)) throw new Error(`없음: ${path}`);
+  if (!existsSync(path)) throw Object.assign(new Error(`없음: ${basename(path)}`), { code: 'ENOENT' });
   return new s.DatabaseSync(`${pathToFileURL(path).href}?immutable=1`, { readOnly: true });
 }
