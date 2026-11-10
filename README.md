@@ -3,7 +3,7 @@
 터미널에서 지금 돌고 있는 AI 코딩 세션(Claude Code · Codex CLI · Antigravity CLI · Gemini CLI)과 진행 내용, 토큰을 실시간으로 보는 읽기 전용 모니터.
 
 - 포트를 열지 않고, 네트워크 요청을 하지 않는다. 각 CLI 가 내 PC 에 남기는 세션 파일만 읽는다.
-- 세션 파일은 읽기 전용으로만 연다. 디스크에 쓰는 곳은 읽은 위치·합계를 기억하는 `~/.cache/aitop` 뿐이다 (지워도 된다).
+- 세션 파일은 읽기 전용으로만 연다. 디스크에 쓰는 곳은 읽은 위치·합계를 기억하는 `~/.cache/aitop` 뿐이다 (지워도 된다). `--debug` 를 켰을 때만 디버그 로그를 따로 쓴다.
 - 화면에 표시되는 텍스트 중 API 키·토큰처럼 보이는 값은 `••••` 로 가린다.
 - 외부 라이브러리 없음 (Node 22 이상). Antigravity CLI 의 세부 정보는 Node 내장 `node:sqlite` 로 기록을 immutable(파일을 하나도 만들거나 고치지 않는 열기)로 열 수 있는 Node 22.15 이상에서만 읽는다.
 
@@ -56,7 +56,9 @@ aitop --version  설치된 버전
 aitop --doctor   도구별 연결 점검 (기록 폴더, 기록 수, 마지막 기록, 실행 수). --json 과 함께 가능
 aitop --theme light|dark  밝은 배경 / 어두운 배경 색. 없으면 AITOP_THEME 환경변수, 설정 파일의 theme, 그다음 COLORFGBG 로 고르고, 모르면 어두운 배경
 aitop --show-requests  응답 대기 요청 전체(명령·경로)를 상세 패널과 --json(waitDetail)에 보인다. AITOP_SHOW_REQUESTS=1 과 같다
-aitop --no-bell · --no-all · --no-show-requests · --no-notify · --no-on-waiting  설정 파일에서 켠 값을 이번 실행만 끈다
+aitop --budget-day <달러>  하루 예산 (AITOP_BUDGET_DAY, 설정 파일 budgetDay). 아래 '하루 예산' 참고
+aitop --no-bell · --no-all · --no-show-requests · --no-notify · --no-on-waiting · --no-budget-day · --no-debug  설정 파일에서 켠 값을 이번 실행만 끈다
+aitop --debug    디버그 로그 (AITOP_DEBUG=1, 설정 파일 debug). 아래 '디버그 로그' 참고
 aitop --print-config   설정 값마다 값과 출처(flag/env/file/default), 설정 파일 위치를 보인다. --json 과 함께 가능
 ```
 
@@ -77,11 +79,17 @@ aitop --print-config   설정 값마다 값과 출처(flag/env/file/default), �
 | `all` | true · false | `--all` · `--no-all` |
 | `notify` | true · false | `--notify` · `--no-notify` |
 | `onWaiting` | 명령 문자열 | `--on-waiting` · `--no-on-waiting` |
-| `budgetDay` | 0 보다 큰 수 | 이후 기능용 (값 검사만 한다) |
+| `debug` | true · false | `--debug` · `--no-debug`, `AITOP_DEBUG=1`·`0` |
+| `budgetDay` | 0 보다 큰 수 (달러) | `--budget-day <usd>` · `--budget-day=<usd>` · `--no-budget-day`, `AITOP_BUDGET_DAY` |
 
 잘못된 JSON, 모르는 키, 잘못된 값은 그 키만 무시하고 `aitop --doctor` 에 알린다. `showRequests` 는 설정 파일로도 켤 수 있다 (내 파일이라 권한 검사는 하지 않는다). 켜면 위의 `--show-requests` 주의가 그대로 적용된다. `onWaiting` 은 파일 소유자가 나이고 그룹·다른 사용자가 쓸 수 없을 때(예: `chmod 600`)만 받는다.
 
 `--show-requests` 는 기본으로 꺼져 있다. 비밀값 가림은 최선일 뿐이라, 켜면 명령 속 비밀값이 그대로 보일 수 있다. 가림을 거친 요청 내용은 옵션과 관계없이 로컬 캐시(`~/.cache/aitop`)에 저장된다.
+
+### 디버그 로그
+
+CLI 기록 형식이 바뀌어 값이 비어 보이면 `aitop --debug` 로 실행해 `$XDG_STATE_HOME/aitop/aitop.log` (없으면 `~/.local/state/aitop/aitop.log`) 를 본다. 꺼져 있으면 파일을 만들지 않는다.
+읽기·해석 실패마다 출처, 오류 이름·코드, 파일 이름만 한 줄로 남긴다. 기록 내용·도구 입력은 쓰지 않고 비밀값처럼 보이는 글은 가린다. 같은 실패는 1분에 한 줄, 1MB 를 넘으면 `aitop.log.1` 로 옮겨 하나만 남긴다. 폴더는 0700, 파일은 0600. 위치와 켜짐 여부는 `--doctor` 에 보인다.
 
 동료 PC 에서 Codex · Gemini 가 잡히는지 볼 때는 `aitop --doctor` 결과를 그대로 붙여 넣으면 된다. 기록 내용은 나오지 않는다 (Gemini 는 형식 확인용 JSON 키 이름만).
 `--json` 에는 `version` 과 같은 점검 결과 `tools` 가 들어 있다.
@@ -150,14 +158,16 @@ end)
 | d | 상세 열기·닫기 |
 | e | 종료된 세션 보이기·숨기기 |
 | c | 비용 기준 전환: API 환산(캐시 포함, 기본) ↔ 캐시 제외(입력·출력만). 표·헤더·상세가 같이 바뀐다 |
-| ? | 도움말 |
+| ? | 도움말. 지금 화면(세션 표·검색어가 걸린 표·상세·파일 목록·diff)의 키부터, 다른 화면 · 옵션 · 지금 설정 값 순으로 보인다. 열려 있는 동안은 ↑↓ j k space PgUp PgDn 스크롤, ? · Esc 닫기, q 나가기만 듣는다 |
 | Esc | 한 단계 뒤로 (도움말 닫기, 검색 지우기, diff → 파일 목록 → 세션). 종료하지 않는다 |
 | q / Ctrl-C | 나가기 |
 
 ## 화면
 
 - 헤더 오른쪽: 오늘·최근 7일 Claude · Codex CLI · Antigravity CLI 사용량(토큰, API 환산 비용). 최근 7일 안에 바뀐 기록(서브에이전트 포함)을 날짜별로 모은다. agy 는 호출마다 그 직전 단계의 만든 시각을 호출 날짜로 본다. Codex 는 `token_count` 누적값이 직전보다 늘어난 만큼을 그 줄의 시각에, 그 앞의 마지막 모델 가격으로 더한다 (누적값이 줄면 새로 시작한 것으로 본다). 처음 실행 때는 `7일 집계 중 N%` 로 채워진다. 폭이 모자라면 토큰 수, 7일, 오늘 순으로 줄인다.
+- 7일 막대: `7일 $644 ▅▁▃█▄▂▃` 는 오래된 날 → 오늘의 날짜별 비용을 7일 중 가장 큰 날 기준(█)으로 그린다. 0 인 날은 흐린 `▁`, 쓴 날은 `▂` 이상이라 색이 없어도 갈린다. 집계 중에는 숨기고, 폭이 모자라면 지출 속도 다음으로 뺀다. `--json` 에는 `usage.last7days.daily: [{ date, cost }]` (API 환산)로 나간다.
 - 지출 속도: `오늘 $194 ($31/h)` 의 괄호는 최근 1시간(5분 단위 근사) 비용이다. 0 이면 숨기고, 폭이 모자라면 가장 먼저 뺀다. `--json` 에는 `usage.lastHour` 로 나간다.
+- 하루 예산(`budgetDay`): 오늘 금액 옆에 `오늘 $12.30/$50` 처럼 보인다. 예상 비용 = 오늘 비용 + 최근 지출 속도 × 로컬 자정까지 남은 시간. 속도는 최근 1시간 중 자정 이후 몫만 시간당으로 늘린 값이고, 자정 뒤 15분이 안 됐거나 집계 중이면 예상 = 오늘 비용이다. 예상이 예산의 80% 이상이면 `· 예상 $45`, 100% 이상이면 경고 색과 `· 예상 $60!`. 예산은 비용 기준(`c`)과 상관없이 늘 API 환산으로 보며, 캐시 제외 화면에서는 `예산 $12.30/$50` 칸이 따로 붙는다. 폭이 모자라면 `/$50`, 오늘 금액 순으로 빼서 예상 경고를 시각 다음으로 오래 남긴다. 잘못된 `AITOP_BUDGET_DAY` 는 무시하고 `--doctor` 에 알린다. `--json` 에는 예산이 있을 때만 `usage.budget: { day, projected, unknown, level: ok·caution·warn }` 로 나간다 (화면과 같은 단계).
 - 화면 높이가 30줄 이상이면 세션 표를 `세션 N` 상자로 감싼다. 비용 색은 화면에서 가장 큰 금액 두 개에만 칠한다.
 - 키 안내 줄은 폭이 모자라면 오른쪽부터 줄이고 `?`·`q` 는 늘 남긴다. `NO_COLOR` 이면 키가 `[q]` 처럼 괄호로 보이고, 포커스된 상자는 굵은 선(`┏━┃`)으로 그린다.
 - `● 완료 · 확인 전`: 작업 중이던 세션이 끝났는데 아직 선택해 보지 않은 세션. aitop 을 다시 켜면 초기화된다.

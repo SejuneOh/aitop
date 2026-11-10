@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { pickTheme, PALETTES } from '../src/ui/theme.mjs';
+import { BUDGET_TOKEN, pickTheme, PALETTES } from '../src/ui/theme.mjs';
 import { render } from '../src/ui.mjs';
 
 const BIN = join(fileURLToPath(new URL('.', import.meta.url)), '..', 'bin', 'aitop.mjs');
@@ -67,6 +67,17 @@ for (const [name, P] of Object.entries(PALETTES)) {
     for (const [k, c] of [...Object.entries(P).filter(([k, c]) => typeof c === 'string' && k !== 'waiting'), ...Object.entries(P.tools)]) assert.notEqual(c, P.waiting, k);
     assert.ok(hueGap(P.money, P.waiting) >= 35, `money ${P.money} vs waiting ${P.waiting}: ${hueGap(P.money, P.waiting).toFixed(0)}°`);
     assert.ok(hueGap(P.money, P.busy) >= 35, `money ${P.money} vs busy ${P.busy}`);
+  });
+
+  test(`${name}: 예산 주의·경고 색은 대기 색이 아니고 색 계열도 다르며, 배경 띠에서 읽힌다`, () => {
+    for (const k of Object.values(BUDGET_TOKEN)) {
+      assert.notEqual(k, 'waiting');
+      assert.notEqual(P[k], P.waiting, k);
+      assert.ok(hueGap(P[k], P.waiting) >= 35, `${k} ${P[k]} vs waiting ${P.waiting}`);
+      assert.ok(contrast(P[k], P.bar) >= 4.5, `${k} on bar`);
+    }
+    assert.equal(BUDGET_TOKEN.warn, 'alert');
+    assert.notEqual(P[BUDGET_TOKEN.caution], P.alert, '주의와 경고는 다른 색');
   });
 }
 

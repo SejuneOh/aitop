@@ -9,6 +9,7 @@ import { emptyTokens, pushEvent, describeTool, isNoisePrompt } from './common.mj
 import { addChange, mergeFiles } from './files.mjs';
 import { codexCost } from '../pricing.mjs';
 import { parsePatch, extractPatch, patchSucceeded } from './patch.mjs';
+import { debug, debugIo } from '../log.mjs';
 
 // 지시 탭에 쓰는 지시 목록은 최근 것만 남긴다.
 const MAX_TURNS = 50;
@@ -75,7 +76,9 @@ function headCwd(path) {
     } finally {
       closeSync(fd);
     }
-  } catch {}
+  } catch (e) {
+    debugIo('codex', 'rollout head read failed', e, path);
+  }
   cwdByPath.set(path, cwd);
   return cwd;
 }
@@ -86,7 +89,9 @@ function isRollout(p) {
   if (realRoot === null) {
     try {
       realRoot = realpathSync(ROOT);
-    } catch {}
+    } catch (e) {
+      debugIo('codex', 'sessions realpath failed', e);
+    }
   }
   return (p.startsWith(ROOT + '/') || (realRoot !== null && p.startsWith(realRoot + '/'))) && /\/rollout-[^/]*\.jsonl$/.test(p);
 }
@@ -111,7 +116,8 @@ function latestFor(dirs, cwd, since, taken) {
     let names;
     try {
       names = readdirSync(dir);
-    } catch {
+    } catch (e) {
+      debugIo('codex', 'day folder read failed', e, dir);
       continue;
     }
     for (const n of names) {
@@ -225,7 +231,9 @@ function applyLine(st, x) {
       let args = {};
       try {
         args = JSON.parse(p.arguments ?? '{}');
-      } catch {}
+      } catch (e) {
+        debug('codex', 'function_call arguments parse failed', e);
+      }
       what = describeTool(p.name, args);
       // 예전 Codex 는 apply_patch 를 shell 명령 인자로 보냈다 (["apply_patch", "*** Begin Patch…"] 또는 bash -lc 안의 글).
       const cmd = Array.isArray(args.command) ? args.command.join('\n') : String(args.command ?? '');

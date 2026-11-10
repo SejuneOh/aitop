@@ -213,5 +213,6 @@ export function doctorText(result, version, now = Date.now()) {
     out.push('', `${cfg.problems.length ? '!' : '✓'} 설정   ${pad(cfg.exists ? '있음' : '없음 (기본값)', 10)}${tilde(cfg.path)}`);
     for (const p of cfg.problems) out.push(`         ! ${p}`);
   }
+  if (result.log) out.push('', `${result.log.on ? '✓' : '○'} 디버그 ${pad(result.log.on ? '켬' : '꺼짐', 10)}${tilde(result.log.path)}${result.log.on ? '' : ' · --debug 로 켬'}`);
   return stripControl(out.join('\n'));
 }

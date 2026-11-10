@@ -4,7 +4,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { mkdtempSync, existsSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { BIN, makeSession } from './session.mjs';
@@ -106,6 +107,49 @@ test('--on-waiting 은 새로 응답 대기가 된 세션에만 환경변수로 
   } finally {
     if (child.exitCode == null) child.kill('SIGKILL');
     other.kill('SIGKILL');
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// 처리되지 않은 Promise 거부: 터미널을 되돌리고, 로그(--debug)에 남기고, 0 이 아닌 코드로 끝난다.
+test('unhandledRejection 이면 화면을 되돌리고 0 이 아닌 코드로 끝나며 디버그 로그에 남긴다', { skip: !hasScript && 'util-linux script 없음', timeout: 60_000 }, async () => {
+  makeSession();
+  const dir = mkdtempSync(join(tmpdir(), 'aitop-reject-'));
+  const preload = join(dir, 'reject.mjs');
+  // aitop 이 대체 화면에 들어가는 순서를 쓰면 그 다음 차례에 거부를 일으킨다 (시간에 기대지 않는다). aitop 코드는 건드리지 않는다.
+  writeFileSync(
+    preload,
+    `const write = process.stdout.write;
+let fired = false;
+process.stdout.write = function (chunk, ...rest) {
+  if (!fired && String(chunk).includes('\\x1b[?1049h')) {
+    fired = true;
+    setImmediate(() => Promise.reject(new Error('boom token=abcdef123456')));
+  }
+  return write.call(this, chunk, ...rest);
+};
+`,
+  );
+  const cmd = 'stty cols 140 rows 45; exec "$AITOP_NODE" --import "$AITOP_PRELOAD" "$AITOP_BIN" --debug';
+  const child = spawn('script', ['-qfec', cmd, '/dev/null'], { env: { ...process.env, AITOP_NODE: process.execPath, AITOP_BIN: BIN, AITOP_PRELOAD: pathToFileURL(preload).href, XDG_STATE_HOME: dir } });
+  let out = '';
+  child.stdout.setEncoding('utf8');
+  child.stdout.on('data', (d) => (out += d));
+  const exited = new Promise((resolve) => child.on('exit', (code) => resolve(code)));
+  try {
+    const code = await Promise.race([exited, sleep(WAIT_MS * 2).then(() => 'timeout')]);
+    assert.notEqual(code, 'timeout', '스스로 끝난다');
+    assert.notEqual(code, 0, '0 이 아닌 코드로 끝난다');
+    assert.ok(out.indexOf('\x1b[?1049h') >= 0, '실시간 화면에 들어갔다');
+    assert.ok(out.lastIndexOf('\x1b[?1049l') > out.lastIndexOf('\x1b[?1049h'), '대체 화면에서 나온다');
+    assert.ok(out.lastIndexOf('\x1b[?25h') > out.lastIndexOf('\x1b[?25l'), '커서를 되돌린다');
+    assert.match(out, /aitop: 처리되지 않은 오류로 끝냅니다 \(boom token=••••\)/);
+    assert.doesNotMatch(out, /abcdef123456/);
+    const log = readFileSync(join(dir, 'aitop', 'aitop.log'), 'utf8');
+    assert.match(log, /\[aitop\] unhandledRejection: Error: boom token=••••/);
+    assert.doesNotMatch(log, /abcdef123456/);
+  } finally {
+    if (child.exitCode == null) child.kill('SIGKILL');
     rmSync(dir, { recursive: true, force: true });
   }
 });

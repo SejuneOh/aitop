@@ -1,6 +1,7 @@
 // JSONL 파일을 청크 단위로 따라 읽는다. 한 번에 읽는 양을 budget 으로 제한해서, 큰 파일을 처음 읽을 때도
 // 화면 갱신과 키 입력이 멈추지 않게 한다. 원본은 읽기 전용으로만 연다.
 import { openSync, readSync, closeSync, statSync } from 'node:fs';
+import { debug, debugIo } from './log.mjs';
 
 const CHUNK = 1 << 20;
 const NL = 0x0a;
@@ -44,7 +45,8 @@ export class JsonlTail {
     let st;
     try {
       st = statSync(this.path);
-    } catch {
+    } catch (e) {
+      debugIo('jsonl', 'stat failed', e, this.path);
       return 0;
     }
     this.mtimeMs = st.mtimeMs;
@@ -91,7 +93,8 @@ export class JsonlTail {
           let x;
           try {
             x = JSON.parse(line);
-          } catch {
+          } catch (e) {
+            debug('jsonl', 'line parse failed', e, this.path);
             continue;
           }
           onLine(x);

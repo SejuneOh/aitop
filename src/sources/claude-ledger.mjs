@@ -7,9 +7,10 @@ import { homedir } from 'node:os';
 import { JsonlTail } from '../tail.mjs';
 import { loadCache, markDirty } from '../cache.mjs';
 import { claudeCost } from '../pricing.mjs';
-import { dayKey, lastDays, addSlot, lastHourOf } from './common.mjs';
+import { dayKey, lastDays, addSlot, lastHourOf, recentTodayOf } from './common.mjs';
 import { collectAgyLedger } from './agy-ledger.mjs';
 import { collectCodexLedger } from './codex-ledger.mjs';
+import { debugIo } from '../log.mjs';
 
 export { dayKey };
 
@@ -99,12 +100,15 @@ function recentFiles() {
   let dirs = [];
   try {
     dirs = readdirSync(PROJECTS);
-  } catch {}
+  } catch (e) {
+    debugIo('ledger', 'claude projects read failed', e);
+  }
   for (const dir of dirs) {
     let names = [];
     try {
       names = readdirSync(join(PROJECTS, dir));
-    } catch {
+    } catch (e) {
+      debugIo('ledger', 'claude project folder read failed', e, dir);
       continue;
     }
     for (const n of names) {
@@ -162,7 +166,13 @@ export function collectLedger({ budget, now = Date.now() } = {}) {
   return {
     today: sum([dayKey(now)]),
     week: sum(lastDays(DAYS, now)),
+    // 7일 막대용 날짜별 비용. 오래된 날부터 오늘까지 (읽을 때 날짜별 합계에서 만든다).
+    days7: lastDays(DAYS, now).reverse().map((date) => {
+      const d = sum([date]);
+      return { date, cost: d.cost, costNoCache: d.costNoCache, unknown: d.unknown };
+    }),
     lastHour: lastHourOf(slots, now),
+    recentToday: recentTodayOf(slots, now),
     // 살아 있는 세션은 계속 조금씩 늘어나므로, 많이 밀렸을 때만 '집계 중' 으로 본다.
     loading: pending > LOADING_MIN_BYTES && size ? 1 - pending / size : null,
   };

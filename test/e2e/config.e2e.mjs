@@ -96,6 +96,33 @@ test('파일의 showRequests 가 --json 에 반영된다', () => {
   assert.ok(!('waitDetail' in off.sessions.find((s) => s.id === id)));
 });
 
+test('하루 예산: --budget-day > AITOP_BUDGET_DAY > 파일, --json 의 usage.budget, 잘못된 값은 오류', () => {
+  const { xdg } = configHome({ budgetDay: 50 });
+  assert.match(run(xdg, ['--print-config']), /^budgetDay +50 +file$/m);
+  assert.match(run(xdg, ['--print-config'], { AITOP_BUDGET_DAY: '30' }), /^budgetDay +30 +env$/m);
+  assert.match(run(xdg, ['--print-config', '--budget-day', '20'], { AITOP_BUDGET_DAY: '30' }), /^budgetDay +20 +flag$/m);
+  assert.match(run(xdg, ['--print-config', '--budget-day=7.5']), /^budgetDay +7\.5 +flag$/m);
+  assert.match(run(xdg, ['--print-config', '--no-budget-day']), /^budgetDay +- +flag$/m);
+
+  fx.transcript('e2ecfg00-2', [user('예산'), assistant('b1', [], usage(1000, 10))]);
+  const on = JSON.parse(run(xdg, ['--json']));
+  assert.equal(on.usage.budget.day, 50);
+  assert.ok(on.usage.budget.projected >= on.usage.today.cost - 1e-4);
+  assert.ok(['ok', 'caution', 'warn'].includes(on.usage.budget.level));
+  assert.equal(typeof on.usage.budget.unknown, 'boolean');
+  assert.ok(!('budget' in JSON.parse(run(xdg, ['--json', '--no-budget-day'])).usage));
+
+  const bad = spawnSync(process.execPath, [BIN, '--budget-day', 'abc'], { env: env(xdg), encoding: 'utf8', timeout: 20_000 });
+  assert.equal(bad.status, 2);
+  assert.match(bad.stderr, /--budget-day 값 "abc"/);
+  const neg = spawnSync(process.execPath, [BIN, '--budget-day', '-5'], { env: env(xdg), encoding: 'utf8', timeout: 20_000 });
+  assert.equal(neg.status, 2);
+  assert.match(neg.stderr, /--budget-day 값 "-5" 이 잘못되었습니다/);
+  const doc = JSON.parse(run(xdg, ['--doctor', '--json'], { AITOP_BUDGET_DAY: 'abc' }));
+  assert.ok(doc.config.problems.some((p) => /AITOP_BUDGET_DAY 값 "abc"/.test(p)));
+  assert.equal(doc.config.values.budgetDay.source, 'file');
+});
+
 // 실시간 화면(가상 터미널)에서 설정 파일의 notify·onWaiting 이 알림으로 이어지는지 본다.
 // notify-send 는 PATH 앞에 둔 가짜로 바꿔 호출 여부를 파일에 남긴다.
 const hasScript = spawnSync('script', ['--version'], { encoding: 'utf8' }).stdout?.includes('util-linux');

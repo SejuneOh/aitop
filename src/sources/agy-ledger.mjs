@@ -8,6 +8,7 @@ import { AGY_ROOT, readCalls, sigOf, maxIdx } from './antigravity.mjs';
 import { openReadOnly, loadSqlite } from '../sqlite.mjs';
 import { loadCache, markDirty } from '../cache.mjs';
 import { dayKey, lastDays, addSlot } from './common.mjs';
+import { debugIo } from '../log.mjs';
 
 const KIND = 'agy-ledger';
 const DAYS = 7;
@@ -78,7 +79,8 @@ export class AgyBook {
         : 'done';
       // 읽는 동안 agy 가 본 파일에 썼으면 읽은 내용을 버리고 다음 갱신에 다시 읽는다.
       if (sigOf(this.path, false) !== mainSig) result = null;
-    } catch {
+    } catch (e) {
+      debugIo('ledger', 'agy conversation read failed', e, this.path);
       result = null;
     } finally {
       db?.close();
@@ -111,7 +113,9 @@ function recentFiles() {
   let names = [];
   try {
     names = readdirSync(dir);
-  } catch {}
+  } catch (e) {
+    debugIo('ledger', 'agy conversations read failed', e);
+  }
   for (const f of names) {
     if (!f.endsWith('.db')) continue;
     const p = join(dir, f);

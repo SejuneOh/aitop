@@ -9,6 +9,7 @@ import { loadCache, markDirty } from '../cache.mjs';
 import { codexCost } from '../pricing.mjs';
 import { dayDirs } from './codex.mjs';
 import { dayKey, lastDays, addSlot } from './common.mjs';
+import { debugIo } from '../log.mjs';
 
 const KIND = 'codex-ledger';
 const DAYS = 7;
@@ -102,7 +103,9 @@ function recentFiles() {
     let names = [];
     try {
       names = readdirSync(dir);
-    } catch {}
+    } catch (e) {
+      debugIo('ledger', 'codex day folder read failed', e, dir);
+    }
     for (const n of names) {
       if (!n.startsWith('rollout-') || !n.endsWith('.jsonl')) continue;
       const p = join(dir, n);
