@@ -52,6 +52,7 @@ const alerts = notifyOptions(cliArgs, { notify: fromFile('notify'), onWaiting: f
 if (opt.theme) process.env.AITOP_THEME = opt.theme;
 if (config.values.icons.source === 'file') process.env.AITOP_ICONS = opt.icons;
 const { BRAND, userVarsSeq } = await import('../src/brand.mjs');
+const { keysText } = await import('../src/help.mjs');
 const { debug, initLog, logPath } = await import('../src/log.mjs');
 
 // 실시간 화면에 들어간 뒤에는 restore 가 터미널을 되돌리고 훅을 끝낸다. 그 전에는 할 일이 없다.
@@ -94,7 +95,8 @@ const HELP = `${BRAND.logo} aitop - 터미널에서 Claude Code · Codex · Anti
     onWaiting 은 파일 소유자가 나이고 그룹·다른 사용자가 쓸 수 없을 때(chmod 600)만 받는다.
     옵션 > 환경 변수 > 설정 파일 순서로 정한다. 잘못된 값은 무시하고 --doctor 에 알린다.
 
-  키: / 검색 · ↑↓/jk 선택 · n 다음 볼 세션 · s 정렬 · g 묶기 · f 변경 파일 · d 상세 · e 종료 세션 토글 · Esc 뒤로 · ? 도움말 · q 나가기`;
+${keysText().replace(/^/gm, '  ')}
+  실시간 화면에서 ? 를 누르면 지금 화면의 키부터 보인다`;
 
 if (theme === '') {
   process.stderr.write(`aitop: --theme 값이 없습니다 (light 또는 dark)\n`);
@@ -158,7 +160,9 @@ const { onKey, fixFocus } = await import('../src/keys.mjs');
 
 // 요청 전체 보기는 기본으로 꺼 둔다. 켜지 않으면 상세 패널에도 --json 에도 나가지 않는다.
 const showRequests = opt.showRequests;
-const view = { showRequests, budgetDay: opt.budgetDay, data: null, selectedId: null, showDetail: 'auto', showEnded: opt.all, frame: 0, filter: '', searching: false, help: false, focus: null, filePath: null, diffScroll: 0, tab: 'now', costMode: 'api', sort: 'default', group: 'none' };
+// settings: 도움말(?)에 보이는 지금 설정 값.
+const settings = { budgetDay: opt.budgetDay, notify: Boolean(alerts.notify), onWaiting: Boolean(alerts.onWaiting), debug: log.on, configPath: config.path };
+const view = { showRequests, budgetDay: opt.budgetDay, settings, data: null, selectedId: null, showDetail: 'auto', showEnded: opt.all, frame: 0, filter: '', searching: false, help: false, focus: null, filePath: null, diffScroll: 0, tab: 'now', costMode: 'api', sort: 'default', group: 'none' };
 const once = args.has('--once') || args.has('--json') || !process.stdout.isTTY;
 // 실시간 화면에서 한 번 갱신할 때 읽는 기록 양과 시간. 큰 기록은 여러 번에 나눠 읽어서 키 입력이 막히지 않게 한다.
 const TICK_BUDGET = 24 * 1024 * 1024;

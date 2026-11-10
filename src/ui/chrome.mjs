@@ -3,6 +3,7 @@ import { pad, width } from '../text.mjs';
 import { NO_COLOR, PALETTE } from './theme.mjs';
 import { box, line, segsWidth } from './draw.mjs';
 import { GROUP_LABEL, SORT_LABEL } from '../order.mjs';
+import { OPTIONS, VIEWS, helpContext, keysLine, settingsLine } from '../help.mjs';
 
 // 상세 패널을 기본으로 여는 최소 화면 높이. 이보다 낮으면 세션 표에 줄을 준다.
 export const DETAIL_MIN_H = 24;
@@ -12,21 +13,8 @@ export function detailOpen(view, H) {
   return view.showDetail === 'auto' ? H >= DETAIL_MIN_H : Boolean(view.showDetail);
 }
 
-export const HELP = [
-  ['키', null],
-  ['/', '세션 검색 (이름·폴더·모델). Enter 적용, Esc 지우기'],
-  ['↑↓ j k', '세션 선택'],
-  ['n', '다음 볼 세션으로 이동 (응답 대기 → 완료 · 확인 전)'],
-  ['s', '정렬 바꾸기: 기본 → 비용순 → 컨텍스트순 → 최근순. 응답 대기는 늘 맨 위'],
-  ['g', '묶기 바꾸기: 없음 → 프로젝트 → 도구. 묶음 머리에 세션 수·비용, 응답 대기는 맨 위 묶음'],
-  ['f Tab', '변경 파일 목록으로. ←→ 지시 탭, ↑↓ 고르기, Enter diff, [ ] 이전·다음 파일, space 페이지'],
-  ['d', '상세 패널 열기·닫기'],
-  ['e', '종료된 세션(24시간) 보이기·숨기기'],
-  ['?', '이 도움말 열기·닫기'],
-  ['Esc', '한 단계 뒤로 (도움말·검색 닫기, diff → 파일 목록 → 세션). 종료하지 않음'],
-  ['c', '비용 기준: API 환산(기본) ↔ 캐시 제외(입력·출력만). 표·헤더·상세가 같이 바뀐다'],
-  ['q Ctrl-C', '나가기'],
-  ['', ''],
+// 상태 기호와 열 설명. 키는 help.mjs 의 VIEWS 에서 화면별로 고른다.
+export const LEGEND = [
   ['상태 기호', null],
   ['⠋', '작업 중 (색: 초록 생각·답변, 파랑 도구 실행, 분홍 팀원 작업)'],
   ['◆', '응답 대기 (권한·질문). 행 배경이 강조된다'],
@@ -40,15 +28,64 @@ export const HELP = [
   ['COST', 'API 정가로 환산한 비용 (Codex 는 OpenAI 정가 추정). ? 는 가격표에 없는 모델 포함'],
   ['CONTEXT', '마지막 요청의 컨텍스트 사용률 (모델별 창 크기 기준)'],
   ['IDLE', '마지막 활동 후 지난 시간. 작업 중이면 now'],
-  ['오늘 / 7일', '헤더 오른쪽. 최근 7일 Claude 기록의 날짜별 합계. API 정가 환산이며 구독 요금제의 청구액이 아니다'],
-  ['변경 파일', 'Edit/Write(Codex 는 apply_patch) 로 고친 파일과 편집 횟수. git diff 가 아니다. Bash 로 고친 파일은 빠진다'],
-  ['', 'diff 머리의 쓴 줄 · 지운 줄은 편집마다 더한 누적값 (최종 변경량 아님)'],
-  ['지시 탭', '이번 지시(마지막 지시 뒤), 편집이 있던 이전 지시 T번호, 전체. lock·생성 파일은 끝에 흐리게'],
+  ['오늘 / 7일', '헤더 오른쪽. 날짜별 합계, API 정가 환산이며 구독 요금제의 청구액이 아니다'],
+  ['변경 파일', 'Edit/Write(Codex 는 apply_patch) 로 고친 파일과 편집 횟수. git diff 가 아니다'],
 ];
 
-export function help(W, H) {
-  const left = HELP.map(([k, v]) => (v == null ? [{ t: k, fg: PALETTE.brand, bold: true }] : [{ t: pad(k, 12), fg: PALETTE.text, bold: true }, { t: v, fg: PALETTE.muted }]));
-  return box('도움말  ·  ? 또는 Esc 로 닫기', W, H, left, [], W - 8, PALETTE.brand);
+// 도움말 줄 목록: 지금 화면의 키 → (표에 검색어가 걸려 있으면) 그 키 → (상세 패널이 열려 있으면) 상세 패널 키 → 다른 화면 한 줄씩 → 옵션 → 상태 기호·열.
+// 넓으면(100칸 이상) 키는 왼쪽, 옵션·기호·열은 오른쪽 칸에 둔다.
+export function helpSections(view = {}, open = false) {
+  const ctx = helpContext(view);
+  const here = ctx === 'table' ? ['table', ...(view.filter ? ['filtered'] : []), ...(open ? ['detail'] : [])] : [ctx];
+  const keys = here.flatMap((n, i) => [...(i ? [['', '']] : []), [`${VIEWS[n].title}${i ? '' : '  (지금 화면)'}`, null], ...VIEWS[n].keys.map(([k, t]) => [k, t])]);
+  const others = Object.keys(VIEWS).filter((n) => !here.includes(n));
+  const rest = [['', ''], ['다른 화면', null], ...others.map((n) => [VIEWS[n].title, keysLine(n), 'dim'])];
+  const now = settingsLine(view.settings);
+  const options = [
+    ['옵션', null],
+    ...OPTIONS,
+    ...(view.settings?.configPath ? [['설정 파일', view.settings.configPath, 'dim']] : []),
+    ...(now ? [['지금', now]] : []),
+  ];
+  return { keys: [...keys, ...rest], more: [...options, ['', ''], ...LEGEND] };
+}
+
+// 키 칸 폭은 제목 줄 사이 묶음마다 그 묶음의 가장 긴 키에 맞춘다 (12~21칸).
+function helpLines(list) {
+  const out = [];
+  let kw = 12;
+  list.forEach(([k, v, dim], i) => {
+    if (v == null) {
+      const next = list.slice(i + 1);
+      const block = next.slice(0, Math.max(0, next.findIndex((e) => e[1] == null)) || next.length);
+      kw = Math.min(21, Math.max(12, ...block.filter((e) => e[1]).map((e) => width(e[0]) + 1)));
+      out.push([{ t: k, fg: PALETTE.brand, bold: true }]);
+    } else out.push([{ t: pad(k, kw), fg: PALETTE.text, bold: !dim }, { t: v, fg: dim ? PALETTE.info : PALETTE.muted }]);
+  });
+  return out;
+}
+
+// 줄이 넘치면 scroll 만큼 내려 보이고, 아래에 남은 줄이 있으면 마지막 줄에 알린다.
+function windowOf(lines, n, scroll) {
+  const more = (k) => [{ t: `… ${k}줄 더 · ↑↓ 로 스크롤`, fg: PALETTE.info, italic: true }];
+  const part = lines.slice(scroll, scroll + n);
+  const left = lines.length - scroll - n;
+  return left > 0 ? [...part.slice(0, n - 1), more(left + 1)] : part;
+}
+
+// view.helpScroll: ↑↓ 로 내린 줄 수. 넘치지 않으면 0. 내릴 수 있는 끝은 view.helpMax 에 남긴다 (keys.mjs 가 쓴다).
+export function help(W, H, view = {}, open = false) {
+  const { keys, more } = helpSections(view, open);
+  const title = '도움말  ·  ? 또는 Esc 로 닫기';
+  const rows = H - 2;
+  const wide = W >= 100;
+  const cols = wide ? [helpLines(keys), helpLines(more)] : [helpLines([...keys, ['', ''], ...more])];
+  const max = Math.max(0, ...cols.map((c) => c.length - rows));
+  const scroll = Math.min(max, Math.max(0, view.helpScroll ?? 0));
+  view.helpMax = max;
+  view.helpScroll = scroll;
+  if (wide) return box(title, W, H, windowOf(cols[0], rows, scroll), windowOf(cols[1], rows, scroll), Math.min(64, Math.floor((W - 7) * 0.5)), PALETTE.brand);
+  return box(title, W, H, null, windowOf(cols[0], rows, scroll), 0, PALETTE.brand);
 }
 
 // 키 칩. 색이 없으면 [f] 처럼 괄호로 보인다.
@@ -84,6 +121,8 @@ export function footer(view, W, matched, sel) {
     { k: '?', t: '도움', keep: true },
     { k: 'q', t: '나가기', keep: true },
   ];
+  // 도움말이 열려 있으면 ↑↓ 는 도움말을 스크롤하고 ? · Esc 는 닫는다.
+  if (view.help) return hintBar([{ k: '↑↓', t: '스크롤' }, { k: '?', t: '도움 닫기', keep: true }, { k: 'Esc', t: '닫기' }, { k: 'q', t: '나가기', keep: true }], W, '⊘ 읽기전용');
   if (view.searching) {
     const input = NO_COLOR ? [{ t: '[/]' }] : [{ t: ' / ', fg: PALETTE.chipText, bg: PALETTE.brand, bold: true }];
     return hintBar([{ segs: [...input, { t: ` ${view.filter ?? ''}`, fg: PALETTE.text, bold: true }, { t: '▏', fg: PALETTE.brand }, { t: `  ${matched}개   `, fg: PALETTE.muted }], keep: true }, { k: '⏎', t: '적용', keep: true }, { k: 'Esc', t: '지우기', keep: true }], W);

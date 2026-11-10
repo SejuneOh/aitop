@@ -35,7 +35,7 @@ export function render(view, W, H) {
   const TW = boxed ? W - 4 : W;
   const c = columns(TW);
   if (view.help) {
-    lines.push(header(view, W), ...help(W, Math.max(3, H - 2)));
+    lines.push(header(view, W), ...help(W, Math.max(3, H - 2), view, detailOpen(view, H)));
     lines.length = H - 1;
     lines.push(footer({ ...view, showDetail: detailOpen(view, H) }, W, sessions.length));
     return lines;

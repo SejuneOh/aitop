@@ -98,11 +98,24 @@ function searchKey(view, key, act) {
   act.keepVisible();
 }
 
+// 도움말은 모달이다: 열려 있는 동안은 스크롤(↑↓ j k space PgUp PgDn), 닫기(? Esc), 나가기(q)만 듣고 나머지 키는 버린다.
+// 스크롤 끝은 마지막으로 그린 도움말이 정한다 (view.helpMax).
+function helpKey(view, key, act) {
+  if (key === '?' || key === KEY.esc) view.help = false;
+  else if (key === 'q') act.quit();
+  else {
+    const step = isUp(key) ? -1 : isDown(key) ? 1 : key === ' ' || key === KEY.pageDown ? 10 : key === KEY.pageUp ? -10 : 0;
+    if (step) view.helpScroll = Math.min(view.helpMax ?? 0, Math.max(0, (view.helpScroll ?? 0) + step));
+  }
+}
+
 export function onKey(view, key, act) {
   if (key === KEY.ctrlC) return act.quit();
+  if (view.help) return helpKey(view, key, act);
   if (view.searching) return searchKey(view, key, act);
-  if (key === '?' || (key === KEY.esc && view.help)) {
-    view.help = !view.help && key === '?';
+  if (key === '?') {
+    view.help = true;
+    view.helpScroll = 0;
     return;
   }
   if (key === 'q') return act.quit();
