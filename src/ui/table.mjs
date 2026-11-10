@@ -203,44 +203,83 @@ function toolPart(p, level, showEnded) {
   return [{ t: glyphs().tool, fg: tc }, { t: name, fg: tc, bold: true }, { t: ` ${p.live}`, fg: PALETTE.text }, ...(extra ? [{ t: ` · ${fmtTokens(p.tok)}`, fg: PALETTE.muted }] : [])];
 }
 
-// 도구 줄: 도구마다 실행 중 세션 수와 누적 토큰. 폭이 모자라면 간격 → 토큰 수 → 이름 순으로 줄이고,
-// 그래도 넘치면 세션이 없는 도구부터 빼고 끝에 +N 으로 뺀 수를 적는다 (글자 중간에서 잘리지 않게).
+// 이 기간 동안 세션이 없는 도구는 도구 줄에서 숨긴다 (설정 파일 hideIdleTools 로 끈다).
+export const IDLE_TOOL_MS = 7 * 86_400_000;
+
+// 도구의 마지막 사용 시각: 화면의 세션과 기록 폴더(--doctor 점검)의 가장 새 기록. Gemini 탭에는 agy 기록도 들어간다.
+// 실행 중인 프로세스가 있으면 지금 쓰는 것으로 본다. 그 도구의 점검 결과가 아직 없으면 null (모름).
+export function toolLastUsed(data, tool, now) {
+  const checks = data.tools?.tools;
+  if (!checks) return null;
+  const found = (tool === 'gemini' ? [checks.gemini, checks.agy] : [checks[tool]]).filter(Boolean);
+  if (!found.length) return null;
+  if (found.some((t) => t.running > 0)) return now;
+  const times = [...data.sessions.filter((s) => s.tool === tool).map((s) => s.updatedAt), ...found.map((t) => t.lastAt)].filter((t) => Number.isFinite(t));
+  return times.length ? Math.max(...times) : 0;
+}
+
+// 도구 줄: 도구마다 실행 중 세션 수와 누적 토큰. 실행 중 세션도 없고 7일 동안 쓰지 않은 도구는 숨기고 끝에 '숨김 codex gemini'
+// (자리가 모자라면 '숨김 2') 를 적는다. 기록 폴더가 없는 도구(미설치)도 7일 동안 쓰지 않은 것이라 함께 숨긴다.
+// 숨기면 줄에 남는 도구가 하나도 없을 때는 숨기지 않고 예전처럼 흐리게 (미설치 포함) 다 보인다.
+// 폭이 모자라면 간격 → 토큰 수 → 이름 순으로 줄이고, 그래도 넘치면 세션이 없는 도구부터 빼고 +N 으로 뺀 수를 적는다.
+// 아주 좁으면 실행 중인 도구가 숨김 표시보다 먼저 남고, 숨김 표시는 중간에서 자르지 않고 뺀다.
 export function toolStrip(view, W) {
-  const parts = ['claude', 'codex', 'gemini'].map((tool) => {
+  const now = view.data.at ?? Date.now();
+  const all = ['claude', 'codex', 'gemini'].map((tool) => {
     const list = view.data.sessions.filter((s) => s.tool === tool);
+    const live = list.filter((s) => s.live).length;
+    const last = toolLastUsed(view.data, tool, now);
     return {
       tool,
       count: list.length,
-      live: list.filter((s) => s.live).length,
+      live,
       tok: list.reduce((a, s) => a + (s.tokens?.total ?? 0), 0),
       missing: view.data.tools?.tools?.[tool]?.state === 'missing',
+      // 실행 중 세션이 있는 도구는 늘 보인다. 마지막 사용을 모르면(점검 전) 숨기지 않는다.
+      idle: view.hideIdleTools !== false && !live && last != null && now - last >= IDLE_TOOL_MS,
     };
   });
+  const visible = all.filter((p) => !p.idle);
+  const parts = visible.length ? visible : all;
+  const hidden = all.filter((p) => !parts.includes(p));
+  // 숨김 표시: 도구 이름을 적고, 자리가 모자라면 개수만 적는다.
+  const notes = hidden.length ? [[{ t: `숨김 ${hidden.map((p) => p.tool).join(' ')}`, fg: PALETTE.info }], [{ t: `숨김 ${hidden.length}`, fg: PALETTE.info }]] : [[]];
+  const plus = (n) => (n ? [{ t: `+${n}`, fg: PALETTE.info }] : []);
   const build = (shown, level, tail = []) => {
     const gap = { t: level ? '  ' : '     ' };
-    return [{ t: ' ' }, ...shown.flatMap((p, i) => [...(i ? [gap] : []), ...toolPart(p, level, view.showEnded)]), ...(tail.length ? [...(shown.length ? [gap] : []), ...tail] : [])];
+    const end = tail.flatMap((x, i) => [...(i ? [{ t: '  ' }] : []), x]);
+    return [{ t: ' ' }, ...shown.flatMap((p, i) => [...(i ? [gap] : []), ...toolPart(p, level, view.showEnded)]), ...(end.length ? [...(shown.length ? [gap] : []), ...end] : [])];
   };
+  const fits = (x) => segsWidth(x) <= W;
   let segs = null;
   for (const level of [0, 1, 2, 3]) {
-    const s = build(parts, level);
-    if (segsWidth(s) <= W) {
-      segs = s;
-      break;
+    for (const note of notes) {
+      const s = build(parts, level, note);
+      if (fits(s)) {
+        segs = s;
+        break;
+      }
     }
+    if (segs) break;
   }
   if (!segs) {
     // 실행 중인 도구를 먼저 남기고, 들어가는 만큼만 원래 순서대로 보인다.
     // 앞 차례 도구가 안 들어가면 거기서 멈춘다 (실행 중인 도구 대신 쉬는 도구가 남지 않게).
     const order = [...parts.filter((p) => p.live), ...parts.filter((p) => !p.live)];
-    let kept = [];
-    for (const p of order) {
-      const next = parts.filter((x) => x === p || kept.includes(x));
-      const more = parts.length - next.length;
-      if (segsWidth(build(next, 3, more ? [{ t: `+${more}`, fg: PALETTE.info }] : [])) > W) break;
-      kept = next;
-    }
-    const more = parts.length - kept.length;
-    segs = build(kept, 3, more ? [{ t: `+${more}`, fg: PALETTE.info }] : []);
+    const greedy = (note) => {
+      let kept = [];
+      for (const p of order) {
+        const next = parts.filter((x) => x === p || kept.includes(x));
+        if (!fits(build(next, 3, [...plus(parts.length - next.length), ...note]))) break;
+        kept = next;
+      }
+      return { kept, segs: build(kept, 3, [...plus(parts.length - kept.length), ...note]) };
+    };
+    // 숨김 표시(개수)를 넣었을 때 실행 중인 도구가 덜 남거나 줄에 안 들어가면 숨김 표시를 뺀다.
+    const liveOf = (r) => r.kept.filter((p) => p.live).length;
+    const bare = greedy([]);
+    const noted = hidden.length ? greedy(notes.at(-1)) : bare;
+    segs = fits(noted.segs) && liveOf(noted) >= liveOf(bare) ? noted.segs : bare.segs;
   }
   // 종료 세션 표시는 다 들어갈 때만 붙인다 (잘린 조각이 남지 않게).
   const ended = [{ t: '     ' }, { t: '종료된 세션 포함 (24시간)', fg: PALETTE.info, italic: true }];

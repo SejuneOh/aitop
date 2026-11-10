@@ -96,7 +96,8 @@ const HELP = `${BRAND.logo} aitop - 터미널에서 Claude Code · Codex · Anti
   AITOP_AMBIGUOUS=wide  ·, →, ─, ● 같은 폭이 모호한 기호를 2칸으로 그리는 터미널(동아시아 폭 설정)용. 표·상자 기호를 1칸 기호로 바꿔 줄이 밀리지 않게 한다 (설정 파일 ambiguous)
 
   설정 파일: ${config.path}
-    예) { "theme": "light", "icons": "plain", "bell": true, "notify": true, "onWaiting": "say 대기", "budgetDay": 50, "ambiguous": "wide" }
+    예) { "theme": "light", "icons": "plain", "bell": true, "notify": true, "onWaiting": "say 대기", "budgetDay": 50, "ambiguous": "wide", "hideIdleTools": false }
+    hideIdleTools: 실행 중 세션이 없고 7일 동안 쓰지 않은 도구를 헤더 아래 도구 줄에서 숨긴다 (기본 true, false 면 늘 셋 다)
     onWaiting 은 파일 소유자가 나이고 그룹·다른 사용자가 쓸 수 없을 때(chmod 600)만 받는다.
     옵션 > 환경 변수 > 설정 파일 순서로 정한다. 잘못된 값은 무시하고 --doctor 에 알린다.
 
@@ -167,7 +168,7 @@ const { onKey, fixFocus } = await import('../src/keys.mjs');
 const showRequests = opt.showRequests;
 // settings: 도움말(?)에 보이는 지금 설정 값.
 const settings = { budgetDay: opt.budgetDay, notify: Boolean(alerts.notify), onWaiting: Boolean(alerts.onWaiting), debug: log.on, configPath: config.path };
-const view = { showRequests, budgetDay: opt.budgetDay, settings, data: null, selectedId: null, showDetail: 'auto', showEnded: opt.all, frame: 0, filter: '', searching: false, help: false, focus: null, filePath: null, diffScroll: 0, tab: 'now', costMode: 'api', sort: 'default', group: 'none', pins: [] };
+const view = { showRequests, budgetDay: opt.budgetDay, hideIdleTools: opt.hideIdleTools, settings, data: null, selectedId: null, showDetail: 'auto', showEnded: opt.all, frame: 0, filter: '', searching: false, help: false, focus: null, filePath: null, diffScroll: 0, tab: 'now', costMode: 'api', sort: 'default', group: 'none', pins: [] };
 const once = args.has('--once') || args.has('--json') || !process.stdout.isTTY;
 // 실시간 화면에서 한 번 갱신할 때 읽는 기록 양과 시간. 큰 기록은 여러 번에 나눠 읽어서 키 입력이 막히지 않게 한다.
 const TICK_BUDGET = 24 * 1024 * 1024;
