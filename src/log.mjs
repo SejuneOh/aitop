@@ -2,12 +2,13 @@
 // 기록 형식이 바뀌어 값이 비는 원인을 찾기 위한 것이라, 오류 이름·코드와 짧은 맥락(출처, 파일 이름)만 쓴다.
 // 기록 내용·도구 입력은 쓰지 않고, 쓰는 글은 모두 mask() 와 stripControl() 을 거친다.
 // 꺼져 있으면 파일을 만들지 않고 debug() 는 바로 돌아간다.
-import { closeSync, constants, fchmodSync, fstatSync, mkdirSync, openSync, renameSync, writeSync } from 'node:fs';
+import { closeSync, constants, fchmodSync, fstatSync, mkdirSync, openSync, renameSync, statSync, writeSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import { mask, stripControl } from './text.mjs';
 
 // 이 크기를 넘으면 aitop.log.1 로 옮기고 새로 쓴다 (이전 것 하나만 남긴다).
+// aitop 여럿이 같은 파일에 쓸 수 있다: 덧붙이기(O_APPEND)로만 쓰고, 옮기기 전에 그 이름이 아직 내가 연 파일인지와 실제 크기를 다시 본다.
 export const MAX_BYTES = 1024 * 1024;
 // 같은 출처·같은 문구는 이 간격에 한 번만 쓴다.
 export const REPEAT_MS = 60_000;
@@ -41,7 +42,8 @@ function openLog(path) {
   try {
     // 예전에 다른 권한으로 만들어진 파일이어도 나만 읽게 한다.
     fchmodSync(fd, 0o600);
-    return { fd, size: fstatSync(fd).size };
+    const st = fstatSync(fd);
+    return { fd, size: st.size, ino: st.ino, dev: st.dev };
   } catch (err) {
     closeSync(fd);
     throw err;
@@ -72,14 +74,25 @@ export function closeLog() {
   state = { on: false, path: state.path };
 }
 
+// 다른 aitop 이 먼저 옮겼으면(이름이 가리키는 파일이 바뀌었거나 없으면) 옮기지 않고 새 파일을 다시 연다.
+// 둘이 거의 같이 옮기면 이전 로그 하나를 잃을 수는 있어도, 로그가 꺼지거나 새 로그를 덮지는 않는다.
+function rotate(add) {
+  const mine = fstatSync(state.fd);
+  closeSync(state.fd);
+  state.fd = null;
+  try {
+    const now = statSync(state.path);
+    const same = now.ino === mine.ino && now.dev === mine.dev;
+    if (same && now.size > 0 && now.size + add > state.maxBytes) renameSync(state.path, state.path + '.1');
+  } catch (err) {
+    if (err?.code !== 'ENOENT') throw err;
+  }
+  Object.assign(state, openLog(state.path));
+}
+
 function write(text) {
   const line = Buffer.from(`${new Date(state.now()).toISOString()} ${text}\n`);
-  if (state.size + line.length > state.maxBytes && state.size > 0) {
-    closeSync(state.fd);
-    state.fd = null;
-    renameSync(state.path, state.path + '.1');
-    Object.assign(state, openLog(state.path));
-  }
+  if (state.size + line.length > state.maxBytes && state.size > 0) rotate(line.length);
   writeSync(state.fd, line);
   state.size += line.length;
 }

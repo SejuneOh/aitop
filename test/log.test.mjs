@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -101,6 +101,25 @@ test('크기 한도를 넘으면 aitop.log.1 로 옮기고 하나만 남긴다',
   assert.ok(statSync(path + '.1').size <= 400);
   assert.equal(existsSync(path + '.2'), false);
   assert.match(readFileSync(path, 'utf8'), /message 39/);
+});
+
+test('다른 aitop 이 먼저 옮겼으면 그 새 파일을 덮지 않고 이어 쓴다. 옮긴 파일이 사라져도 로그는 꺼지지 않는다', () => {
+  const path = join(tmp(), 'aitop.log');
+  initLog({ enabled: true, path, maxBytes: 400 });
+  for (let i = 0; i < 3; i++) debug('codex', `mine ${i}`, new Error('x'.repeat(20)));
+  // 다른 aitop 이 회전했다: 내 파일은 .1 로 가고 그쪽이 새 파일을 만들었다.
+  renameSync(path, path + '.1');
+  writeFileSync(path, 'other new\n');
+  const old = readFileSync(path + '.1', 'utf8');
+  for (let i = 3; i < 8; i++) debug('codex', `mine ${i}`, new Error('x'.repeat(20)));
+  assert.equal(readFileSync(path + '.1', 'utf8').startsWith(old.slice(0, 50)), true, '.1 은 그대로 (내 줄이 덧붙을 수는 있다)');
+  assert.match(readFileSync(path, 'utf8'), /^other new\n/, '다른 aitop 의 새 파일을 옮기지 않았다');
+  assert.match(readFileSync(path, 'utf8'), /mine 7/);
+  // 이름이 아예 없어졌다 (옮긴 직후 아직 새 파일이 없음).
+  renameSync(path, path + '.gone');
+  for (let i = 8; i < 14; i++) debug('codex', `mine ${i}`, new Error('x'.repeat(20)));
+  closeLog();
+  assert.match(readFileSync(path, 'utf8'), /mine 13/, 'ENOENT 여도 새로 열고 계속 쓴다');
 });
 
 test('기존 파일 권한이 넓어도 0600 으로 바꾼다', () => {

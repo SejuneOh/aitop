@@ -3,7 +3,7 @@ import { pad, width } from '../text.mjs';
 import { NO_COLOR, PALETTE } from './theme.mjs';
 import { box, line, segsWidth } from './draw.mjs';
 import { GROUP_LABEL, SORT_LABEL } from '../order.mjs';
-import { OPTIONS, VIEWS, helpContext, keysLine, settingsLine } from '../help.mjs';
+import { COMMON, OPTIONS, VIEWS, helpContext, keysLine, settingsLine } from '../help.mjs';
 
 // 상세 패널을 기본으로 여는 최소 화면 높이. 이보다 낮으면 세션 표에 줄을 준다.
 export const DETAIL_MIN_H = 24;
@@ -32,12 +32,12 @@ export const LEGEND = [
   ['변경 파일', 'Edit/Write(Codex 는 apply_patch) 로 고친 파일과 편집 횟수. git diff 가 아니다'],
 ];
 
-// 도움말 줄 목록: 지금 화면의 키 → (표에 검색어가 걸려 있으면) 그 키 → (상세 패널이 열려 있으면) 상세 패널 키 → 다른 화면 한 줄씩 → 옵션 → 상태 기호·열.
+// 도움말 줄 목록: 지금 화면의 키 → (표에 검색어가 걸려 있으면) 그 키 → (상세 패널이 열려 있으면) 상세 패널 키 → 어디서나 쓰는 키 → 다른 화면 한 줄씩 → 옵션 → 상태 기호·열.
 // 넓으면(100칸 이상) 키는 왼쪽, 옵션·기호·열은 오른쪽 칸에 둔다.
 export function helpSections(view = {}, open = false) {
   const ctx = helpContext(view);
   const here = ctx === 'table' ? ['table', ...(view.filter ? ['filtered'] : []), ...(open ? ['detail'] : [])] : [ctx];
-  const keys = here.flatMap((n, i) => [...(i ? [['', '']] : []), [`${VIEWS[n].title}${i ? '' : '  (지금 화면)'}`, null], ...VIEWS[n].keys.map(([k, t]) => [k, t])]);
+  const keys = [...here.map((n) => VIEWS[n]), COMMON].flatMap((v, i) => [...(i ? [['', '']] : []), [`${v.title}${i ? '' : '  (지금 화면)'}`, null], ...v.keys.map(([k, t]) => [k, t])]);
   const others = Object.keys(VIEWS).filter((n) => !here.includes(n));
   const rest = [['', ''], ['다른 화면', null], ...others.map((n) => [VIEWS[n].title, keysLine(n), 'dim'])];
   const now = settingsLine(view.settings);
@@ -83,6 +83,8 @@ export function help(W, H, view = {}, open = false) {
   const max = Math.max(0, ...cols.map((c) => c.length - rows));
   const scroll = Math.min(max, Math.max(0, view.helpScroll ?? 0));
   view.helpMax = max;
+  // PgUp·PgDn 한 번에 넘길 줄 수: 보이는 줄에서 한 줄을 겹쳐 남긴다.
+  view.helpPage = Math.max(1, rows - 1);
   view.helpScroll = scroll;
   if (wide) return box(title, W, H, windowOf(cols[0], rows, scroll), windowOf(cols[1], rows, scroll), Math.min(64, Math.floor((W - 7) * 0.5)), PALETTE.brand);
   return box(title, W, H, null, windowOf(cols[0], rows, scroll), 0, PALETTE.brand);

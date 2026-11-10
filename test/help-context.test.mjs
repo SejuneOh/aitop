@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { render } from '../src/ui.mjs';
 import { onKey, KEY } from '../src/keys.mjs';
-import { VIEWS, OPTIONS, helpContext, keysText, settingsLine } from '../src/help.mjs';
+import { COMMON, VIEWS, OPTIONS, helpContext, keysLine, keysText, settingsLine } from '../src/help.mjs';
 import { width } from '../src/text.mjs';
 
 const BIN = join(fileURLToPath(new URL('.', import.meta.url)), '..', 'bin', 'aitop.mjs');
@@ -104,6 +104,22 @@ test('↑↓ 로 도움말을 스크롤하고 끝에서 멈춘다. ? 는 열고 
   assert.deepEqual(calls, ['move 1'], '닫으면 ↓ 는 다시 세션 선택');
 });
 
+test('파일 목록·diff 도움말에도 어디서나 쓰는 키(? q)가 한 번만 나온다', () => {
+  for (const extra of [{}, { focus: 'files' }, { focus: 'diff' }]) {
+    const all = screen(extra, 80, 80).join('\n');
+    assert.equal(all.match(/이 도움말 열기·닫기/g)?.length, 1, JSON.stringify(extra));
+    assert.ok(all.indexOf('어디서나') < all.indexOf('다른 화면'));
+    assert.doesNotMatch(all, /세션 표 +.*\? 도움말/, '다른 화면 줄에 공통 키를 되풀이하지 않는다');
+  }
+});
+
+test('keysLine: common 은 어디서나 키, 없는 화면 이름은 공통 키로 대신하지 않고 오류', () => {
+  assert.equal(keysLine('common'), COMMON.keys.map((e) => `${e[0].split(' ')[0]} ${e[2]}`).join(' · '));
+  assert.equal(keysLine('common'), '? 도움말 · q 나가기');
+  assert.throws(() => keysLine('nope'), TypeError);
+  assert.doesNotMatch(keysLine('diff'), /도움말/);
+});
+
 test('aitop --help 의 키 안내는 같은 표에서 만든다', () => {
   const out = execFileSync(process.execPath, [BIN, '--help'], { encoding: 'utf8' });
   for (const l of keysText().split('\n')) assert.ok(out.includes(l), l);
@@ -121,7 +137,15 @@ test('도움말은 모달: 열려 있으면 스크롤·닫기·나가기만 듣�
   assert.deepEqual([v.help, v.searching, v.filter, v.sort, v.group, v.costMode, v.showDetail, v.focus], [true, false, '', 'default', 'none', 'api', true, null]);
   render(v, 60, 16);
   press(KEY.pageDown);
-  assert.equal(v.helpScroll, Math.min(10, v.helpMax));
+  const small = v.helpPage;
+  assert.ok(small > 1 && small !== 10, `60x16 한 페이지 ${small}줄`);
+  assert.equal(v.helpScroll, Math.min(v.helpPage, v.helpMax));
+  render(v, 80, 40);
+  v.helpScroll = 0;
+  press(KEY.pageDown);
+  assert.ok(v.helpPage > small, '창이 크면 한 페이지도 크다');
+  assert.equal(v.helpScroll, Math.min(v.helpPage, v.helpMax));
+  v.helpScroll = v.helpMax;
   press(KEY.pageUp);
   assert.equal(v.helpScroll, 0);
   press('q');
