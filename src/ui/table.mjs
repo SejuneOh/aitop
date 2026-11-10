@@ -1,8 +1,9 @@
 // 위쪽 화면: 요약 헤더, 도구 줄, 세션 표(팀원 행 포함), 세션이 없을 때의 점검 줄.
 import { describe } from '../doctor.mjs';
 import { BRAND } from '../brand.mjs';
+import { projectBudget } from '../budget.mjs';
 import { fmtAgo, fmtTokens, pad, truncate, width } from '../text.mjs';
-import { EDGE, PALETTE, PHASE_COLOR, RESET, style } from './theme.mjs';
+import { BUDGET_COLOR, EDGE, PALETTE, PHASE_COLOR, RESET, style } from './theme.mjs';
 import { NOW, SPIN, clock, costOf, gauge, glyph, line, money, segsWidth, shortModel } from './draw.mjs';
 
 // 검색어가 세션 이름·폴더·모델 중 하나에 들어 있으면 남긴다 (대소문자 무시).
@@ -84,20 +85,38 @@ export function header(view, W) {
     ];
   };
   // 오른쪽: 오늘 $52 ($8.40/h) 132M · 7일 $644 1.2B · 12:42:05. 폭이 모자라면 지출 속도, 토큰 수, API 표시, 7일, 오늘 순으로 뺀다 (캐시 제외 기준이면 그 표시는 끝까지 남긴다).
+  // 하루 예산이 있으면 오늘 $12.30/$50 ($5.00/h) 58.0M · 예상 $45 처럼 붙고, 예상 경고는 시각 다음으로 오래 남는다.
   const u = view.data.usage;
   const dot = { t: ' · ', fg: PALETTE.faint, bg: B };
   const net = view.costMode === 'net';
-  const period = (label, p, tok, rate = []) => [
+  // 짧은 달러 표기: 10 이상은 정수, 그 아래는 소수 둘째 자리.
+  const usd = (x) => (x >= 10 ? `$${Math.round(x).toLocaleString('en-US')}` : `$${x.toFixed(2)}`);
+  // 하루 예산은 비용 기준(c 키)과 상관없이 API 정가 환산으로 본다 (--json 과 같은 단계).
+  // API 기준이면 오늘 금액 뒤에 /$50 을 붙이고, 캐시 제외 기준이면 '예산 $12.30/$50' 칸을 따로 둔다.
+  // 예상이 80% 이상이면 '예상 $45', 100% 이상이면 경고 색과 '!'. 지출 속도와 헷갈리지 않게 · 로 나눈 칸에 둔다.
+  const bud = u ? projectBudget(u, view.budgetDay, { now: view.data.at ?? Date.now() }) : null;
+  const ofBudget = bud ? [{ t: `/${Number.isInteger(bud.day) ? `$${bud.day.toLocaleString('en-US')}` : `$${bud.day.toFixed(2)}`}`, fg: PALETTE.muted, bg: B }] : [];
+  // 캐시 제외 화면에서 예산 칸 없이 예상만 남으면 캐시 제외 금액으로 읽히지 않게 'API 예상' 이라고 적는다.
+  const projOf = (label) => (bud && bud.level !== 'ok' ? { t: `${label} ${usd(bud.projected)}${bud.unknown ? '?' : ''}${bud.level === 'warn' ? '!' : ''}`, fg: BUDGET_COLOR[bud.level], bg: B, bold: true } : null);
+  const projSeg = projOf('예상');
+  const projApi = net ? projOf('API 예상') : projSeg;
+  // budget: 'full' | 'proj' (아래 right 참고). 오늘 칸 뒤에 붙는 예산 칸.
+  const budgetPart = (budget) => {
+    if (!bud) return [];
+    if (budget === 'full' && net) return [dot, { t: '예산 ', fg: PALETTE.muted, bg: B }, { t: money(bud.spent, bud.unknown), fg: PALETTE.money, bg: B }, ...ofBudget, ...(projSeg ? [{ t: ' ', bg: B }, projSeg] : [])];
+    return projApi ? [dot, projApi] : [];
+  };
+  const period = (label, p, tok, rate = [], extra = []) => [
     { t: `${label} `, fg: PALETTE.muted, bg: B },
     { t: money(net ? p.costNoCache ?? null : p.cost, p.unknown), fg: PALETTE.money, bg: B, bold: true },
+    ...extra,
     ...rate,
     ...(tok ? [{ t: ` ${fmtTokens(p.tokens)}`, fg: PALETTE.info, bg: B }] : []),
   ];
   // 지출 속도: 최근 1시간 비용(5분 칸 근사)을 시간당으로. 0 이거나 아직 집계 중이면 숨기고, 폭이 모자라면 가장 먼저 뺀다.
   // 아는 몫이 0 인데 가격표에 없는 모델이 섞였으면 금액 없이 (?/h) 만 보인다.
   const hour = u?.lastHour && u.loading == null ? (net ? u.lastHour.costNoCache : u.lastHour.cost) : null;
-  const perHour = (x) => (x >= 10 ? `$${Math.round(x).toLocaleString('en-US')}` : `$${x.toFixed(2)}`);
-  const rateText = hour >= 0.005 ? `${perHour(hour)}${u.lastHour.unknown ? '?' : ''}` : hour != null && u.lastHour.unknown ? '?' : null;
+  const rateText = hour >= 0.005 ? `${usd(hour)}${u.lastHour.unknown ? '?' : ''}` : hour != null && u.lastHour.unknown ? '?' : null;
   const rate = rateText ? [{ t: ` (${rateText}/h)`, fg: PALETTE.muted, bg: B }] : null;
   const week = (tok) => (u.loading != null ? [{ t: `7일 집계 중 ${Math.floor(u.loading * 100)}%`, fg: PALETTE.info, bg: B }] : period('7일', u.week, tok));
   // 장부를 못 읽었으면 화면에 있는 세션(모든 도구)의 누적 토큰이라도 보인다.
@@ -106,19 +125,28 @@ export function header(view, W) {
   // 비용은 API 정가 환산이다 (구독 요금제의 실제 청구액이 아님). 폭이 되면 그렇다고 적는다.
   const api = { t: net ? '캐시 제외  ' : 'API 환산  ', fg: net ? PALETTE.brand : PALETTE.info, bg: B };
   const apiShort = { t: net ? '캐시제외 ' : 'API ', fg: net ? PALETTE.brand : PALETTE.info, bg: B };
-  const rights = u
-    ? [
-        ...(rate ? [[api, ...period('오늘', u.today, true, rate), dot, ...week(true), dot, clockSeg]] : []),
-        [api, ...period('오늘', u.today, true), dot, ...week(true), dot, clockSeg],
-        [...period('오늘', u.today, true), dot, ...week(true), dot, clockSeg],
-        [api, ...period('오늘', u.today, false), dot, ...week(false), dot, clockSeg],
-        [apiShort, ...period('오늘', u.today, false), dot, ...week(false), dot, clockSeg],
-        [...period('오늘', u.today, false), dot, ...week(false), dot, clockSeg],
-        [apiShort, ...period('오늘', u.today, false), dot, clockSeg],
-        [...period('오늘', u.today, false), dot, clockSeg],
-        [clockSeg],
-      ].filter((r) => !net || r[0] === api || r[0] === apiShort || r.length === 1)
-    : [[...fallback, dot, clockSeg], [clockSeg]];
+  // 오른쪽 한 줄의 구성. 위에서부터 차례로 시도한다.
+  // api: 'long' | 'short' | null, tok: 토큰 수, week: 7일 칸, budget: 'full'(/$50 와 예상) | 'proj'(예상만) | 'only'(오늘 금액 없이 예상만).
+  const right = ({ api: a = null, rate: withRate = false, tok = false, week: withWeek = false, budget = 'full' }) => {
+    const label = a === 'long' ? [api] : a === 'short' ? [apiShort] : [];
+    const today = budget === 'only' ? [projApi] : [...period('오늘', u.today, tok, withRate ? rate : [], budget === 'full' && !net ? ofBudget : []), ...budgetPart(budget)];
+    return [...label, ...today, ...(withWeek ? [dot, ...week(tok)] : []), dot, clockSeg];
+  };
+  const shapes = [
+    ...(rate ? [{ api: 'long', rate: true, tok: true, week: true }] : []),
+    { api: 'long', tok: true, week: true },
+    { tok: true, week: true },
+    { api: 'long', week: true },
+    { api: 'short', week: true },
+    { week: true },
+    { api: 'short' },
+    {},
+    // 예산이 있을 때만: /$50 을 빼고, 그다음 오늘 금액을 빼서 예상 경고를 시각 바로 앞까지 지킨다.
+    ...(bud ? [{ api: 'short', budget: 'proj' }, { budget: 'proj' }] : []),
+    // 캐시 제외 화면에서도 'API 예상' 은 기준이 드러나므로 캐시 제외 표시 없이 남길 수 있다.
+    ...(projSeg ? [{ api: 'short', budget: 'only' }, { budget: 'only' }] : []),
+  ];
+  const rights = u ? [...shapes.filter((o) => !net || o.api || o.budget === 'only').map(right), [clockSeg]] : [[...fallback, dot, clockSeg], [clockSeg]];
   // 사용량 숫자가 상태 이름보다 중요하므로, 이름을 먼저 줄이고 그래도 모자라면 오른쪽을 줄인다.
   // 시각만 남기 전에는 live 수와 ○ 대기를 먼저 빼서 오늘 비용을 지킨다.
   const fit = (r, narrow, drop) => {

@@ -9,9 +9,43 @@ import { stripControl } from './text.mjs';
 
 const bool = (v) => typeof v === 'boolean';
 const oneOf = (...xs) => (v) => xs.includes(v);
+// 달러 금액 글자("50", "12.5", "$50")를 0 보다 큰 수로 바꾼다. 아니면 null.
+const usd = (v) => {
+  const t = String(v).trim().replace(/^\$/, '');
+  const n = /^\d+(\.\d+)?$|^\.\d+$/.test(t) ? Number(t) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
+
+// argv 에서 --budget-day <usd>, --budget-day=<usd>, --no-budget-day 를 꺼낸다. 뒤에 준 쪽을 따른다.
+// value: 금액, null(이번 실행만 끔), undefined(주지 않음). 나머지 인자는 rest 로 돌려준다.
+export function budgetDayOption(argv) {
+  let value;
+  let error = null;
+  const rest = [];
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--no-budget-day') {
+      value = null;
+      continue;
+    }
+    const m = /^--budget-day(?:=(.*))?$/.exec(a);
+    if (!m) {
+      rest.push(a);
+      continue;
+    }
+    // 다음 인자가 옵션이면 값으로 먹지 않는다. -5 처럼 수로 보이면 값으로 받아 잘못된 값으로 알린다.
+    const next = argv[i + 1];
+    const raw = m[1] ?? (next == null || (next.startsWith('-') && !/^-[\d.]/.test(next)) ? '' : argv[++i]);
+    const n = usd(raw);
+    if (n == null) error ??= raw === '' ? '--budget-day 값이 없습니다 (하루 예산, 달러)' : `--budget-day 값 ${JSON.stringify(raw)} 이 잘못되었습니다 (0 보다 큰 수)`;
+    else value = n;
+  }
+  return { value, rest, error };
+}
 
 // env: 환경 변수 이름과 그 값을 옵션 값으로 바꾸는 함수 (undefined 면 설정하지 않은 것으로 본다).
-// notify, onWaiting 은 응답 대기 알림(notify.mjs)이 쓴다. budgetDay 는 아직 쓰는 곳이 없어 값 검사만 한다.
+// envProblem: 환경 변수 값이 잘못되면 무시하고 problems 에 남긴다 (--doctor, --print-config 가 보인다).
+// notify, onWaiting 은 응답 대기 알림(notify.mjs)이 쓴다. budgetDay 는 하루 예산(달러)으로, 헤더와 --json 의 예상 비용 경고(budget.mjs)가 쓴다.
 export const KEYS = {
   theme: { ok: oneOf('light', 'dark'), expect: 'light 또는 dark', def: null, env: ['AITOP_THEME', (v) => (v === 'light' || v === 'dark' ? v : undefined)] },
   icons: { ok: oneOf('plain', 'ascii'), expect: 'plain 또는 ascii', def: 'full', env: ['AITOP_ICONS', (v) => (v === 'plain' || v === 'ascii' ? v : undefined)] },
@@ -20,7 +54,7 @@ export const KEYS = {
   all: { ok: bool, expect: 'true 또는 false', def: false },
   notify: { ok: bool, expect: 'true 또는 false', def: false },
   onWaiting: { ok: (v) => typeof v === 'string' && v.trim() !== '', expect: '실행할 명령 문자열', def: null },
-  budgetDay: { ok: (v) => typeof v === 'number' && Number.isFinite(v) && v > 0, expect: '0 보다 큰 수', def: null },
+  budgetDay: { ok: (v) => typeof v === 'number' && Number.isFinite(v) && v > 0, expect: '0 보다 큰 수', def: null, env: ['AITOP_BUDGET_DAY', (v) => usd(v) ?? undefined], envProblem: true },
 };
 
 export function configPath(env = process.env, home = homedir()) {
@@ -101,14 +135,16 @@ export function readConfigFile(path, { uid = process.getuid?.() } = {}) {
 export function resolveConfig({ flags = {}, env = process.env, file } = {}) {
   file ??= readConfigFile(configPath(env));
   const values = {};
+  const problems = [...file.problems];
   for (const [key, spec] of Object.entries(KEYS)) {
     const fromEnv = spec.env && env[spec.env[0]] != null ? spec.env[1](env[spec.env[0]]) : undefined;
+    if (spec.envProblem && env[spec.env[0]] != null && fromEnv === undefined) problems.push(`환경 변수 ${spec.env[0]} 값 ${show(env[spec.env[0]])} 이 잘못되어 무시합니다 (${spec.expect})`);
     if (flags[key] !== undefined) values[key] = { value: flags[key], source: 'flag' };
     else if (fromEnv !== undefined) values[key] = { value: fromEnv, source: 'env' };
     else if (key in file.values) values[key] = { value: file.values[key], source: 'file' };
     else values[key] = { value: spec.def, source: 'default' };
   }
-  return { path: file.path, exists: file.exists, values, problems: file.problems };
+  return { path: file.path, exists: file.exists, values, problems };
 }
 
 // --print-config 의 사람용 출력.

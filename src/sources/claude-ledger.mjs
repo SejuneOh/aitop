@@ -7,7 +7,7 @@ import { homedir } from 'node:os';
 import { JsonlTail } from '../tail.mjs';
 import { loadCache, markDirty } from '../cache.mjs';
 import { claudeCost } from '../pricing.mjs';
-import { dayKey, lastDays, addSlot, lastHourOf } from './common.mjs';
+import { dayKey, lastDays, addSlot, lastHourOf, recentTodayOf } from './common.mjs';
 import { collectAgyLedger } from './agy-ledger.mjs';
 import { collectCodexLedger } from './codex-ledger.mjs';
 
@@ -163,6 +163,7 @@ export function collectLedger({ budget, now = Date.now() } = {}) {
     today: sum([dayKey(now)]),
     week: sum(lastDays(DAYS, now)),
     lastHour: lastHourOf(slots, now),
+    recentToday: recentTodayOf(slots, now),
     // 살아 있는 세션은 계속 조금씩 늘어나므로, 많이 밀렸을 때만 '집계 중' 으로 본다.
     loading: pending > LOADING_MIN_BYTES && size ? 1 - pending / size : null,
   };

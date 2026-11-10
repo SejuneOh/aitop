@@ -48,16 +48,28 @@ export function addSlot(slots, at, cost, costNoCache, unknown) {
 }
 
 // 최근 1시간 합계. 시작 시각이 now 로부터 60분 안인 칸만 센다 (5분 단위 근사라 55~60분 구간).
-export function lastHourOf(books, now = Date.now()) {
+export const lastHourOf = (books, now = Date.now()) => slotsSince(books, now - 3600_000);
+
+// 시작 시각이 from 이후인 칸의 합계.
+function slotsSince(books, from) {
   const out = { cost: 0, costNoCache: 0, unknown: false };
   for (const slots of books)
     for (const [k, s] of Object.entries(slots ?? {})) {
-      if (Number(k) < now - 3600_000) continue;
+      if (Number(k) < from) continue;
       out.cost += s.cost;
       out.costNoCache += s.costNoCache;
       out.unknown ||= s.unknown;
     }
   return out;
+}
+
+// 하루 예산의 예상 속도용: 최근 1시간 중 로컬 자정 이후의 몫만 센다.
+// ms 는 실제로 센 칸이 덮는 길이다: 구간 시작을 칸 경계로 올린 시각부터 지금까지 (55~60분, 자정 직후면 더 짧다).
+export function recentTodayOf(books, now = Date.now()) {
+  const d = new Date(now);
+  const from = Math.max(now - 3600_000, new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime());
+  const start = Math.ceil(from / SLOT_MS) * SLOT_MS;
+  return { ...slotsSince(books, start), ms: Math.max(0, now - start) };
 }
 
 // 기록 줄의 timestamp. 없거나 읽을 수 없으면 지금 시각.
