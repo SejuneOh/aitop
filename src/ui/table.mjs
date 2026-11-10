@@ -4,7 +4,7 @@ import { BRAND } from '../brand.mjs';
 import { projectBudget } from '../budget.mjs';
 import { fmtAgo, fmtTokens, pad, truncate, width } from '../text.mjs';
 import { BUDGET_COLOR, EDGE, PALETTE, PHASE_COLOR, RESET, style } from './theme.mjs';
-import { NOW, SPIN, clock, costOf, gauge, glyph, line, money, segsWidth, shortModel } from './draw.mjs';
+import { BAR_GLYPHS, NOW, SPIN, clock, costOf, gauge, glyph, levelBar, line, money, segsWidth, shortModel } from './draw.mjs';
 
 // 검색어가 세션 이름·폴더·모델 중 하나에 들어 있으면 남긴다 (대소문자 무시).
 export function filterSessions(sessions, query) {
@@ -50,15 +50,10 @@ export function columns(W) {
 // 헤더의 7일 비용 막대. days: usage.days7 (오래된 날 → 오늘). 7일 중 가장 큰 날을 █ 로 맞춘다.
 // 비용이 0 인 날은 ▁ 를 장식 색(faint)으로, 쓴 날은 ▂~█ 로 그린다. 색이 없어도 쓴 날(▂ 이상)과 안 쓴 날(▁)이 갈린다.
 // 가격표에 없는 모델만 쓴 날(아는 비용 0)은 쓰지 않은 날과 헷갈리지 않게 ? 로 둔다.
-export const BAR_GLYPHS = '▁▂▃▄▅▆▇█';
+export { BAR_GLYPHS };
 export function weekBar(days, costMode = 'api') {
-  const v = (d) => Math.max(0, costOf(d, costMode) ?? 0);
-  const max = Math.max(0, ...days.map(v));
-  return days.map((d) => {
-    const x = v(d);
-    if (!(x > 0) || !(max > 0)) return d.unknown ? { t: '?', fg: PALETTE.muted } : { t: BAR_GLYPHS[0], fg: PALETTE.faint };
-    return { t: BAR_GLYPHS[Math.min(7, Math.max(1, Math.ceil((x / max) * 7)))], fg: PALETTE.info };
-  });
+  const bar = levelBar(days.map((d) => costOf(d, costMode)));
+  return bar.map((x, i) => (x.t === BAR_GLYPHS[0] && days[i].unknown ? { t: '?', fg: PALETTE.muted } : x));
 }
 
 export function header(view, W) {

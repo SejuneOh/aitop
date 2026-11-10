@@ -136,3 +136,12 @@ export function rule(label, meta, w, color = PALETTE.line) {
   const used = [...head, ...tail].reduce((a, x) => a + width(x.t), 0);
   return [...head, { t: ' ' + '─'.repeat(Math.max(0, w - used - 1)), fg: color }, ...tail];
 }
+
+// 값 목록을 ▁▂…█ 막대로. 가장 큰 값을 █ 로 맞추고, 0 은 장식 색(faint) ▁, 0 보다 크면 ▂ 이상이라 색이 없어도 갈린다.
+// 헤더 7일 막대(table.mjs weekBar)와 상세 패널의 시간별 활동 막대가 같이 쓴다.
+export const BAR_GLYPHS = '▁▂▃▄▅▆▇█';
+export function levelBar(values) {
+  const v = values.map((x) => Math.max(0, x ?? 0));
+  const max = Math.max(0, ...v);
+  return v.map((x) => (!(x > 0) || !(max > 0) ? { t: BAR_GLYPHS[0], fg: PALETTE.faint } : { t: BAR_GLYPHS[Math.min(7, Math.max(1, Math.ceil((x / max) * 7)))], fg: PALETTE.info }));
+}

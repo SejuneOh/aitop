@@ -2,7 +2,7 @@
 import { JsonlTail } from '../tail.mjs';
 import { loadCache, markDirty } from '../cache.mjs';
 import { claudeCost } from '../pricing.mjs';
-import { emptyTokens, pushEvent, describeTool, toolDetail, isNoisePrompt, parseTs } from './common.mjs';
+import { addActivity, emptyTokens, pushEvent, describeTool, toolDetail, isNoisePrompt, parseTs } from './common.mjs';
 import { addChange } from './files.mjs';
 
 const MAX_TURNS = 50;
@@ -21,7 +21,7 @@ export class ClaudeTracker {
     const c = loadCache(path);
     if (c) {
       this.tail.offset = c.offset;
-      Object.assign(this, { tokens: c.tokens, cost: c.cost, costNoCache: c.costNoCache, costUnknown: c.costUnknown, context: c.context, model: c.model, title: c.title, branch: c.branch, events: c.events, lastTool: c.lastTool, lastKind: c.lastKind, files: c.files ?? [], turns: c.turns ?? [], turnCount: c.turnCount ?? 0, firstAt: c.firstAt ?? null });
+      Object.assign(this, { tokens: c.tokens, cost: c.cost, costNoCache: c.costNoCache, costUnknown: c.costUnknown, context: c.context, model: c.model, title: c.title, branch: c.branch, events: c.events, lastTool: c.lastTool, lastKind: c.lastKind, files: c.files ?? [], turns: c.turns ?? [], turnCount: c.turnCount ?? 0, firstAt: c.firstAt ?? null, activity: c.activity ?? {} });
       this.recent = new Map(c.recent);
       this.pending = new Map(c.pending);
     }
@@ -48,6 +48,8 @@ export class ClaudeTracker {
     this.turnCount = 0;
     // 기록의 첫 시각. 서브에이전트 편집을 지시에 나눌 때 쓴다.
     this.firstAt = null;
+    // 시간별 토큰 (common.mjs addActivity)
+    this.activity = {};
   }
 
   get path() {
@@ -90,19 +92,22 @@ export class ClaudeTracker {
       turns: this.turns,
       turnCount: this.turnCount,
       firstAt: this.firstAt,
+      activity: this.activity,
     };
   }
 
   // 같은 message.id 가 블록마다 여러 줄로 반복되므로, 직전 값과의 차이만 더한다.
-  addUsage(id, model, u) {
+  addUsage(id, model, u, at) {
     const prev = this.recent.get(id);
     const n = (x, k) => x?.[k] ?? 0;
     const t = this.tokens;
+    const before = t.total;
     t.input += n(u, 'input_tokens') - n(prev?.u, 'input_tokens');
     t.output += n(u, 'output_tokens') - n(prev?.u, 'output_tokens');
     t.cacheRead += n(u, 'cache_read_input_tokens') - n(prev?.u, 'cache_read_input_tokens');
     t.cacheWrite += n(u, 'cache_creation_input_tokens') - n(prev?.u, 'cache_creation_input_tokens');
     t.total = t.input + t.output + t.cacheRead + t.cacheWrite;
+    addActivity(this.activity, at, t.total - before);
     const cost = claudeCost(model, u);
     const used = n(u, 'input_tokens') + n(u, 'output_tokens') + n(u, 'cache_read_input_tokens') + n(u, 'cache_creation_input_tokens');
     if (!cost && used > 0) this.costUnknown = true;
@@ -123,7 +128,7 @@ export class ClaudeTracker {
       const m = x.message;
       if (m.model && !m.model.startsWith('<')) this.model = m.model;
       if (m.usage && m.id) {
-        this.addUsage(m.id, m.model ?? this.model, m.usage);
+        this.addUsage(m.id, m.model ?? this.model, m.usage, parseTs(x.timestamp));
         this.context = (m.usage.input_tokens ?? 0) + (m.usage.cache_read_input_tokens ?? 0) + (m.usage.cache_creation_input_tokens ?? 0);
       }
       for (const c of Array.isArray(m.content) ? m.content : []) {

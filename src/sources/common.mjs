@@ -72,6 +72,38 @@ export function recentTodayOf(books, now = Date.now()) {
   return { ...slotsSince(books, start), ms: Math.max(0, now - start) };
 }
 
+// 세션별 활동 장부: 토큰을 1시간 칸(키 = 칸 시작 시각 ms)에 모은다. 상세 패널의 24시간 막대가 쓴다.
+// 기준은 장부 안 가장 새 칸이라 처음 읽기 중에도 칸 수가 ACT_HOURS 를 넘지 않는다 (세션 하나에 숫자 24개).
+export const ACT_MS = 3600_000;
+export const ACT_HOURS = 24;
+// 시계가 어긋난 줄 하나가 미래 칸을 만들어 앞 칸을 모두 지우지 않게, 지금보다 이만큼 넘게 앞선 시각은 버린다.
+export const ACT_SKEW_MS = 5 * 60_000;
+
+export function addActivity(act, at, tokens, now = Date.now()) {
+  if (!Number.isFinite(at) || !(tokens > 0) || at > now + ACT_SKEW_MS) return;
+  const k = Math.floor(at / ACT_MS) * ACT_MS;
+  if (act[k] == null) {
+    const newest = Math.max(k, ...Object.keys(act).map(Number));
+    if (k <= newest - ACT_HOURS * ACT_MS) return;
+    for (const key of Object.keys(act)) if (Number(key) <= newest - ACT_HOURS * ACT_MS) delete act[key];
+    act[k] = 0;
+  }
+  act[k] += tokens;
+}
+
+// 여러 장부(메인 + 서브에이전트)를 칸별로 더한다.
+export function mergeActivity(books) {
+  const out = {};
+  for (const b of books) for (const [k, v] of Object.entries(b ?? {})) out[k] = (out[k] ?? 0) + v;
+  return out;
+}
+
+// now 가 든 칸까지 거꾸로 n 칸의 토큰 (오래된 칸 → 지금 칸).
+export function activitySeries(act, now = Date.now(), n = ACT_HOURS) {
+  const last = Math.floor(now / ACT_MS) * ACT_MS;
+  return Array.from({ length: n }, (_, i) => act?.[last - (n - 1 - i) * ACT_MS] ?? 0);
+}
+
 // 기록 줄의 timestamp. 없거나 읽을 수 없으면 지금 시각.
 export const parseTs = (ts) => (ts && Date.parse(ts)) || Date.now();
 
