@@ -47,6 +47,20 @@ export function columns(W) {
   return { ...c, name: Math.max(1, c.name - short), status: Math.max(4, c.status) };
 }
 
+// 헤더의 7일 비용 막대. days: usage.days7 (오래된 날 → 오늘). 7일 중 가장 큰 날을 █ 로 맞춘다.
+// 비용이 0 인 날은 ▁ 를 장식 색(faint)으로, 쓴 날은 ▂~█ 로 그린다. 색이 없어도 쓴 날(▂ 이상)과 안 쓴 날(▁)이 갈린다.
+// 가격표에 없는 모델만 쓴 날(아는 비용 0)은 쓰지 않은 날과 헷갈리지 않게 ? 로 둔다.
+export const BAR_GLYPHS = '▁▂▃▄▅▆▇█';
+export function weekBar(days, costMode = 'api') {
+  const v = (d) => Math.max(0, costOf(d, costMode) ?? 0);
+  const max = Math.max(0, ...days.map(v));
+  return days.map((d) => {
+    const x = v(d);
+    if (!(x > 0) || !(max > 0)) return d.unknown ? { t: '?', fg: PALETTE.muted } : { t: BAR_GLYPHS[0], fg: PALETTE.faint };
+    return { t: BAR_GLYPHS[Math.min(7, Math.max(1, Math.ceil((x / max) * 7)))], fg: PALETTE.info };
+  });
+}
+
 export function header(view, W) {
   const { sessions } = view.data;
   const live = sessions.filter((s) => s.live);
@@ -84,7 +98,7 @@ export function header(view, W) {
       ...counts,
     ];
   };
-  // 오른쪽: 오늘 $52 ($8.40/h) 132M · 7일 $644 1.2B · 12:42:05. 폭이 모자라면 지출 속도, 토큰 수, API 표시, 7일, 오늘 순으로 뺀다 (캐시 제외 기준이면 그 표시는 끝까지 남긴다).
+  // 오른쪽: 오늘 $52 ($8.40/h) 132M · 7일 $644 ▂▃▅█▁▄▆ 1.2B · 12:42:05. 폭이 모자라면 지출 속도, 7일 막대, 토큰 수, API 표시, 7일, 오늘 순으로 뺀다 (캐시 제외 기준이면 그 표시는 끝까지 남긴다).
   // 하루 예산이 있으면 오늘 $12.30/$50 ($5.00/h) 58.0M · 예상 $45 처럼 붙고, 예상 경고는 시각 다음으로 오래 남는다.
   const u = view.data.usage;
   const dot = { t: ' · ', fg: PALETTE.faint, bg: B };
@@ -118,7 +132,9 @@ export function header(view, W) {
   const hour = u?.lastHour && u.loading == null ? (net ? u.lastHour.costNoCache : u.lastHour.cost) : null;
   const rateText = hour >= 0.005 ? `${usd(hour)}${u.lastHour.unknown ? '?' : ''}` : hour != null && u.lastHour.unknown ? '?' : null;
   const rate = rateText ? [{ t: ` (${rateText}/h)`, fg: PALETTE.muted, bg: B }] : null;
-  const week = (tok) => (u.loading != null ? [{ t: `7일 집계 중 ${Math.floor(u.loading * 100)}%`, fg: PALETTE.info, bg: B }] : period('7일', u.week, tok));
+  // bar: 7일 금액 뒤의 날짜별 막대. 집계 중이거나 날짜별 값이 없으면 넣지 않는다.
+  const bar = u?.loading == null && u?.days7?.length ? [{ t: ' ', bg: B }, ...weekBar(u.days7, view.costMode).map((x) => ({ ...x, bg: B }))] : null;
+  const week = (tok, withBar = false) => (u.loading != null ? [{ t: `7일 집계 중 ${Math.floor(u.loading * 100)}%`, fg: PALETTE.info, bg: B }] : period('7일', u.week, tok, [], withBar && bar ? bar : []));
   // 장부를 못 읽었으면 화면에 있는 세션(모든 도구)의 누적 토큰이라도 보인다.
   const fallback = [{ t: `Σ ${fmtTokens(sessions.reduce((a, s) => a + (s.tokens?.total ?? 0), 0))} tok`, fg: PALETTE.muted, bg: B }];
   const clockSeg = { t: clock(view.data.at), fg: PALETTE.muted, bg: B };
@@ -126,14 +142,17 @@ export function header(view, W) {
   const api = { t: net ? '캐시 제외  ' : 'API 환산  ', fg: net ? PALETTE.brand : PALETTE.info, bg: B };
   const apiShort = { t: net ? '캐시제외 ' : 'API ', fg: net ? PALETTE.brand : PALETTE.info, bg: B };
   // 오른쪽 한 줄의 구성. 위에서부터 차례로 시도한다.
-  // api: 'long' | 'short' | null, tok: 토큰 수, week: 7일 칸, budget: 'full'(/$50 와 예상) | 'proj'(예상만) | 'only'(오늘 금액 없이 예상만).
-  const right = ({ api: a = null, rate: withRate = false, tok = false, week: withWeek = false, budget = 'full' }) => {
+  // api: 'long' | 'short' | null, tok: 토큰 수, week: 7일 칸, bar: 7일 막대, budget: 'full'(/$50 와 예상) | 'proj'(예상만) | 'only'(오늘 금액 없이 예상만).
+  const right = ({ api: a = null, rate: withRate = false, tok = false, week: withWeek = false, bar: withBar = false, budget = 'full' }) => {
     const label = a === 'long' ? [api] : a === 'short' ? [apiShort] : [];
     const today = budget === 'only' ? [projApi] : [...period('오늘', u.today, tok, withRate ? rate : [], budget === 'full' && !net ? ofBudget : []), ...budgetPart(budget)];
-    return [...label, ...today, ...(withWeek ? [dot, ...week(tok)] : []), dot, clockSeg];
+    return [...label, ...today, ...(withWeek ? [dot, ...week(tok, withBar)] : []), dot, clockSeg];
   };
+  // 7일 막대는 지출 속도 다음으로 먼저 뺀다 (토큰 수보다 먼저).
   const shapes = [
-    ...(rate ? [{ api: 'long', rate: true, tok: true, week: true }] : []),
+    ...(rate && bar ? [{ api: 'long', rate: true, tok: true, week: true, bar: true }] : []),
+    ...(bar ? [{ api: 'long', tok: true, week: true, bar: true }] : []),
+    ...(rate && !bar ? [{ api: 'long', rate: true, tok: true, week: true }] : []),
     { api: 'long', tok: true, week: true },
     { tok: true, week: true },
     { api: 'long', week: true },

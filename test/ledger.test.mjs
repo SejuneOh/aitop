@@ -40,3 +40,11 @@ test('일주일 넘은 날짜는 7일 합계에 들어가지 않는다', () => {
   const r = collectLedger({ budget: createBudget(), now: NOW });
   assert.equal(r.week.tokens, 2_500_000);
 });
+
+test('days7: 오래된 날부터 오늘까지 날짜별 비용 7개, 합은 7일 합계', () => {
+  const r = collectLedger({ budget: createBudget(), now: NOW });
+  assert.deepEqual(r.days7.map((d) => d.date), ['2026-10-24', '2026-10-25', '2026-10-26', '2026-10-27', '2026-10-28', '2026-10-29', '2026-10-30']);
+  assert.equal(r.days7.at(-1).cost, r.today.cost);
+  assert.equal(r.days7.at(-2).cost, 4);
+  assert.equal(r.days7.reduce((a, d) => a + d.cost, 0), r.week.cost);
+});

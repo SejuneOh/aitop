@@ -162,6 +162,11 @@ export function collectLedger({ budget, now = Date.now() } = {}) {
   return {
     today: sum([dayKey(now)]),
     week: sum(lastDays(DAYS, now)),
+    // 7일 막대용 날짜별 비용. 오래된 날부터 오늘까지 (읽을 때 날짜별 합계에서 만든다).
+    days7: lastDays(DAYS, now).reverse().map((date) => {
+      const d = sum([date]);
+      return { date, cost: d.cost, costNoCache: d.costNoCache, unknown: d.unknown };
+    }),
     lastHour: lastHourOf(slots, now),
     recentToday: recentTodayOf(slots, now),
     // 살아 있는 세션은 계속 조금씩 늘어나므로, 많이 밀렸을 때만 '집계 중' 으로 본다.

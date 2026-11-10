@@ -11,6 +11,8 @@ const iso = (ms) => (ms ? new Date(ms).toISOString() : null);
 const money = (x) => (typeof x === 'number' ? Math.round(x * 1e4) / 1e4 : (x ?? null));
 // 최근 1시간 비용 (5분 칸 단위 근사).
 const lastHourOf = (h) => (h ? { cost: money(h.cost), costNoCache: money(h.costNoCache), unknown: Boolean(h.unknown) } : null);
+// last7days.daily: 날짜별 API 환산 비용 (오래된 날 → 오늘). unknown 은 가격표에 없는 모델이 섞인 날.
+const dailyOf = (days) => (days ? { daily: days.map((d) => ({ date: d.date, cost: money(d.cost), unknown: Boolean(d.unknown) })) } : {});
 const usageOf = (u) => (u ? { ...u, ...('cost' in u ? { cost: money(u.cost) } : {}) } : u);
 
 // version 은 aitop 버전, tools 는 aitop --doctor 와 같은 도구별 점검 결과다.
@@ -22,7 +24,7 @@ export function toJson(data, version = null, opts = {}) {
     version,
     at: iso(data.at),
     tools: toolsJson(data.tools?.tools),
-    usage: data.usage ? { today: usageOf(data.usage.today), last7days: usageOf(data.usage.week), lastHour: lastHourOf(data.usage.lastHour), complete: data.usage.loading == null, ...(b ? { budget: { day: b.day, projected: money(b.projected), unknown: b.unknown, level: b.level } } : {}) } : null,
+    usage: data.usage ? { today: usageOf(data.usage.today), last7days: { ...usageOf(data.usage.week), ...dailyOf(data.usage.days7) }, lastHour: lastHourOf(data.usage.lastHour), complete: data.usage.loading == null, ...(b ? { budget: { day: b.day, projected: money(b.projected), unknown: b.unknown, level: b.level } } : {}) } : null,
     sessions: data.sessions.map((s) => ({
       tool: s.tool,
       id: s.id,
