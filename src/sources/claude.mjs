@@ -69,13 +69,14 @@ export function _stats() {
   return { trackers: trackers.size, subTrackers: subTrackers.size };
 }
 
+// 기록을 아직 다 읽지 못한 세션의 상태. 읽다 만 기록의 진행 단계는 틀릴 수 있어 화면에는 … 로만 보인다 (진행률은 헤더 한 줄로 모은다).
 function loadingPhase(t) {
-  return t?.loading != null ? { kind: 'think', msg: 'loading', args: { pct: Math.floor(t.loading * 100) } } : null;
+  return t?.loading != null ? { kind: 'think', msg: 'loading' } : null;
 }
 
 // 서브에이전트 전체(끝난 것 포함)의 토큰·비용 합계. 메인 세션 합계에 더해 화면에 보인다.
 function emptySub() {
-  return { count: 0, tokens: emptyTokens(), cost: 0, costNoCache: 0, costUnknown: false, files: [], activity: [] };
+  return { count: 0, tokens: emptyTokens(), cost: 0, costNoCache: 0, costUnknown: false, loading: false, files: [], activity: [] };
 }
 
 // 메인 tracker 와 서브에이전트 합계를 화면에 보일 세션 숫자로 합친다. 기록을 아직 읽지 않았으면(t 없음) 비용은 null.
@@ -89,6 +90,8 @@ function sessionTotals(t, sub) {
     cost: t ? t.cost + sub.cost : null,
     costNoCache: t ? t.costNoCache + sub.costNoCache : null,
     costUnknown: Boolean(t?.costUnknown || sub.costUnknown),
+    // 메인이나 서브에이전트 기록을 아직 다 읽지 못해 숫자가 덜 찬 상태. 표는 이 동안 숫자 대신 … 를 보인다.
+    loading: Boolean(t?.loading != null || sub.loading),
     context: { used, window: contextWindow(t?.model, used) },
     files: t ? mergeFiles([{ agent: '메인', files: t.files }, ...sub.files]) : [],
     turns: t?.turns ?? [],
@@ -112,6 +115,7 @@ function readMembers(transcript, parent, budget) {
     sub.cost += t.cost;
     sub.costNoCache += t.costNoCache;
     sub.costUnknown ||= t.costUnknown;
+    sub.loading ||= t.loading != null;
     sub.activity.push(t.activity);
     if (t.files.length) sub.files.push({ agent: meta.agentType ?? 'agent', files: t.files, startedAt: t.firstAt ?? undefined });
     const age = Date.now() - t.mtimeMs;
@@ -134,6 +138,7 @@ function readMembers(transcript, parent, budget) {
       cost: t.cost,
       costNoCache: t.costNoCache,
       costUnknown: t.costUnknown,
+      loading: t.loading != null,
       startedAt: t.events[0]?.at,
     });
   }
@@ -276,7 +281,7 @@ function endedFromTranscripts(known, selectedId, budget) {
       live: false,
       lazy: !t,
       status: 'ended',
-      phase: loadingPhase(t) ?? { kind: 'ended' },
+      phase: { kind: 'ended' },
       waitingFor: null,
       now: '',
       startedAt: head.startedAt,

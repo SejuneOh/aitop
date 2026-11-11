@@ -60,8 +60,11 @@ test('예산 경고가 있어도 막대가 경고를 밀어내지 않는다 (60�
 });
 
 test('집계 중이거나 날짜별 값이 없으면 막대를 그리지 않는다', () => {
-  assert.match(head(200, { u: { ...U, loading: 0.4 } }), /7일 집계 중 40%/);
-  assert.ok(!/[▁▂▃▄▅▆▇█]/.test(head(200, { u: { ...U, loading: 0.4 } })));
+  // 집계 중에는 오늘·7일·1시간·7일 막대 자리에 진행 줄 하나만 둔다.
+  const busy = head(200, { u: { ...U, loading: 0.4 } });
+  assert.match(busy, /집계 중 ▕████░░░░░░▏ 40% · /);
+  assert.ok(!/오늘|7일|\/h/.test(busy), busy);
+  assert.ok(!/[▁▂▃▄▅▆▇]/.test(busy));
   assert.ok(!/[▁▂▃▄▅▆▇█]/.test(head(200, { u: { ...U, days7: undefined } })));
   assert.match(head(200, { u: { ...U, days7: D([0, 0, 0, 0, 0, 0, 0]) } }), /7일 \$174 ▁▁▁▁▁▁▁ /, '모두 0 이면 바닥선만');
 });

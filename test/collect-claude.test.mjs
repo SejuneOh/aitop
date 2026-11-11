@@ -33,16 +33,18 @@ test('세션 목록에서 빠지면 tracker 도 정리된다', () => {
   assert.deepEqual(_stats(), { trackers: 0, subTrackers: 0 });
 });
 
-test('읽기 한도가 작으면 진행률을 보여 주고, 다음 갱신에서 마저 읽는다', () => {
+test('읽기 한도가 작으면 줄마다 진행률 대신 … 로 두고, 다음 갱신에서 마저 읽는다', () => {
   fx.session({ sessionId: 'bbbbbbbb-2' });
   const big = 'x'.repeat(6 * 1024 * 1024);
   fx.transcript('bbbbbbbb-2', [user('긴 기록'), assistant('m1', [{ type: 'text', text: big }], usage(1, 1)), assistant('m2', [{ type: 'text', text: big }], usage(1, 1))]);
 
   const [partial] = run({ budget: createBudget(1) });
-  assert.match(phaseText(partial.phase), /^기록 읽는 중 \d+%$/);
+  assert.equal(phaseText(partial.phase), '…');
+  assert.equal(partial.loading, true, '숫자가 덜 찬 세션');
   let s;
   for (let i = 0; i < 20; i++) [s] = run({ budget: createBudget(1024 * 1024) });
-  assert.doesNotMatch(phaseText(s.phase), /기록 읽는 중/);
+  assert.notEqual(phaseText(s.phase), '…');
+  assert.equal(s.loading, false);
   assert.equal(s.tokens.total, 4);
 });
 

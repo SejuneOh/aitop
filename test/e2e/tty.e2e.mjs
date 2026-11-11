@@ -8,7 +8,7 @@ import { mkdtempSync, existsSync, readFileSync, rmSync, writeFileSync } from 'no
 import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { BIN, makeSession } from './session.mjs';
+import { BIN, SESSION_ID, makeSession } from './session.mjs';
 import { assistant, user, usage } from '../fixture.mjs';
 
 const hasScript = spawnSync('script', ['--version'], { encoding: 'utf8' }).stdout?.includes('util-linux');
@@ -205,5 +205,35 @@ test('p 로 세션을 맨 위에 고정·해제하고, s 로 정렬을 바꿔도
   } finally {
     if (child.exitCode == null) child.kill('SIGKILL');
     other.kill('SIGKILL');
+  }
+});
+
+// 캐시 없는 긴 로딩(#182): 줄마다 진행률 대신 … 를 보이고, 로딩 중에도 q 로 바로 끝난다.
+// 한 번에 읽는 양을 AITOP_TICK_BYTES 로 줄여 큰 기록을 여러 초에 나눠 읽게 한다.
+test('로딩 중에는 숫자 자리에 … 를 두고, q 로 바로 끝난다', { skip: !hasScript && 'util-linux script 없음', timeout: 60_000 }, async () => {
+  const fx = makeSession();
+  const big = 'x'.repeat(1024 * 1024);
+  fx.transcript(SESSION_ID, [user('긴 기록'), ...Array.from({ length: 12 }, (_, i) => assistant(`m${i}`, [{ type: 'text', text: big }], usage(1, 1)))]);
+  const cmd = 'stty cols 100 rows 30; exec "$AITOP_NODE" "$AITOP_BIN"';
+  const child = spawn('script', ['-qfec', cmd, '/dev/null'], { env: { ...process.env, AITOP_TICK_BYTES: String(64 * 1024), AITOP_NODE: process.execPath, AITOP_BIN: BIN } });
+  let out = '';
+  child.stdout.setEncoding('utf8');
+  child.stdout.on('data', (d) => (out += d));
+  const exited = new Promise((resolve) => child.on('exit', (code) => resolve(code)));
+  const screen = () => out.split('\x1b[H').at(-1).replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
+  const row = () => screen().split(/\r?\n/).find((l) => l.includes('e2e 세션')) ?? '';
+  try {
+    const end = Date.now() + WAIT_MS;
+    while (!row().includes('…') && Date.now() < end) await sleep(50);
+    assert.match(row(), /…/, `로딩 중 화면이 나오지 않음\n${screen()}`);
+    assert.doesNotMatch(screen(), /기록 읽는 중/);
+    const t0 = Date.now();
+    child.stdin.write('q');
+    const code = await Promise.race([exited, sleep(8_000).then(() => 'timeout')]);
+    assert.equal(code, 0, 'q 로 끝난다');
+    // 느린 CI 에서도 흔들리지 않게 넉넉히 잡는다 (로딩이 끝나기를 기다리지 않는다는 것만 본다).
+    assert.ok(Date.now() - t0 < 5_000, `바로 끝난다 (${Date.now() - t0}ms)`);
+  } finally {
+    if (child.exitCode == null) child.kill('SIGKILL');
   }
 });
