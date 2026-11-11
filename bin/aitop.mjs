@@ -2,6 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { budgetDayOption, configJson, configText, resolveConfig } from '../src/config.mjs';
 import { notifyOptions } from '../src/notify.mjs';
+import { lineOption } from '../src/line.mjs';
 import { mask, setAmbiguous, stripControl } from '../src/text.mjs';
 
 const KNOWN = new Set(['-h', '--help', '-v', '--version', '--once', '--all', '--json', '--doctor', '--bell', '--show-requests', '--print-config', '--no-bell', '--no-all', '--no-show-requests', '--debug', '--no-debug', '--color-blind', '--no-color-blind']);
@@ -21,8 +22,16 @@ if (budget.error) {
   process.stderr.write(`aitop: ${budget.error}\n`);
   process.exit(2);
 }
+// --line, --line=tmux, --line-width <N> 은 lineOption 이 꺼낸다.
+const line = lineOption(budget.rest);
+if (line.error) {
+  process.stderr.write(`aitop: ${line.error}\n`);
+  process.exit(2);
+}
+// 사용자가 준 NO_COLOR. 아래에서 파이프 출력이면 NO_COLOR 를 켜므로 그 전에 읽어 둔다 (tmux 의 #() 는 TTY 가 아니다).
+const userNoColor = Boolean(process.env.NO_COLOR);
 // --theme light, --theme=light 처럼 값을 받는 옵션은 따로 꺼낸다.
-const argv = budget.rest;
+const argv = line.rest;
 let theme = null;
 const rest = [];
 for (let i = 0; i < argv.length; i++) {
@@ -75,6 +84,9 @@ const HELP = `${BRAND.logo} aitop - 터미널에서 Claude Code · Codex · Anti
   aitop            실시간 화면
   aitop --once     현재 상태를 한 번 출력하고 끝낸다
   aitop --all      종료된 세션(24시간 이내)도 함께 본다
+  aitop --line     오늘 비용·응답 대기 수·시간당 지출을 한 줄로 내고 끝낸다 (tmux 상태줄용, 예: $54.13/$50 wait 2 $3.1/h)
+                   --line=tmux 는 tmux 색 서식(#[fg=...])을 넣는다. --line-width <N> 폭 상한(기본 40, 넘으면 뒤 항목부터 뺀다)
+                   장부 캐시만 읽는다. 캐시가 없어 1.5초 안에 못 읽으면 ... 을 낸다. 응답 대기 수는 Claude Code 세션만 센다
   aitop --json     세션 목록과 사용량 합계를 JSON 으로 한 번 출력한다 (--all 과 함께 쓸 수 있다)
   aitop --doctor   Claude · Codex · Antigravity · Gemini 기록과 실행 중인 프로세스, 설정 파일을 점검한다 (--json 과 함께 쓸 수 있다)
   aitop --bell     응답 대기 세션이 새로 생기면 터미널 벨을 울린다
@@ -130,6 +142,24 @@ if (args.has('--print-config')) {
 // 디버그 로그는 켰을 때만 파일을 만든다. --help·--version·--print-config 처럼 바로 끝나는 경우에는 만들지 않는다.
 const log = initLog({ enabled: opt.debug, version: VERSION });
 if (opt.debug && !log.on) process.stderr.write(`aitop: 디버그 로그를 열 수 없어 끕니다 (${log.path})\n`);
+
+// --line: 세션 화면·프로세스 목록 없이 장부 캐시만 읽어 한 줄을 내고 끝낸다. 실패해도 tmux 에 오류를 남기지 않게 0 으로 끝낸다.
+if (line.mode) {
+  const { collectLine, formatLine, PENDING } = await import('../src/line.mjs');
+  const { flushCache } = await import('../src/cache.mjs');
+  let text = PENDING;
+  try {
+    // AITOP_LINE_MS: 시간 상한(ms). 테스트에서 캐시 없는 첫 실행을 흉내 낼 때 쓴다.
+    const capMs = Number(process.env.AITOP_LINE_MS) > 0 ? Number(process.env.AITOP_LINE_MS) : undefined;
+    const v = await collectLine({ capMs });
+    if (v) text = formatLine({ ...v, budgetDay: opt.budgetDay }, { mode: line.mode, noColor: userNoColor, width: line.width, colorBlind: opt.colorBlind });
+    flushCache();
+  } catch (e) {
+    debug('aitop', 'line failed', e);
+  }
+  await new Promise((resolve) => process.stdout.write(text + '\n', resolve));
+  process.exit(0);
+}
 
 // 파이프나 파일로 받을 때는 색 코드를 넣지 않는다. 화면 모듈이 불러올 때 NO_COLOR 를 읽으므로 그 전에 정한다.
 const forced = process.env.FORCE_COLOR != null && !['', '0', 'false'].includes(process.env.FORCE_COLOR);

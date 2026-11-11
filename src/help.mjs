@@ -82,6 +82,7 @@ export const OPTIONS = [
   ['--show-requests', '응답 대기 요청 전체를 상세·--json 에'],
   ['--color-blind', '적록 색약용 색 (대기·돈·경고를 노랑·파랑 계열로)'],
   ['--debug', '디버그 로그를 남긴다'],
+  ['--line[=tmux]', '오늘 비용·대기 수·시간당 지출 한 줄 (tmux 상태줄용)'],
   ['--print-config', '설정 값과 출처, 설정 파일 위치'],
   ['AITOP_AMBIGUOUS=wide', '·→─● 를 2칸으로 그리는 터미널용 (1칸 기호로)'],
 ];
