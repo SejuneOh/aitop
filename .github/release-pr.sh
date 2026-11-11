@@ -50,7 +50,7 @@ if [ "${#TITLE}" -gt 100 ]; then TITLE="${TITLE:0:97}..."; fi
 if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null 2>&1; then
   NOTE="- **v$VERSION 은 이미 배포됨.** package.json 버전을 올리기 전에는 main 에 병합해도 테스트만 하고 배포하지 않는다"
 else
-  NOTE="- main 에 병합하면 release.yml 이 테스트 후 v$VERSION 을 GitHub Packages 에 배포하고 태그·릴리스를 만든다"
+  NOTE="- main 에 병합하면 release.yml 이 테스트 후 v$VERSION 을 npmjs.com 에 공개로 배포하고 태그·릴리스를 만든다"
 fi
 
 BODY=$(
