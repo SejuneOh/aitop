@@ -21,8 +21,11 @@ export function animating(view) {
   return filterSessions(view.data.sessions, view.filter).some((s) => glyphMoves(s) || (s.members ?? []).some((m) => m.status !== 'done'));
 }
 
+// 로딩 중(준비 완료 전이거나 7일 집계 중)에는 경과 시간(IDLE 등)을 데이터를 받은 시각에 맞춰, 스피너 프레임마다 숫자가 따로 바뀌지 않게 한다.
+const settling = (view) => view.data && (view.ready === false || view.data.usage?.loading != null);
+
 export function render(view, W, H) {
-  setNow(Date.now());
+  setNow(settling(view) && view.data.at ? view.data.at : Date.now());
   const lines = [];
   if (!view.data) {
     // 첫 수집은 동기로 돌아 이 화면이 다시 그려지지 않으므로 움직이지 않는 로고를 둔다.
@@ -78,7 +81,8 @@ export function render(view, W, H) {
   if (start === selRow && rows[start - 1]?.g && lastOfSel - start + 2 <= shown) start--;
   const isSession = (r) => r.s && !r.m;
   const visible = rows.slice(start, start + shown);
-  const hot = topCost(visible.filter(isSession).map((r) => r.s), view.costMode);
+  // 준비 완료 전에는 값이 커지는 대로 ▲ 가 옮겨 다니므로 붙이지 않는다.
+  const hot = view.ready === false ? null : topCost(visible.filter(isSession).map((r) => r.s), view.costMode);
   if (!sessions.length) table.push(...(view.filter ? [line([{ t: `   ${t('ui.noMatch', { q: view.filter })}`, fg: PALETTE.muted, italic: true }], TW)] : emptyLines(view, TW)));
   for (const r of visible) table.push(r.g ? groupRow(r.g, TW) : r.m ? memberRow(r.m, r.last, c, TW, view.frame, r.s.model, view.costMode) : sessionRow(r.s, c, TW, r.s === sel, view.frame, hot, view.costMode, Boolean(view.pins?.includes(r.s.id))));
   if (clipped) {

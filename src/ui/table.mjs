@@ -132,7 +132,7 @@ export function header(view, W) {
   const rate = rateText ? [{ t: ` (${rateText}/h)`, fg: PALETTE.muted, bg: B }] : null;
   // bar: 7일 금액 뒤의 날짜별 막대. 집계 중이거나 날짜별 값이 없으면 넣지 않는다.
   const bar = u?.loading == null && u?.days7?.length ? [{ t: ' ', bg: B }, ...weekBar(u.days7, view.costMode).map((x) => ({ ...x, bg: B }))] : null;
-  const week = (tok, withBar = false) => (u.loading != null ? [{ t: t('hdr.weekLoading', { pct: Math.floor(u.loading * 100) }), fg: PALETTE.info, bg: B }] : period(t('hdr.week'), u.week, tok, [], withBar && bar ? bar : []));
+  const week = (tok, withBar = false) => period(t('hdr.week'), u.week, tok, [], withBar && bar ? bar : []);
   // 장부를 못 읽었으면 화면에 있는 세션(모든 도구)의 누적 토큰이라도 보인다.
   const fallback = [{ t: `Σ ${fmtTokens(sessions.reduce((a, s) => a + (s.tokens?.total ?? 0), 0))} tok`, fg: PALETTE.muted, bg: B }];
   const clockSeg = { t: clock(view.data.at), fg: PALETTE.muted, bg: B };
@@ -164,7 +164,9 @@ export function header(view, W) {
     // 캐시 제외 화면에서도 'API 예상' 은 기준이 드러나므로 캐시 제외 표시 없이 남길 수 있다.
     ...(projSeg ? [{ api: 'short', budget: 'only' }, { budget: 'only' }] : []),
   ];
-  const rights = u ? [...shapes.filter((o) => !net || o.api || o.budget === 'only').map(right), [clockSeg]] : [[...fallback, dot, clockSeg], [clockSeg]];
+  // 7일 장부를 처음 읽는 동안은 오늘·7일·1시간·막대 자리를 진행 줄 하나로 둔다 (집계 중 ▕███░░░░░░░▏ 30%). 좁으면 막대를 뺀다.
+  const loading = u?.loading != null ? progressSegs(u.loading, B) : null;
+  const rights = loading ? [[...loading.full, dot, clockSeg], [...loading.short, dot, clockSeg], [clockSeg]] : u ? [...shapes.filter((o) => !net || o.api || o.budget === 'only').map(right), [clockSeg]] : [[...fallback, dot, clockSeg], [clockSeg]];
   // 사용량 숫자가 상태 이름보다 중요하므로, 이름을 먼저 줄이고 그래도 모자라면 오른쪽을 줄인다.
   // 시각만 남기 전에는 live 수와 ○ 대기를 먼저 빼서 오늘 비용을 지킨다.
   const fit = (r, narrow, drop) => {
@@ -174,7 +176,7 @@ export function header(view, W) {
   };
   const kept = rights.slice(0, -1);
   // 캐시 제외 기준은 '캐시제외' 표시 때문에 9칸이 더 든다. 시각만 남기기 전에 시각을 빼고 '캐시제외 오늘 $5.20' 을 남긴다.
-  const bare = u && net ? [right({ api: 'short', clock: false })] : [];
+  const bare = u && net && !loading ? [right({ api: 'short', clock: false })] : [];
   const tries = [
     ...kept.flatMap((r) => [[r, false, 0], [r, true, 0]]),
     ...[1, 2].flatMap((drop) => kept.map((r) => [r, true, drop])),
@@ -186,6 +188,22 @@ export function header(view, W) {
     if (out) return out;
   }
   return line(leftOf(true, 2), W, B);
+}
+
+// 집계 진행률은 10% 단위로만 올린다 (다시 그리는 횟수를 줄인다). 막대는 10칸이라 한 칸이 10% 다.
+export const progressStep = (r) => Math.min(100, Math.max(0, Math.floor((Number(r) || 0) * 10) * 10));
+
+// 헤더 진행 줄의 조각. full: 글·막대·%, short: 글·% 만.
+export function progressSegs(r, bg) {
+  const pct = progressStep(r);
+  const P = glyphs().progress;
+  const filled = pct / 10;
+  const label = { t: `${t('hdr.loading')} `, fg: PALETTE.info, bg };
+  const num = { t: `${pct}%`, fg: PALETTE.muted, bg };
+  return {
+    full: [label, { t: P.l, fg: PALETTE.faint, bg }, { t: P.fill.repeat(filled), fg: PALETTE.brand, bg }, { t: P.empty.repeat(10 - filled), fg: PALETTE.faint, bg }, { t: P.r + ' ', fg: PALETTE.faint, bg }, num],
+    short: [label, num],
+  };
 }
 
 // 폭이 모자랄 때 도구 이름 대신 쓰는 짧은 이름.
@@ -317,7 +335,9 @@ export function sessionRow(s, c, W, selected, frame, hot, costMode = 'api', pinn
   const pc = s.phase?.kind === 'idle' ? PALETTE.info : PHASE_COLOR[s.phase?.kind] ?? PALETTE.muted;
   // 아직 토큰을 하나도 쓰지 않은 세션은 숫자 칸을 비운다. 기다리는 중이면 '아직 지시 없음'.
   const blank = s.lazy || !(s.tokens?.total > 0);
-  const status = blank && s.tool !== 'gemini' && (s.status === 'idle' || s.status === 'live') ? t('phase.noPrompt') : statusText(s.phase);
+  // 기록을 아직 다 읽지 못한 세션은 덜 찬 숫자 대신 … 를 둔다 (다 읽은 뒤의 0 은 그대로 0).
+  const partial = Boolean(s.loading);
+  const status = blank && !partial && s.tool !== 'gemini' && (s.status === 'idle' || s.status === 'live') ? t('phase.noPrompt') : statusText(s.phase);
   const segs = [
     { t: selected ? glyphs().select : ' ', fg: PALETTE.brand, bold: true },
     { ...g, t: g.t + ' ' },
@@ -331,13 +351,16 @@ export function sessionRow(s, c, W, selected, frame, hot, costMode = 'api', pinn
   if (c.showProject) segs.push({ t: pad(s.project ?? '', c.project) + ' ', fg: ended ? PALETTE.ended : PALETTE.muted });
   segs.push(
     { t: pad(status, c.status) + ' ', fg: pc, bold: s.status === 'waiting' },
-    { t: pad(blank ? '' : fmtTokens(s.tokens.total), c.tokens, 'right') + ' ', fg: ended ? PALETTE.ended : PALETTE.muted },
+    { t: pad(partial ? '…' : blank ? '' : fmtTokens(s.tokens.total), c.tokens, 'right') + ' ', fg: ended ? PALETTE.ended : partial ? PALETTE.info : PALETTE.muted },
   );
-  if (c.showCost) segs.push({ t: pad(blank ? '' : (hot?.has(s.id) ? glyphs().hot : '') + money(costOf(s, costMode), s.costUnknown), c.cost, 'right') + ' ', fg: s.cost == null || ended ? PALETTE.info : hot?.has(s.id) ? PALETTE.money : PALETTE.muted, bold: Boolean(hot?.has(s.id)) });
-  segs.push(...gauge(s.context?.used ?? 0, s.context?.window ?? 0, c.cells), { t: ' ' }, { t: pad(idle, c.age, 'right'), fg: waiting ? PALETTE.waiting : PALETTE.info });
+  if (c.showCost) segs.push(partial ? { t: pad('…', c.cost, 'right') + ' ', fg: PALETTE.info } : { t: pad(blank ? '' : (hot?.has(s.id) ? glyphs().hot : '') + money(costOf(s, costMode), s.costUnknown), c.cost, 'right') + ' ', fg: s.cost == null || ended ? PALETTE.info : hot?.has(s.id) ? PALETTE.money : PALETTE.muted, bold: Boolean(hot?.has(s.id)) });
+  segs.push(...(partial ? pendingGauge(c.cells) : gauge(s.context?.used ?? 0, s.context?.window ?? 0, c.cells)), { t: ' ' }, { t: pad(idle, c.age, 'right'), fg: waiting ? PALETTE.waiting : PALETTE.info });
   // 종료 행은 밝기 말고도 기울임꼴로 구분한다 (색이 없으면 · 글리프와 '종료' 글자로 구분된다).
   return line(ended ? segs.map((x) => ({ ...x, italic: true })) : segs, W, bg);
 }
+
+// 기록을 읽는 중인 세션의 CONTEXT 칸: 빈 막대와 … (gauge 와 같은 폭).
+const pendingGauge = (cells) => [{ t: glyphs().bar.empty.repeat(cells), fg: PALETTE.faint }, { t: pad('…', 5, 'right'), fg: PALETTE.info }];
 
 // 표의 STATUS 칸 글. 응답 대기는 ◆ 와 행 색으로 이미 보이므로 무엇을 허락해 달라는지만 적고, 요청 내용이 없으면 '응답 대기' 를 남긴다.
 // 상세 창은 phaseText 의 긴 문구 전체를 보인다.
@@ -369,9 +392,9 @@ export function memberRow(m, last, c, W, frame, parentModel, costMode = 'api') {
   );
   segs.push(
     { t: pad(statusText(m.phase), c.status) + ' ', fg: done ? PALETTE.info : PHASE_COLOR[m.phase?.kind] ?? PALETTE.muted },
-    { t: pad(started ? fmtTokens(m.tokens ?? 0) : '', c.tokens, 'right') + ' ', fg: done ? PALETTE.info : PALETTE.muted },
+    { t: pad(m.loading ? '…' : started ? fmtTokens(m.tokens ?? 0) : '', c.tokens, 'right') + ' ', fg: done || m.loading ? PALETTE.info : PALETTE.muted },
   );
-  if (c.showCost) segs.push({ t: pad(started ? money(costOf(m, costMode), m.costUnknown) : '', c.cost, 'right') + ' ', fg: done ? PALETTE.info : PALETTE.muted });
+  if (c.showCost) segs.push({ t: pad(m.loading ? '…' : started ? money(costOf(m, costMode), m.costUnknown) : '', c.cost, 'right') + ' ', fg: done || m.loading ? PALETTE.info : PALETTE.muted });
   // 끝난 팀원은 종료 행처럼 기울임꼴로 둔다.
   return line(done ? segs.map((x) => ({ ...x, italic: true })) : segs, W);
 }

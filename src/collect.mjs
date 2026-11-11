@@ -24,17 +24,14 @@ export function bySession(a, b) {
 // 돌려주는 more 가 true 면 한도 때문에 덜 읽은 기록이 있다.
 // 도구마다, 그리고 날짜별 사용량 장부에 한도를 따로 줘서 서로의 읽기를 막지 않게 한다.
 export function collect({ budgetBytes = Infinity, budgetMs = Infinity, ...opts } = {}) {
-  const budgets = [];
-  const budgetOf = (bytes, ms) => {
-    const b = createBudget(bytes, ms);
-    budgets.push(b);
-    return b;
-  };
+  // 이름별 읽기 한도. 'usage' 는 장부, 나머지는 도구별 세션 기록이다.
+  const budgets = {};
+  const budgetOf = (name, bytes, ms) => (budgets[name] = createBudget(bytes, ms));
   const sessions = [];
   const errors = [];
   for (const [tool, fn] of [['claude', collectClaude], ['codex', collectCodex], ['gemini', collectGemini], ['agy', collectAgy]]) {
     try {
-      sessions.push(...fn({ ...opts, budget: budgetOf(budgetBytes, budgetMs) }));
+      sessions.push(...fn({ ...opts, budget: budgetOf(tool, budgetBytes, budgetMs) }));
     } catch (err) {
       errors.push(`${tool}: ${err.message}`);
     }
@@ -42,10 +39,11 @@ export function collect({ budgetBytes = Infinity, budgetMs = Infinity, ...opts }
   // 장부는 세션 화면보다 덜 급하니 한 번 갱신에 세션 한도의 1/3 만 읽는다 (처음 한 번 다 읽은 뒤에는 캐시와 새 줄만 읽는다).
   let usage = null;
   try {
-    usage = collectLedger({ budget: budgetOf(budgetBytes / 3, budgetMs / 2) });
+    usage = collectLedger({ budget: budgetOf('usage', budgetBytes / 3, budgetMs / 2) });
   } catch (err) {
     errors.push(`usage: ${err.message}`);
   }
   sessions.sort(bySession);
-  return { sessions, usage, errors, at: Date.now(), more: budgets.some((b) => b.exhausted) };
+  // sessionsMore: 세션 기록(장부 빼고)만 덜 읽었는지. 시작할 때의 준비 완료는 이 값으로 정한다 (7일 장부는 헤더 진행 줄로만 보인다).
+  return { sessions, usage, errors, at: Date.now(), more: Object.values(budgets).some((b) => b.exhausted), sessionsMore: Object.entries(budgets).some(([name, b]) => name !== 'usage' && b.exhausted) };
 }

@@ -148,7 +148,7 @@ const PHASES = [
   [{ kind: 'think' }, '생각 중', 'Thinking', 'Thinking'],
   [{ kind: 'think', msg: 'working' }, '작업 중', 'Working', 'Working'],
   [{ kind: 'think', msg: 'steps', args: { n: 12, agents: 1 } }, '작업 중 · 12단계 · 에이전트 1개 실행 중', 'Working · step 12 · 1 agent running', 'Step 12 · 1 agent'],
-  [{ kind: 'think', msg: 'loading', args: { pct: 42 } }, '기록 읽는 중 42%', 'Reading log 42%', 'Loading 42%'],
+  [{ kind: 'think', msg: 'loading' }, '…', '…', '…'],
   [{ kind: 'write' }, '답변 작성 중', 'Writing reply', 'Writing'],
 ];
 
