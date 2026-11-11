@@ -58,3 +58,40 @@ jobs:
           echo "aitop --version: $GOT"
           test "$GOT" = "$EXPECTED"
           "$PREFIX/bin/aitop" --once > /dev/null
+
+  # 영어 기본 경로: AITOP_LANG 없이 LANG=C 에서 언어 고르기와 영어 --help·--doctor·오류를 본다.
+  # npm test 는 AITOP_LANG=ko 로 고정돼 있어 여기서는 쓰지 않고, 영어 테스트와 bin 을 직접 실행한다.
+  english:
+    runs-on: ubuntu-latest
+    env:
+      LANG: C
+      LC_ALL: ''
+      LC_MESSAGES: ''
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: 영어 테스트 (LANG=C, AITOP_LANG 없음)
+        shell: bash
+        run: |
+          unset AITOP_LANG
+          node --test test/i18n.test.mjs
+      # 한글이 섞이면 실패한다. LANG=C 의 grep 은 UTF-8 범위를 못 다루므로 node 로 본다.
+      - name: 영어 --help·--doctor·모르는 옵션 확인
+        shell: bash
+        run: |
+          set -euo pipefail
+          unset AITOP_LANG
+          noko() { node -e 'const s=require("fs").readFileSync(0,"utf8"); if (/[가-힣]/.test(s)) { console.error(s); process.exit(1); }'; }
+          node bin/aitop.mjs --help > help.txt
+          grep -q 'print the current state once and exit' help.txt
+          noko < help.txt
+          node bin/aitop.mjs --doctor > doctor.txt
+          grep -q 'setup check' doctor.txt
+          noko < doctor.txt
+          code=0
+          node bin/aitop.mjs --nope 2> err.txt || code=$?
+          test "$code" = 2
+          head -1 err.txt | grep -qx 'aitop: unknown option --nope'
+          noko < err.txt

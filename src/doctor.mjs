@@ -10,6 +10,7 @@ import { loadSqlite, openReadOnly } from './sqlite.mjs';
 import { fmtAgo, pad, stripControl } from './text.mjs';
 import { BRAND } from './brand.mjs';
 import { findNotifier, isWsl } from './notify.mjs';
+import { getLang, t as tr } from './i18n.mjs';
 
 const UNIT = { s: '초', m: '분', h: '시간', d: '일' };
 const ago = (ms) => fmtAgo(ms).replace(/[smhd]$/, (u) => UNIT[u]);
@@ -106,7 +107,7 @@ function claude() {
   const running = canListProcesses()
     ? ls(join(CLAUDE, 'sessions')).filter((e) => /^\d+\.json$/.test(e.name) && isAlive(Number(e.name.split('.')[0]))).length
     : null;
-  if (!files) return { tool: 'claude', state: 'missing', path: tilde(dir), records: 0, lastAt: null, running, readable: null, hint: 'claude 를 한 번 실행하면 생깁니다' };
+  if (!files) return { tool: 'claude', state: 'missing', path: tilde(dir), records: 0, lastAt: null, running, readable: null, hint: null };
   return { tool: 'claude', state: 'ok', path: tilde(dir), records: files.length, lastAt: last?.mtime ?? null, running, readable: last ? firstLineIsJson(last.path) : null, hint: null };
 }
 
@@ -114,7 +115,7 @@ function codex() {
   const files = existsSync(CODEX) ? walk(CODEX, 3, (n) => n.startsWith('rollout-') && n.endsWith('.jsonl')) : null;
   const last = files && newest(files);
   const running = canListProcesses() ? findProcesses(isCodex).length : null;
-  if (!files) return { tool: 'codex', state: 'missing', path: tilde(CODEX), records: 0, lastAt: null, running, readable: null, hint: 'codex 를 한 번 실행하면 생깁니다' };
+  if (!files) return { tool: 'codex', state: 'missing', path: tilde(CODEX), records: 0, lastAt: null, running, readable: null, hint: null };
   return { tool: 'codex', state: 'ok', path: tilde(CODEX), records: files.length, lastAt: last?.mtime ?? null, running, readable: last ? firstLineIsJson(last.path) : null, hint: null };
 }
 
@@ -132,7 +133,7 @@ function gemini() {
     running: canListProcesses() ? findProcesses(isGemini).length : null,
     readable: null,
     keys: last ? topKeys(last.path) : [],
-    hint: '프로세스만 감지합니다 (세션·토큰은 아직 지원하지 않음)',
+    hint: null,
   };
 }
 
@@ -141,9 +142,9 @@ function agy() {
   const dir = join(AGY_ROOT, 'conversations');
   const running = canListProcesses() ? findProcesses(isAgy).length : null;
   const files = existsSync(dir) ? walk(dir, 0, (n) => n.endsWith('.db')) : null;
-  if (!files) return { tool: 'agy', state: 'missing', path: tilde(AGY_ROOT), records: 0, lastAt: null, running, readable: null, hint: 'agy 를 한 번 실행하면 생깁니다 (Gemini 탭에 보입니다)' };
+  if (!files) return { tool: 'agy', state: 'missing', path: tilde(AGY_ROOT), records: 0, lastAt: null, running, readable: null, hint: null };
   const last = newest(files.flatMap((f) => [f, `${f}-wal`]).filter((f) => existsSync(f)));
-  if (!loadSqlite()) return { tool: 'agy', state: 'limited', path: tilde(AGY_ROOT), records: files.length, lastAt: last?.mtime ?? null, running, readable: null, hint: `Node ${process.versions.node} 에서는 기록을 읽기 전용으로 열 수 없어 프로세스만 감지합니다 (Node 22.15 이상 필요)` };
+  if (!loadSqlite()) return { tool: 'agy', state: 'limited', path: tilde(AGY_ROOT), records: files.length, lastAt: last?.mtime ?? null, running, readable: null, hint: null };
   let readable = false;
   let db;
   try {
@@ -157,10 +158,20 @@ function agy() {
   return { tool: 'agy', state: 'ok', path: tilde(AGY_ROOT), records: files.length, lastAt: last?.mtime ?? null, running, readable, hint: null };
 }
 
+// 도구별 안내 한 줄. 없으면 null. 점검 결과(--json 의 tools.*.hint)에는 예전처럼 한국어로 넣고, --doctor 글은 지금 언어로 다시 만든다.
+export function hintOf(r, lang = 'ko') {
+  const o = { lang };
+  if (r.tool === 'gemini') return tr('doctor.hint.gemini', null, o);
+  if (r.state === 'missing') return r.tool === 'agy' ? tr('doctor.hint.agyMissing', null, o) : tr('doctor.hint.missing', { tool: r.tool }, o);
+  if (r.tool === 'agy' && r.state === 'limited') return tr('doctor.hint.agyNode', { node: process.versions.node }, o);
+  return null;
+}
+
 export function checkTools() {
   const tools = {};
   for (const fn of [claude, codex, gemini, agy]) {
     const r = fn();
+    r.hint = hintOf(r, 'ko');
     tools[r.tool] = r;
   }
   const n = findNotifier();
@@ -168,11 +179,12 @@ export function checkTools() {
 }
 
 // --notify 에 쓸 데스크톱 알림 도구.
-export function notifierText(n, plat = platform()) {
-  if (n) return `✓ 알림    ${n.kind} (${n.path}) · --notify 로 켬`;
+export function notifierText(n, plat = platform(), lang = getLang()) {
+  const o = { lang };
+  if (n) return tr('doctor.notifier', { kind: n.kind, path: n.path }, o);
   const want = plat === 'darwin' ? 'osascript' : 'notify-send';
-  const wsl = plat === 'linux' && isWsl() ? ' (WSL 은 notify-send 만 쓴다)' : '';
-  return `○ 알림    ${want} 없음 · --notify 를 켜도 알림을 건너뜀${wsl}`;
+  const wsl = plat === 'linux' && isWsl() ? tr('doctor.wsl', null, o) : '';
+  return tr('doctor.noNotifier', { want, wsl }, o);
 }
 
 // JSON 용: 시각은 ISO 문자열로.
@@ -185,34 +197,43 @@ export function toolsJson(tools) {
 export const MARK = { ok: '✓', missing: '✗', limited: '○' };
 export const STATE_TEXT = { ok: '찾음', missing: '없음', limited: '일부 지원' };
 
-export function describe(t, now = Date.now()) {
+// lang: 빈 화면은 아직 한국어라 기본은 ko, --doctor 는 지금 언어를 넘긴다.
+export function describe(t, now = Date.now(), lang = 'ko') {
+  const o = { lang };
   const parts = [];
-  if (t.found === false && t.state === 'limited') parts.push('기록 폴더 없음');
-  else if (t.state !== 'missing') parts.push(`기록 ${t.records.toLocaleString('en-US')}개`);
-  if (t.lastAt) parts.push(`마지막 ${ago(now - t.lastAt)} 전`);
-  parts.push(t.running == null ? '실행 수 확인 불가 (Linux·WSL·macOS 만 지원)' : `실행 ${t.running}`);
-  if (t.readable === false) parts.push('최근 기록 읽기 실패');
-  if (t.keys?.length) parts.push(`키: ${t.keys.join(', ')}`);
-  return { mark: MARK[t.state], state: STATE_TEXT[t.state], path: t.path, detail: parts.join(' · '), hint: t.hint };
+  if (t.found === false && t.state === 'limited') parts.push(tr('doctor.noFolder', null, o));
+  else if (t.state !== 'missing') parts.push(tr('doctor.records', { n: t.records.toLocaleString('en-US') }, o));
+  if (t.lastAt) parts.push(tr('doctor.last', { ago: lang === 'ko' ? ago(now - t.lastAt) : fmtAgo(now - t.lastAt) }, o));
+  parts.push(t.running == null ? tr('doctor.runningUnknown', null, o) : tr('doctor.running', { n: t.running }, o));
+  if (t.readable === false) parts.push(tr('doctor.unreadable', null, o));
+  if (t.keys?.length) parts.push(tr('doctor.keys', { keys: t.keys.join(', ') }, o));
+  // 한국어 안내는 점검 결과에 든 그대로, 다른 언어는 같은 조건으로 다시 만든다.
+  const hint = lang === 'ko' || !t.hint ? t.hint : (hintOf(t, lang) ?? t.hint);
+  return { mark: MARK[t.state], state: lang === 'ko' ? STATE_TEXT[t.state] : tr(`doctor.state.${t.state}`, null, { lang, short: true }), path: t.path, detail: parts.join(' · '), hint };
 }
 
 // aitop --doctor 의 사람용 출력.
-export function doctorText(result, version, now = Date.now()) {
-  const os = `${result.platform}, 프로세스 ${result.processes ? '확인 가능' : '확인 불가'}`;
-  const out = [`${BRAND.logo} aitop ${version} 연결 점검 (${os})`, ''];
+export function doctorText(result, version, now = Date.now(), lang = getLang()) {
+  const o = { lang };
+  const os = tr('doctor.os', { platform: result.platform, state: tr(result.processes ? 'doctor.procsOk' : 'doctor.procsNo', null, o) }, o);
+  const out = [tr('doctor.title', { logo: BRAND.logo, version, os }, o), ''];
   for (const t of Object.values(result.tools)) {
-    const d = describe(t, now);
+    const d = describe(t, now, lang);
     out.push(`${d.mark} ${pad(t.tool, 7)}${pad(d.state, 10)}${d.path}`);
     out.push(`         ${d.detail}`);
     if (d.hint) out.push(`         → ${d.hint}`);
   }
-  if ('notifier' in result) out.push('', notifierText(result.notifier, result.platform));
+  if ('notifier' in result) out.push('', notifierText(result.notifier, result.platform, lang));
   // 설정 파일: 무시한 키와 값, 받지 않은 onWaiting 을 알린다.
   const cfg = result.config;
   if (cfg) {
-    out.push('', `${cfg.problems.length ? '!' : '✓'} 설정   ${pad(cfg.exists ? '있음' : '없음 (기본값)', 10)}${tilde(cfg.path)}`);
+    const state = pad(tr(cfg.exists ? 'doctor.configExists' : 'doctor.configMissing', null, o), 10);
+    out.push('', tr('doctor.config', { mark: cfg.problems.length ? '!' : '✓', state, path: tilde(cfg.path) }, o));
     for (const p of cfg.problems) out.push(`         ! ${p}`);
   }
-  if (result.log) out.push('', `${result.log.on ? '✓' : '○'} 디버그 ${pad(result.log.on ? '켬' : '꺼짐', 10)}${tilde(result.log.path)}${result.log.on ? '' : ' · --debug 로 켬'}`);
+  if (result.log) {
+    const on = result.log.on;
+    out.push('', tr('doctor.debug', { mark: on ? '✓' : '○', state: pad(tr(on ? 'doctor.debugOn' : 'doctor.debugOff', null, o), 10), path: tilde(result.log.path), tail: on ? '' : tr('doctor.debugTail', null, o) }, o));
+  }
   return stripControl(out.join('\n'));
 }

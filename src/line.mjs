@@ -1,6 +1,8 @@
 // aitop --line: tmux 상태줄 같은 곳에 넣을 한 줄 요약. 예) $54.13/$50 wait 2 $3.1/h
 // 글자는 ASCII 만 쓴다 (이모지·폭이 모호한 기호는 tmux 에서 칸이 어긋난다). 표기는 짧은 영어 약어로 고정하고 번역하지 않는다.
 // 색은 --line=tmux 일 때 tmux 서식(#[fg=colourN])으로만 넣고 ANSI 코드는 쓰지 않는다. NO_COLOR 면 서식도 넣지 않는다.
+// 옵션 오류 문구만 i18n 으로 지금 언어를 따른다.
+import { t } from './i18n.mjs';
 
 export const MODES = ['plain', 'tmux'];
 export const DEFAULT_WIDTH = 40;
@@ -24,7 +26,7 @@ export function lineOption(argv) {
     if (m) {
       const v = m[1] ?? 'plain';
       if (MODES.includes(v)) mode = v;
-      else error ??= `--line 값 ${JSON.stringify(v)} 이 잘못되었습니다 (plain 또는 tmux)`;
+      else error ??= t('opt.lineBad', { value: JSON.stringify(v) });
       continue;
     }
     const w = /^--line-width(?:=(.*))?$/.exec(a);
@@ -35,7 +37,7 @@ export function lineOption(argv) {
     const raw = w[1] ?? (argv[i + 1]?.startsWith('-') ? '' : (argv[++i] ?? ''));
     const n = /^\d+$/.test(raw) ? Number(raw) : NaN;
     if (n > 0) width = n;
-    else error ??= raw === '' ? '--line-width 값이 없습니다 (글자 수)' : `--line-width 값 ${JSON.stringify(raw)} 이 잘못되었습니다 (0 보다 큰 정수)`;
+    else error ??= raw === '' ? t('opt.lineWidthMissing') : t('opt.lineWidthBad', { value: JSON.stringify(raw) });
   }
   return { mode, width, rest, error };
 }
