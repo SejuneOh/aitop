@@ -1,7 +1,10 @@
 // 실제 bin/aitop.mjs 를 새 프로세스로 실행해 --json, --once, --help 결과를 확인한다.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { delimiter, join } from 'node:path';
 import { BIN, SESSION_ID, makeSession } from './session.mjs';
 import { assistant, user, usage } from '../fixture.mjs';
 
@@ -56,4 +59,26 @@ test('요청 전체 보기는 기본으로 꺼져 있고 --show-requests 로 켠
 
 test('--help 는 키 안내를 보이고 0 으로 끝난다', () => {
   assert.match(run('--help'), /키: .*s 정렬 · g 묶기.*f 변경 파일.*Esc 뒤로.*q 나가기/);
+});
+
+// 알림은 실시간 화면에서만 동작한다. --once·--json·파이프 출력과 함께 주면 stderr 에 한 번 알리고, 알림 도구는 부르지 않는다.
+test('--notify 를 --once·--json·파이프 출력과 함께 주면 무시한다고 알린다', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'aitop-notify-warn-'));
+  const called = join(dir, 'called');
+  for (const name of ['notify-send', 'osascript']) writeFileSync(join(dir, name), `#!/bin/sh\necho "$@" >> '${called}'\n`, { mode: 0o755 });
+  // 사용자 설정 파일의 notify·onWaiting 이 섞이지 않게 빈 설정 폴더를 쓴다.
+  const env = { ...process.env, XDG_CONFIG_HOME: join(dir, 'xdg'), PATH: dir + delimiter + process.env.PATH };
+  // stdout 은 파이프다 (spawnSync 기본값). 그래서 옵션 없이 --notify 만 줘도 파이프 출력으로 본다.
+  const aitop = (...args) => spawnSync(process.execPath, [BIN, ...args], { env, encoding: 'utf8', timeout: 20_000 });
+  const warn = /aitop: --notify, --on-waiting 은 실시간 화면에서만 동작한다/;
+  for (const args of [['--notify', '--once'], ['--notify', '--json'], ['--notify'], ['--on-waiting', 'true', '--once']]) {
+    const r = aitop(...args);
+    assert.equal(r.status, 0, `${args.join(' ')}: ${r.stderr}`);
+    assert.match(r.stderr, warn, args.join(' '));
+    assert.equal(r.stderr.match(new RegExp(warn.source, 'g')).length, 1, '경고는 한 번만');
+  }
+  assert.ok(JSON.parse(aitop('--notify', '--json').stdout).sessions, '--json 출력은 그대로 JSON 이다 (경고는 stderr 로만)');
+  assert.doesNotMatch(aitop('--once').stderr, warn, '--notify 가 없으면 알리지 않는다');
+  assert.equal(existsSync(called), false, '알림 도구를 부르지 않았다');
+  rmSync(dir, { recursive: true, force: true });
 });

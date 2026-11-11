@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, chmodSync, existsSync, readFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, delimiter } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { createWaitWatch, takeNewlyWaiting } from '../src/attention.mjs';
-import { notifyOptions, findNotifier, notifierCommand, waitingEnv, createRunner, createNotifier } from '../src/notify.mjs';
+import { notifyOptions, findNotifier, notifierCommand, waitingEnv, createRunner, createNotifier, isWsl } from '../src/notify.mjs';
 
 const s = (id, status, extra = {}) => ({ id, status, live: true, tool: 'claude', project: 'demo', cwd: '/work/demo', phase: status === 'waiting' ? { kind: 'waiting', text: '응답 대기 · Bash' } : { kind: 'idle', text: '대기' }, ...extra });
 const tmp = () => mkdtempSync(join(tmpdir(), 'aitop-notify-'));
@@ -155,6 +155,48 @@ test('--notify 는 가짜 notify-send 를 인자로 부른다', async () => {
   assert.deepEqual(lines.slice(-3), ['--', 'aitop: 응답 대기 (claude)', '$(id) · Bash']);
   assert.equal(n.hook, null);
   rmSync(dir, { recursive: true, force: true });
+});
+
+// macOS 경로: PATH 맨 앞에 둔 가짜 osascript 가 AppleScript 와 제목·본문을 인자로 받는지 본다. TTY 없이 돌고 macOS CI 에서도 돈다.
+test('--notify 는 macOS 에서 PATH 앞의 가짜 osascript 를 인자로 부른다', async () => {
+  const dir = tmp();
+  const out = join(dir, 'args');
+  writeFileSync(join(dir, 'osascript'), `#!/bin/sh\nprintf '%s\\n' "$@" > ${out}\n`);
+  chmodSync(join(dir, 'osascript'), 0o755);
+  const notifier = findNotifier({ platform: 'darwin', env: { PATH: dir + delimiter + process.env.PATH } });
+  assert.deepEqual(notifier, { kind: 'osascript', path: join(dir, 'osascript') }, '진짜 osascript 보다 앞의 가짜를 고른다');
+  const n = createNotifier({ notify: true, notifier, env: { PATH: process.env.PATH } });
+  n.fire([s('a', 'waiting', { project: '" & do shell script "id" & "' })]);
+  await until(() => !n.desk.busy && existsSync(out));
+  assert.deepEqual(readFileSync(out, 'utf8').split('\n').slice(0, -1), [
+    '-e',
+    'on run argv',
+    '-e',
+    'display notification (item 2 of argv) with title (item 1 of argv)',
+    '-e',
+    'end run',
+    'aitop: 응답 대기 (claude)',
+    '" & do shell script "id" & " · Bash',
+  ]);
+  assert.equal(n.desk.stats.started, 1);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('isWsl 은 WSL 환경변수나 /proc/version 의 microsoft 로 판단하고, 읽지 못하면 false', () => {
+  const never = () => {
+    throw new Error('읽지 않아야 한다');
+  };
+  assert.equal(isWsl({ WSL_DISTRO_NAME: 'Ubuntu' }, never), true);
+  assert.equal(isWsl({ WSL_INTEROP: '/run/WSL/1_interop' }, never), true);
+  assert.equal(isWsl({}, () => 'Linux version 5.15.153.1-microsoft-standard-WSL2'), true);
+  assert.equal(isWsl({}, () => 'Linux version 6.8.0-45-generic (buildd@lcy02-amd64-075)'), false);
+  assert.equal(
+    isWsl({}, () => {
+      throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    }),
+    false,
+    'macOS 처럼 /proc/version 이 없으면 false',
+  );
 });
 
 const alive = (pid) => {
