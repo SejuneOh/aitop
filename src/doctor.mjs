@@ -197,8 +197,8 @@ export function toolsJson(tools) {
 export const MARK = { ok: '✓', missing: '✗', limited: '○' };
 export const STATE_TEXT = { ok: '찾음', missing: '없음', limited: '일부 지원' };
 
-// lang: 빈 화면은 아직 한국어라 기본은 ko, --doctor 는 지금 언어를 넘긴다.
-export function describe(t, now = Date.now(), lang = 'ko') {
+// lang: 빈 화면(세션 없을 때의 점검 줄)과 --doctor 모두 지금 언어가 기본이다.
+export function describe(t, now = Date.now(), lang = getLang()) {
   const o = { lang };
   const parts = [];
   if (t.found === false && t.state === 'limited') parts.push(tr('doctor.noFolder', null, o));

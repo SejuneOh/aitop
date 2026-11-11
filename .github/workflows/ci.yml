@@ -59,7 +59,7 @@ jobs:
           test "$GOT" = "$EXPECTED"
           "$PREFIX/bin/aitop" --once > /dev/null
 
-  # 영어 기본 경로: AITOP_LANG 없이 LANG=C 에서 언어 고르기와 영어 --help·--doctor·오류를 본다.
+  # 영어 기본 경로: AITOP_LANG 없이 LANG=C 에서 언어 고르기, 영어 실시간 화면(표·상세·도움말, 폭·높이별 넘침)과 --help·--doctor·--once·오류를 본다.
   # npm test 는 AITOP_LANG=ko 로 고정돼 있어 여기서는 쓰지 않고, 영어 테스트와 bin 을 직접 실행한다.
   english:
     runs-on: ubuntu-latest
@@ -76,9 +76,10 @@ jobs:
         shell: bash
         run: |
           unset AITOP_LANG
-          node --test test/i18n.test.mjs
+          node --test test/i18n.test.mjs test/english-screen.test.mjs
       # 한글이 섞이면 실패한다. LANG=C 의 grep 은 UTF-8 범위를 못 다루므로 node 로 본다.
-      - name: 영어 --help·--doctor·모르는 옵션 확인
+      # 러너에는 세션 기록이 없으므로 --once 는 빈 화면(점검 줄)을 영어로 낸다.
+      - name: 영어 --help·--doctor·--once·모르는 옵션 확인
         shell: bash
         run: |
           set -euo pipefail
@@ -90,6 +91,9 @@ jobs:
           node bin/aitop.mjs --doctor > doctor.txt
           grep -q 'setup check' doctor.txt
           noko < doctor.txt
+          COLUMNS=100 LINES=30 node bin/aitop.mjs --once > once.txt
+          grep -q 'read-only' once.txt
+          noko < once.txt
           code=0
           node bin/aitop.mjs --nope 2> err.txt || code=$?
           test "$code" = 2

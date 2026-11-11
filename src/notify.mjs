@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { accessSync, constants, readFileSync } from 'node:fs';
 import { join, delimiter } from 'node:path';
 import { mask, stripControl } from './text.mjs';
-import { phaseText, t } from './i18n.mjs';
+import { getLang, phaseText, t } from './i18n.mjs';
 
 export const HOOK_TIMEOUT_MS = 10_000;
 const LABEL_MAX = 120;
@@ -104,10 +104,11 @@ export function notifierCommand(notifier, title, body) {
 const escapeMarkup = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 // 세션에서 짧은 대기 사유. "응답 대기 · Bash" → "Bash". 비밀값처럼 보이는 것은 가린다.
-// AITOP_WAITING_FOR 로도 넘기는 값이라 화면 언어와 상관없이 예전과 같은 한국어 문구로 만든다. 요청도 에이전트도 없으면 빈 글.
-export function waitingLabel(s) {
+// AITOP_WAITING_FOR 로도 넘기는 값이라 기본은 화면 언어와 상관없이 예전과 같은 한국어 문구다. 알림 본문은 lang 으로 화면 언어를 준다.
+// 요청도 에이전트도 없으면 빈 글.
+export function waitingLabel(s, lang = 'ko') {
   const a = s.phase?.args ?? {};
-  const text = s.phase?.kind === 'waiting' && (a.what || a.agents) ? phaseText(s.phase, { lang: 'ko', short: true }) : '';
+  const text = s.phase?.kind === 'waiting' && (a.what || a.agents) ? phaseText(s.phase, { lang, short: true }) : '';
   const one = stripControl(text).replace(/\s+/g, ' ').trim();
   return mask(one.length > LABEL_MAX ? one.slice(0, LABEL_MAX - 1) + '…' : one);
 }
@@ -123,13 +124,15 @@ export function waitingEnv(s) {
   };
 }
 
-export function notifyText(sessions) {
+// 알림 제목·본문은 화면 언어를 따른다 (AITOP_WAITING_FOR 와 달리 사람이 읽는 글이라).
+export function notifyText(sessions, lang = getLang()) {
+  const o = { lang };
   if (sessions.length === 1) {
     const s = sessions[0];
-    const label = waitingLabel(s);
-    return { title: `aitop: 응답 대기 (${s.tool ?? '?'})`, body: stripControl(`${s.project ?? s.id ?? ''}${label ? ' · ' + label : ''}`) };
+    const label = waitingLabel(s, lang);
+    return { title: t('notify.one', { tool: s.tool ?? '?' }, o), body: stripControl(`${s.project ?? s.id ?? ''}${label ? ' · ' + label : ''}`) };
   }
-  return { title: 'aitop: 응답 대기', body: `${sessions.length}개 세션이 응답을 기다립니다` };
+  return { title: t('notify.title', null, o), body: t('notify.many', { n: sessions.length }, o) };
 }
 
 // 한 번에 하나만 실행하는 자식 프로세스 실행기.
