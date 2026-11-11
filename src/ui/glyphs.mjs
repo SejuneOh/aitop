@@ -10,6 +10,8 @@ const NORMAL = {
   rule: '─',
   bar: { fill: '▃', empty: NO_COLOR ? '▁' : '▃' },
   week: '▁▂▃▄▅▆▇█',
+  // 시작할 때 헤더의 집계 진행 막대. 색이 없으면 채운 칸과 빈칸이 모양으로 갈리도록 ASCII 로 그린다.
+  progress: NO_COLOR ? { l: '[', r: ']', fill: '#', empty: '.' } : { l: '▕', r: '▏', fill: '█', empty: '░' },
   waiting: '◆',
   waitingBlink: '◇',
   unseen: '●',
@@ -35,6 +37,7 @@ const SAFE = {
   // 색이 없어도 채운 칸과 빈칸이 모양으로 갈리게 한다.
   bar: { fill: '#', empty: NO_COLOR ? '.' : '#' },
   week: '_.:-=+*#',
+  progress: { l: '[', r: ']', fill: '#', empty: '.' },
   waiting: '!',
   waitingBlink: '.',
   unseen: '*',

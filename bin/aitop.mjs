@@ -198,6 +198,7 @@ const { toJson } = await import('../src/json.mjs');
 const { createAttention, updateAttention, markSeen, nextAttention, windowTitle, createWaitWatch, takeNewlyWaiting, attentionCounts } = await import('../src/attention.mjs');
 const { createNotifier } = await import('../src/notify.mjs');
 const { onKey, fixFocus } = await import('../src/keys.mjs');
+const { admit, createLoading, latchReady } = await import('../src/loading.mjs');
 
 // 요청 전체 보기는 기본으로 꺼 둔다. 켜지 않으면 상세 패널에도 --json 에도 나가지 않는다.
 const showRequests = opt.showRequests;
@@ -205,8 +206,12 @@ const showRequests = opt.showRequests;
 const settings = { budgetDay: opt.budgetDay, notify: Boolean(alerts.notify), onWaiting: Boolean(alerts.onWaiting), debug: log.on, configPath: config.path };
 const view = { showRequests, budgetDay: opt.budgetDay, hideIdleTools: opt.hideIdleTools, settings, data: null, selectedId: null, showDetail: 'auto', showEnded: opt.all, frame: 0, filter: '', searching: false, help: false, focus: null, filePath: null, diffScroll: 0, tab: 'now', costMode: 'api', sort: 'default', group: 'none', pins: [] };
 const once = args.has('--once') || args.has('--json') || !process.stdout.isTTY;
+// ready: 시작할 때 세션 기록을 다 읽었는지 (loading.mjs). 그 전에는 비용·컨텍스트 정렬과 ▲ 를 고정한다. 한 번에 다 읽는 --once·--json 은 처음부터 준비 완료다.
+view.ready = once;
+const loading = createLoading();
 // 실시간 화면에서 한 번 갱신할 때 읽는 기록 양과 시간. 큰 기록은 여러 번에 나눠 읽어서 키 입력이 막히지 않게 한다.
-const TICK_BUDGET = 24 * 1024 * 1024;
+// AITOP_TICK_BYTES: 테스트에서 캐시 없는 긴 로딩을 흉내 낼 때 쓴다.
+const TICK_BUDGET = Number(process.env.AITOP_TICK_BYTES) > 0 ? Number(process.env.AITOP_TICK_BYTES) : 24 * 1024 * 1024;
 const TICK_MS = 60;
 // 덜 읽은 기록이 있으면 1초를 기다리지 않고 이만큼 쉰 뒤 이어 읽는다 (그 사이 키 입력과 그리기가 돈다).
 const CATCH_UP_MS = 15;
@@ -220,10 +225,14 @@ const bell = opt.bell;
 const waitWatch = createWaitWatch();
 const notifier = !once && (alerts.notify || alerts.onWaiting) ? createNotifier(alerts) : null;
 
-function refresh() {
+// throttle: 주기 갱신(tick)에서만 참이다. 로딩 중에는 loading.mjs 의 admit 이 허락할 때만 화면 데이터를 바꾼다.
+// 알림(벨·--notify·--on-waiting)은 화면에 올리지 않은 갱신에서도 그대로 돈다. 돌려주는 값은 화면 데이터를 바꿨는지.
+function refresh({ throttle = false } = {}) {
   const data = collect({ showEnded: view.showEnded, selectedId: view.selectedId, budgetBytes: once ? Infinity : TICK_BUDGET, budgetMs: once ? Infinity : TICK_MS });
+  // 준비 완료를 먼저 정해, 처음 고르는 세션도 이번 갱신의 정렬을 따르게 한다.
+  if (!once) latchReady(loading, data.sessionsMore);
   if (!data.sessions.some((s) => s.id === view.selectedId)) {
-    view.selectedId = arrange(data.sessions, view).sessions[0]?.id ?? null;
+    view.selectedId = arrange(data.sessions, { ...view, ready: once || loading.ready }).sessions[0]?.id ?? null;
     view.focus = null;
     view.tab = 'now';
   }
@@ -232,15 +241,23 @@ function refresh() {
   // 도구별 점검은 기록 폴더를 훑으므로 30초에 한 번만 한다.
   if (!tools || Date.now() - tools.at > 30_000) tools = { at: Date.now(), result: checkTools() };
   data.tools = tools.result;
-  view.data = data;
   if (!once && (bell || notifier)) {
     const fresh = takeNewlyWaiting(waitWatch, data.sessions);
     if (fresh.length && bell) process.stdout.write('\x07');
     notifier?.fire(fresh);
   }
+  lastMore = data.more;
+  if (!once) {
+    const shown = admit(loading, data);
+    if (throttle && !shown) return false;
+    view.ready = loading.ready;
+  }
+  view.data = data;
   if (view.filter) keepSelectionVisible();
   fixFocus(view);
+  return true;
 }
+let lastMore = false;
 
 function select(id) {
   if (id !== view.selectedId) {
@@ -382,13 +399,13 @@ stdin.on('data', (key) => {
 
 let lastFlush = 0;
 function tick() {
-  refresh();
-  const more = view.data?.more;
+  const shown = refresh({ throttle: true });
+  const more = lastMore;
   if (more ? Date.now() - lastFlush > LOADING_FLUSH_MS : Date.now() - lastFlush > 15_000) {
     flushCache();
     lastFlush = Date.now();
   }
-  draw();
+  if (shown) draw();
   setTimeout(tick, more ? CATCH_UP_MS : 1000);
 }
 

@@ -28,11 +28,16 @@ const KEYS = {
   recent: (s) => s.updatedAt ?? -Infinity,
 };
 
+// 기록을 읽는 동안 계속 커지는 값. 준비 완료 전에는 이 값으로 줄 세우지 않는다.
+const GROWING = new Set(['cost', 'context']);
+
 // 종료 세션은 어떤 정렬에서도 (묶음 안에서도) 아래에 둔다. 그다음 큰 값이 위. 값이 같으면 받은 순서(기본 순서)를 지켜 갱신마다 자리가 흔들리지 않게 한다 (Array.prototype.sort 는 안정 정렬).
-export function compare(sort, costMode = 'api') {
+// ready 가 false 면(시작할 때 기록을 아직 읽는 중) 비용·컨텍스트 정렬은 기본 순서에 고정했다가, 준비 완료 때 한 번만 다시 줄 세운다.
+export function compare(sort, costMode = 'api', ready = true) {
   const key = KEYS[sort];
   if (!key) return () => 0;
   const ended = (s) => (s.status === 'ended' ? 1 : 0);
+  if (ready === false && GROWING.has(sort)) return (a, b) => ended(a) - ended(b);
   return (a, b) => ended(a) - ended(b) || key(b, costMode) - key(a, costMode);
 }
 
@@ -42,8 +47,9 @@ const GROUP_KEY = { project: projectOf, tool: (s) => s.tool ?? '?' };
 // 돌려주는 sessions 는 화면에 그리는 순서 그대로다 (↑↓·n 도 이 순서를 따른다).
 // groups 는 묶을 때만 있다: { name, count, cost, unknown, waiting, pinned, sessions }. 묶음은 그 안의 첫 세션이 정렬에서 앞선 순으로 놓인다.
 // pins: 고정한 세션 id (고정한 순서). 화면에 없는 id 는 건너뛴다.
-export function arrange(sessions, { sort = 'default', group = 'none', costMode = 'api', pins = [] } = {}) {
-  const cmp = compare(sort, costMode);
+// ready: false 면 준비 완료 전이다 (compare 참고). 응답 대기 세션은 그동안에도 맨 위로 올린다.
+export function arrange(sessions, { sort = 'default', group = 'none', costMode = 'api', pins = [], ready = true } = {}) {
+  const cmp = compare(sort, costMode, ready);
   const rank = new Map((pins ?? []).map((id, i) => [id, i]));
   const waiting = sessions.filter((s) => s.status === 'waiting').sort(cmp);
   const pinned = sessions.filter((s) => s.status !== 'waiting' && rank.has(s.id)).sort((a, b) => rank.get(a.id) - rank.get(b.id));
