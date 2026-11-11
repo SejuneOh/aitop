@@ -9,18 +9,18 @@
 
 ## 설치
 
-개발 중에는 비공개 GitHub Packages 레지스트리에만 올린다. 저장소 권한이 있는 계정만 설치할 수 있다.
+npmjs.com 에 공개로 올린다 (MIT).
 
 ```bash
-# 1회: 패키지 읽기 권한을 토큰에 추가하고 npm 에 등록
-gh auth switch -u SejuneOh            # refresh 는 활성 계정에만 적용된다
-gh auth refresh -h github.com -s read:packages
-npm config set @sejuneoh:registry https://npm.pkg.github.com
-npm config set //npm.pkg.github.com/:_authToken "$(gh auth token -u SejuneOh)"
-
-# 설치·업데이트
-npm install -g @sejuneoh/aitop
+npm install -g @sejuneoh/aitop   # 설치·업데이트
 aitop
+```
+
+예전에 비공개 GitHub Packages 에서 설치했다면 그 레지스트리 설정을 지워야 npmjs.com 에서 받는다.
+
+```bash
+npm config delete @sejuneoh:registry
+npm config delete //npm.pkg.github.com/:_authToken
 ```
 
 로컬 코드로 바로 써 보려면 저장소에서 `npm install -g .`
@@ -30,7 +30,7 @@ aitop
 | 브랜치 | 하는 일 |
 |---|---|
 | 기능 브랜치 → `dev` | PR 마다 CI(단위 테스트 → e2e → 실행 확인 → `npm pack` 설치 확인, Node 22/22.13/22.15/24, macOS 22) 실행. 병합 후 로컬에서 `npm install -g .` 로 확인. `dev` 에 들어오면 `release-pr` 워크플로가 `dev` → `main` release PR 을 만들거나 제목·본문(포함된 PR, 닫는 이슈)을 갱신한다 |
-| `dev` → `main` | 단위 테스트와 e2e 를 통과하고 `package.json` 의 `version` 이 아직 배포되지 않은 값이면 GitHub Packages 에 배포하고, `v<버전>` 릴리스가 없으면 태그·릴리스 생성 (배포 뒤 릴리스 생성만 실패했으면 재실행하면 배포는 건너뛰고 릴리스만 만든다) |
+| `dev` → `main` | 단위 테스트와 e2e 를 통과하고 `package.json` 의 `version` 이 아직 배포되지 않은 값이면 npmjs.com 에 공개로 배포하고(provenance 포함, 저장소 시크릿 `NPM_TOKEN` 필요), `v<버전>` 릴리스가 없으면 태그·릴리스 생성 (배포 뒤 릴리스 생성만 실패했으면 재실행하면 배포는 건너뛰고 릴리스만 만든다) |
 
 테스트
 
@@ -41,7 +41,7 @@ npm run test:e2e    # e2e: 실제 bin 실행(--json/--once/--help), 가상 터�
 
 버전 올리기는 `dev` 에서 `npm version patch|minor|major --no-git-tag-version` 후 커밋한다. 버전을 올리지 않은 `main` 병합은 테스트만 돌고 배포하지 않는다.
 
-공개 배포로 바꿀 때는 `package.json` 의 `publishConfig.registry` 를 `https://registry.npmjs.org` 로 바꾸고, `release.yml` 에 `NPM_TOKEN` 시크릿과 `--access public` 을 넣는다.
+`NPM_TOKEN` 은 npmjs.com 에서 `@sejuneoh` 범위에 배포 권한이 있는 토큰(Granular access token)으로 만들어 저장소 Settings → Secrets and variables → Actions 에 넣는다. 0.21.0 까지는 비공개 GitHub Packages 에만 있다.
 
 ## 사용
 

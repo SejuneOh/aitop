@@ -1,4 +1,4 @@
-# main 에 들어온 package.json 의 version 이 아직 배포되지 않았으면 GitHub Packages 에 올리고
+# main 에 들어온 package.json 의 version 이 아직 배포되지 않았으면 npmjs.com 에 공개로 올리고
 # v<version> 태그와 GitHub Release 를 만든다. 버전을 올리지 않은 병합은 테스트만 하고 끝난다.
 name: release
 
@@ -8,7 +8,8 @@ on:
 
 permissions:
   contents: write
-  packages: write
+  # npm provenance(이 저장소의 이 워크플로에서 만들었다는 서명)에 쓰는 OIDC 토큰
+  id-token: write
 
 concurrency: release
 
@@ -20,7 +21,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-          registry-url: https://npm.pkg.github.com
+          registry-url: https://registry.npmjs.org
           scope: '@sejuneoh'
       - name: 단위 테스트
         run: npm test
@@ -53,7 +54,7 @@ jobs:
       - name: 배포할 버전인지 확인
         id: version
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION=$(node -p "require('./package.json').version")
@@ -72,11 +73,12 @@ jobs:
             echo "release=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: GitHub Packages 에 배포
+      # 저장소 시크릿 NPM_TOKEN(npmjs.com 배포 권한 토큰)이 필요하다.
+      - name: npmjs.com 에 배포
         if: steps.version.outputs.publish == 'true'
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm publish
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --provenance --access public
 
       # 태그만 있고 릴리스가 없으면 gh 가 그 태그로 릴리스를 만든다 (--target 은 무시된다).
       - name: 태그와 릴리스 만들기
