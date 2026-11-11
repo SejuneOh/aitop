@@ -10,7 +10,7 @@ const file = (name, m) => ({ path: `/work/demo/${name}`, created: false, edits: 
 // 지시 8개, 지시마다 파일 하나씩 고친 세션
 const files = Array.from({ length: 8 }, (_, i) => file(`f${i}.mjs`, i * 10 + 1));
 const turns = Array.from({ length: 8 }, (_, i) => ({ n: i + 1, at: min(i * 10), text: `지시 ${i + 1}` }));
-const s = { tool: 'claude', id: 's', name: 'demo', cwd: '/work/demo', status: 'busy', live: true, phase: { kind: 'tool', text: '도구' }, updatedAt: at, tokens: { total: 1 }, context: {}, members: [], events: [], files, turns };
+const s = { tool: 'claude', id: 's', name: 'demo', cwd: '/work/demo', status: 'busy', live: true, phase: { kind: 'tool', msg: 'toolUnknown' }, updatedAt: at, tokens: { total: 1 }, context: {}, members: [], events: [], files, turns };
 const screen = (W, H, extra = {}, sess = s) => render({ data: { sessions: [sess], usage: null, errors: [], at }, selectedId: 's', showDetail: true, frame: 0, tab: 'now', ...extra }, W, H).map(strip).join('\n');
 
 test('11~15 줄에서 지시 탭이 많아도 지시 문장과 편집 수가 남는다', () => {

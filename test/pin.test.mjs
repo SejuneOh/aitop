@@ -92,7 +92,7 @@ test('표: 고정한 행은 SESSION 칸 앞에 ★ (색 없이도), 맨 위로 �
 });
 
 test('고정한 종료 세션은 종료 세션을 함께 볼 때 실행 중인 세션보다 위에 남는다', () => {
-  const s = [sess('a', 'web', 'idle', 5), sess('e', 'web', 'ended', 3, { live: false, phase: { kind: 'ended', text: '종료' } })];
+  const s = [sess('a', 'web', 'idle', 5), sess('e', 'web', 'ended', 3, { live: false, phase: { kind: 'ended' } })];
   assert.deepEqual(arrange(s, { sort: 'cost', pins: ['e'] }).sessions.map((x) => x.id), ['e', 'a']);
 });
 

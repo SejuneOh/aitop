@@ -5,7 +5,7 @@ import { width } from '../src/text.mjs';
 
 const strip = (x) => x.replace(/\x1b\[[0-9;]*m/g, '');
 const at = Date.parse('2026-10-30T05:00:00Z');
-const s = { tool: 'claude', id: 's', name: 'demo', cwd: '/w', status: 'busy', live: true, phase: { kind: 'tool', text: '도구' }, updatedAt: at, tokens: { total: 1_200_000 }, context: {}, members: [], events: [], files: [{ path: '/w/a.mjs', edits: 1, add: 1, del: 0, at, hunks: [], log: [{ at, add: 1, del: 0 }] }], turns: [] };
+const s = { tool: 'claude', id: 's', name: 'demo', cwd: '/w', status: 'busy', live: true, phase: { kind: 'tool', msg: 'toolUnknown' }, updatedAt: at, tokens: { total: 1_200_000 }, context: {}, members: [], events: [], files: [{ path: '/w/a.mjs', edits: 1, add: 1, del: 0, at, hunks: [], log: [{ at, add: 1, del: 0 }] }], turns: [] };
 const usage = { today: { cost: 51.96, tokens: 132_000_000 }, week: { cost: 644.1, tokens: 1_200_000_000 }, loading: null };
 const screen = (W, extra = {}) => render({ data: { sessions: [s], usage, errors: [], at }, selectedId: 's', showDetail: true, frame: 0, ...extra }, W, 30).map(strip);
 

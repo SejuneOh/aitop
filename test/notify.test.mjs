@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { createWaitWatch, takeNewlyWaiting } from '../src/attention.mjs';
 import { notifyOptions, findNotifier, notifierCommand, waitingEnv, createRunner, createNotifier, isWsl } from '../src/notify.mjs';
 
-const s = (id, status, extra = {}) => ({ id, status, live: true, tool: 'claude', project: 'demo', cwd: '/work/demo', phase: status === 'waiting' ? { kind: 'waiting', text: '응답 대기 · Bash' } : { kind: 'idle', text: '대기' }, ...extra });
+const s = (id, status, extra = {}) => ({ id, status, live: true, tool: 'claude', project: 'demo', cwd: '/work/demo', phase: status === 'waiting' ? { kind: 'waiting', args: { what: 'Bash' } } : { kind: 'idle' }, ...extra });
 const tmp = () => mkdtempSync(join(tmpdir(), 'aitop-notify-'));
 const until = async (cond, ms = 5000) => {
   const end = Date.now() + ms;
@@ -56,7 +56,7 @@ test('--notify, --on-waiting <cmd>, --on-waiting=<cmd> 를 한 곳에서 해석�
 });
 
 test('환경변수에 세션 정보를 넣고, 대기 사유는 짧게·가려서 넣는다', () => {
-  const env = waitingEnv(s('sid-1', 'waiting', { phase: { kind: 'waiting', text: '응답 대기 · Bash token=abcdefghijkl\nnext' } }));
+  const env = waitingEnv(s('sid-1', 'waiting', { phase: { kind: 'waiting', args: { what: 'Bash token=abcdefghijkl\nnext' } } }));
   assert.deepEqual(Object.keys(env).sort(), ['AITOP_CWD', 'AITOP_PROJECT', 'AITOP_SESSION_ID', 'AITOP_TOOL', 'AITOP_WAITING_FOR']);
   assert.equal(env.AITOP_TOOL, 'claude');
   assert.equal(env.AITOP_PROJECT, 'demo');
@@ -65,7 +65,7 @@ test('환경변수에 세션 정보를 넣고, 대기 사유는 짧게·가려�
   assert.doesNotMatch(env.AITOP_WAITING_FOR, /abcdefghijkl/);
   assert.doesNotMatch(env.AITOP_WAITING_FOR, /\n/);
   assert.match(env.AITOP_WAITING_FOR, /^Bash token=/);
-  assert.ok(waitingEnv(s('x', 'waiting', { phase: { kind: 'waiting', text: '응답 대기 · ' + 'a'.repeat(500) } })).AITOP_WAITING_FOR.length <= 120);
+  assert.ok(waitingEnv(s('x', 'waiting', { phase: { kind: 'waiting', args: { what: 'a'.repeat(500) } } })).AITOP_WAITING_FOR.length <= 120);
 });
 
 test('--on-waiting 은 세션 값을 명령에 끼워 넣지 않는다 ($(touch …) 가 실행되지 않는다)', async () => {
@@ -75,7 +75,7 @@ test('--on-waiting 은 세션 값을 명령에 끼워 넣지 않는다 ($(touch 
   const evil = `$(touch ${marker})\`touch ${marker}\`;touch ${marker}`;
   let done = 0;
   const n = createNotifier({ onWaiting: `printf '%s\\n' "$AITOP_PROJECT" "$AITOP_SESSION_ID" "$AITOP_WAITING_FOR" > ${out}`, env: { PATH: process.env.PATH } });
-  n.fire([s(evil, 'waiting', { project: evil, cwd: evil, phase: { kind: 'waiting', text: '응답 대기 · ' + evil } })]);
+  n.fire([s(evil, 'waiting', { project: evil, cwd: evil, phase: { kind: 'waiting', args: { what: evil } } })]);
   await until(() => !n.hook.busy && existsSync(out) && readFileSync(out, 'utf8').split('\n').length >= 3);
   done = readFileSync(out, 'utf8').split('\n');
   assert.equal(done[0], evil);

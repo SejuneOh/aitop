@@ -175,9 +175,9 @@ export class ClaudeTracker {
     const open = [...this.pending.values()];
     const agents = open.filter((p) => p.name === 'Agent' || p.name === 'Task');
     const tools = open.filter((p) => p.name !== 'Agent' && p.name !== 'Task');
-    if (tools.length) return { kind: 'tool', text: `도구 실행 · ${tools.at(-1).name}` };
-    if (agents.length) return { kind: 'team', text: `팀원 ${agents.length}명 작업 중` };
-    if (this.lastKind === 'prompt' || this.lastKind === 'result') return { kind: 'think', text: '생각 중' };
-    return { kind: 'write', text: '답변 작성 중' };
+    if (tools.length) return { kind: 'tool', args: { what: tools.at(-1).name } };
+    if (agents.length) return { kind: 'team', args: { n: agents.length } };
+    if (this.lastKind === 'prompt' || this.lastKind === 'result') return { kind: 'think' };
+    return { kind: 'write' };
   }
 }

@@ -6,6 +6,7 @@ import { PALETTE, PHASE_COLOR } from './theme.mjs';
 import { NOW, box, clock, fill, gauge, glyph, hhmm, levelBar, money, rule, segsWidth, tilde } from './draw.mjs';
 import { activitySeries } from '../sources/common.mjs';
 import { glyphs } from './glyphs.mjs';
+import { phaseText } from '../i18n.mjs';
 
 // 세션 폴더 기준 상대 경로. 폴더 밖이면 ~ 로 줄인다.
 export function relPath(cwd, p) {
@@ -277,7 +278,7 @@ function fitGroups(groups, w) {
 // 폭이 모자라면 pid → 토큰 내역 → 서브에이전트 수 → ctx 순으로 뺀다.
 export function summaryLines(s, w, frame, view) {
   const g = glyph(s, frame);
-  const phase = [{ ...g, t: g.t + ' ' }, { t: s.phase?.text ?? s.status, fg: PHASE_COLOR[s.phase?.kind] ?? PALETTE.text, bold: true }];
+  const phase = [{ ...g, t: g.t + ' ' }, { t: phaseText(s.phase) || s.status, fg: PHASE_COLOR[s.phase?.kind] ?? PALETTE.text, bold: true }];
   const sep = { t: ' · ', fg: PALETTE.info };
   const optional = [
     s.branch && [sep, { t: s.branch, fg: PALETTE.info }],
@@ -329,7 +330,7 @@ export function detail(s, W, H, frame, view) {
   const more = (segs) => L.push([INDENT, { t: ' '.repeat(9) }, ...segs]);
 
   const g = glyph(s, frame);
-  L.push([{ ...g, t: g.t + ' ' }, { t: s.phase?.text ?? s.status, fg: PHASE_COLOR[s.phase?.kind] ?? PALETTE.text, bold: true }]);
+  L.push([{ ...g, t: g.t + ' ' }, { t: phaseText(s.phase) || s.status, fg: PHASE_COLOR[s.phase?.kind] ?? PALETTE.text, bold: true }]);
   section('세션');
   kv('폴더', tilde(s.cwd));
   if (s.branch) kv('브랜치', s.branch);

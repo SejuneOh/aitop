@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeClaudeHome, assistant, user, usage } from './fixture.mjs';
+import { phaseText } from '../src/i18n.mjs';
 
 const fx = makeClaudeHome();
 const { collectClaude } = await import('../src/sources/claude.mjs');
@@ -20,7 +21,7 @@ test('팀원 행은 하는 일로 구분되고, 첫 응답 전에는 시작 중�
   const b = s.members.find((m) => m.task === '디자인 검토');
   assert.equal(a.started, true);
   assert.equal(b.started, false);
-  assert.equal(b.phase.text, '시작 중');
+  assert.equal(phaseText(b.phase), '시작 중');
 
   const lines = render({ data: { sessions: [s], errors: [], at: Date.now() }, selectedId: s.id, showDetail: false, frame: 0 }, 140, 10).map(strip);
   const rowA = lines.find((l) => l.includes('CTO 검토'));

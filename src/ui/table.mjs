@@ -6,6 +6,7 @@ import { fmtAgo, fmtTokens, pad, truncate, width } from '../text.mjs';
 import { BUDGET_COLOR, PALETTE, PHASE_COLOR, RESET, style } from './theme.mjs';
 import { NOW, SPIN, clock, costOf, gauge, glyph, levelBar, line, money, segsWidth, shortModel } from './draw.mjs';
 import { glyphs } from './glyphs.mjs';
+import { phaseText, t } from '../i18n.mjs';
 
 // 검색어가 세션 이름·폴더·모델 중 하나에 들어 있으면 남긴다 (대소문자 무시).
 export function filterSessions(sessions, query) {
@@ -315,7 +316,7 @@ export function sessionRow(s, c, W, selected, frame, hot, costMode = 'api', pinn
   const pc = s.phase?.kind === 'idle' ? PALETTE.info : PHASE_COLOR[s.phase?.kind] ?? PALETTE.muted;
   // 아직 토큰을 하나도 쓰지 않은 세션은 숫자 칸을 비운다. 기다리는 중이면 '아직 지시 없음'.
   const blank = s.lazy || !(s.tokens?.total > 0);
-  const phaseText = blank && s.tool !== 'gemini' && (s.status === 'idle' || s.status === 'live') ? '아직 지시 없음' : statusText(s.phase);
+  const phaseText = blank && s.tool !== 'gemini' && (s.status === 'idle' || s.status === 'live') ? t('phase.noPrompt') : statusText(s.phase);
   const segs = [
     { t: selected ? glyphs().select : ' ', fg: PALETTE.brand, bold: true },
     { ...g, t: g.t + ' ' },
@@ -338,11 +339,8 @@ export function sessionRow(s, c, W, selected, frame, hot, costMode = 'api', pinn
 }
 
 // 표의 STATUS 칸 글. 응답 대기는 ◆ 와 행 색으로 이미 보이므로 무엇을 허락해 달라는지만 적고, 요청 내용이 없으면 '응답 대기' 를 남긴다.
-// 상세 창은 phase.text 전체를 보인다.
-export function statusText(phase) {
-  const text = phase?.text ?? '';
-  return phase?.kind === 'waiting' ? text.replace(/^응답 대기 · /, '') : text;
-}
+// 상세 창은 phaseText 의 긴 문구 전체를 보인다.
+export const statusText = (phase) => phaseText(phase, { short: true });
 
 // 메인 세션 아래에 붙는 팀원(서브에이전트) 행. 끝나면 잠깐 "완료"로 보였다가 사라진다.
 // parentModel: 부모와 같은 모델이면 모델 칸을 비운다. costMode: 'api' | 'net'.

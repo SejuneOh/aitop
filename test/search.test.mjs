@@ -5,7 +5,7 @@ import { filterSessions, render } from '../src/ui.mjs';
 const strip = (x) => x.replace(/\x1b\[[0-9;]*m/g, '');
 const s = (id, name, project, model = 'claude-opus-5-5') => ({
   tool: 'claude', id, name, project, cwd: `/work/${project}`, model, live: true, status: 'idle',
-  phase: { kind: 'idle', text: '다음 지시 대기' }, updatedAt: Date.now(), tokens: { total: 1 }, cost: 0, context: {}, events: [], members: [],
+  phase: { kind: 'idle' }, updatedAt: Date.now(), tokens: { total: 1 }, cost: 0, context: {}, events: [], members: [],
 });
 const list = [s('a', 'Release-Notes', 'aitop'), s('b', 'chat-api-removal', 'CloudHospital.Api'), s('c', 'theme', 'nvim', 'claude-haiku-5-5')];
 

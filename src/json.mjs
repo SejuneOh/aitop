@@ -1,5 +1,6 @@
 import { projectBudget } from './budget.mjs';
 import { toolsJson } from './doctor.mjs';
+import { phaseText } from './i18n.mjs';
 
 // aitop --json 출력. 다른 스크립트나 AI 가 읽기 쉬운 모양으로 세션 목록과 사용량 합계를 담는다.
 // 텍스트는 수집 단계에서 이미 비밀값 가림이 적용돼 있다.
@@ -18,6 +19,9 @@ const usageOf = (u) => (u ? { ...u, ...('cost' in u ? { cost: money(u.cost) } : 
 // version 은 aitop 버전, tools 는 aitop --doctor 와 같은 도구별 점검 결과다.
 // opts.showRequests: 응답 대기 요청 전체(waitDetail)를 넣는다. 기본은 꺼져 있다.
 // opts.budgetDay: 하루 예산. 있으면 usage.budget 에 예산, 오늘 끝 예상 비용(API 정가 환산, 화면과 같은 기준), 단계를 넣는다.
+// --json 의 phase 문구. 한국어 표로 만든다 (영어 화면 1/3 의 계약).
+const koPhase = (p) => (p?.kind ? phaseText(p, { lang: 'ko' }) : null);
+
 export function toJson(data, version = null, opts = {}) {
   const b = data.usage ? projectBudget(data.usage, opts.budgetDay, { now: data.at ?? Date.now() }) : null;
   return {
@@ -37,8 +41,8 @@ export function toJson(data, version = null, opts = {}) {
       pid: s.pid ?? null,
       live: Boolean(s.live),
       status: s.status,
-      // phase 는 화면 문구(한국어) 그대로 두고, 언어와 상관없는 상태 이름은 phaseKind 로 준다.
-      phase: s.phase?.text ?? null,
+      // phase 는 화면 언어와 상관없이 늘 한국어 문구(예전과 같은 글)로 두고, 언어와 상관없는 상태 이름은 phaseKind 로 준다.
+      phase: koPhase(s.phase),
       phaseKind: s.phase?.kind ?? null,
       waitingFor: s.waitingFor ?? null,
       // 허락을 기다리는 요청의 전체 내용 (Bash 명령, 파일 경로 등). --show-requests 를 켰을 때만 넣는다. 비밀값 가림은 최선을 다할 뿐이다.
@@ -53,7 +57,7 @@ export function toJson(data, version = null, opts = {}) {
       context: { used: s.context?.used ?? 0, window: s.context?.window ?? null },
       // 변경 내용(diff)은 넣지 않고 파일별 통계만 넣는다. 줄 수는 편집마다 더한 누적값이다 (git diff 아님).
       files: (s.files ?? []).map((f) => ({ path: f.path, created: Boolean(f.created), edits: f.edits, writtenLines: f.add, deletedLines: f.del, updatedAt: iso(f.at), agents: f.agents ?? [] })),
-      members: (s.members ?? []).map((m) => ({ name: m.name, task: m.task ?? null, model: m.model ?? null, status: m.status, phase: m.phase?.text ?? null, phaseKind: m.phase?.kind ?? null, tokens: m.tokens ?? 0, cost: money(m.cost) })),
+      members: (s.members ?? []).map((m) => ({ name: m.name, task: m.task ?? null, model: m.model ?? null, status: m.status, phase: koPhase(m.phase), phaseKind: m.phase?.kind ?? null, tokens: m.tokens ?? 0, cost: money(m.cost) })),
     })),
   };
 }

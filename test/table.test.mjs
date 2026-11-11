@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 
 const strip = (x) => x.replace(/\x1b\[[0-9;]*m/g, '');
 const at = Date.parse('2026-10-30T05:00:00Z');
-const mk = (id, cost) => ({ tool: 'claude', id, name: `세션-${id}`, cwd: '/w', status: 'idle', live: true, phase: { kind: 'idle', text: '다음 지시 대기' }, updatedAt: at, tokens: { total: 1000 }, cost, context: {}, members: [], events: [] });
+const mk = (id, cost) => ({ tool: 'claude', id, name: `세션-${id}`, cwd: '/w', status: 'idle', live: true, phase: { kind: 'idle' }, updatedAt: at, tokens: { total: 1000 }, cost, context: {}, members: [], events: [] });
 const sessions = [mk('a', 12.5), mk('b', 2103), mk('c', 99.77), mk('d', 865)];
 const view = { data: { sessions, usage: null, errors: [], at }, selectedId: 'a', showDetail: true, frame: 0 };
 
@@ -43,11 +43,11 @@ test('낮은 화면에서도 보이는 세션 행과 … +N 을 더하면 전체
   }
 });
 
-const withCtx = (id) => ({ ...mk(id, 12.5), model: 'claude-opus-5-5', project: 'demo', status: 'busy', phase: { kind: 'tool', text: '도구 실행 · Bash' }, context: { used: 420_000, window: 1_000_000 } });
+const withCtx = (id) => ({ ...mk(id, 12.5), model: 'claude-opus-5-5', project: 'demo', status: 'busy', phase: { kind: 'tool', args: { what: 'Bash' } }, context: { used: 420_000, window: 1_000_000 } });
 
 test('폭 56~150 에서 모든 줄이 화면 폭 안에 들고, 세션 행마다 % 와 IDLE 이 보인다', () => {
   const list = ['a', 'b', 'c'].map(withCtx);
-  list[0].members = [{ name: 'Explore', task: '파일 찾기', status: 'busy', phase: { kind: 'tool', text: 'Grep' }, tokens: 1000, cost: 0.1 }];
+  list[0].members = [{ name: 'Explore', task: '파일 찾기', status: 'busy', phase: { kind: 'waiting', args: { what: 'Grep' } }, tokens: 1000, cost: 0.1 }];
   for (let W = 56; W <= 150; W++) {
     for (const H of [24, 30]) {
       const lines = render({ ...view, data: { ...view.data, sessions: list }, showDetail: 'auto' }, W, H).map(strip);
@@ -94,10 +94,11 @@ test('24줄 미만이면 상세 패널을 접어 표에 줄을 주고, d 로 고
 // 넓은 화면 배치는 바뀌면 안 되므로, 이 테스트가 깨지면 스냅숏을 고치기 전에 의도한 변경인지 먼저 확인한다.
 test('표 폭 96 이상의 배치는 좁은 화면 대응 전과 같다', () => {
   const snapshot = JSON.parse(readFileSync(new URL('./wide-table.snapshot.json', import.meta.url), 'utf8'));
-  const sess = (id, extra = {}) => ({ tool: 'claude', id, name: `세션-${id}`, project: `proj-${id}`, cwd: '/w', model: 'claude-opus-5-5', status: 'busy', live: true, phase: { kind: 'tool', text: '도구 실행 · Bash' }, updatedAt: at, tokens: { total: 1_234_567 }, cost: 12.5, context: { used: 420_000, window: 1_000_000 }, members: [], events: [], ...extra });
+  const sess = (id, extra = {}) => ({ tool: 'claude', id, name: `세션-${id}`, project: `proj-${id}`, cwd: '/w', model: 'claude-opus-5-5', status: 'busy', live: true, phase: { kind: 'tool', args: { what: 'Bash' } }, updatedAt: at, tokens: { total: 1_234_567 }, cost: 12.5, context: { used: 420_000, window: 1_000_000 }, members: [], events: [], ...extra });
+  // 팀원 STATUS 칸이 'Grep' 한 단어가 되게 응답 대기(요청 Grep)로 둔다. 스냅숏은 색을 뺀 글만 본다.
   const list = [
-    sess('a', { members: [{ name: 'Explore', task: '파일 찾기', status: 'busy', model: 'claude-haiku-4-5', phase: { kind: 'tool', text: 'Grep' }, tokens: 1000, cost: 0.1 }] }),
-    sess('b', { status: 'shell', phase: { kind: 'shell', text: '셸 실행 중' }, cost: 2103, context: { used: 900_000, window: 1_000_000 } }),
+    sess('a', { members: [{ name: 'Explore', task: '파일 찾기', status: 'busy', model: 'claude-haiku-4-5', phase: { kind: 'waiting', args: { what: 'Grep' } }, tokens: 1000, cost: 0.1 }] }),
+    sess('b', { status: 'shell', phase: { kind: 'tool', msg: 'shell' }, cost: 2103, context: { used: 900_000, window: 1_000_000 } }),
     sess('c', { tool: 'codex', model: 'gpt-5.1-codex', cost: 99.77 }),
   ];
   for (let W = 96; W <= 150; W++) {

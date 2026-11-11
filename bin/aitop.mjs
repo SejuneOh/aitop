@@ -201,7 +201,7 @@ function refresh() {
     view.tab = 'now';
   }
   updateAttention(attention, data.sessions, view.selectedId);
-  data.sessions = data.sessions.map((s) => (attention.unseen.has(s.id) ? { ...s, unseen: true, phase: { kind: 'unseen', text: '완료 · 확인 전' }, plain: s } : s));
+  data.sessions = data.sessions.map((s) => (attention.unseen.has(s.id) ? { ...s, unseen: true, phase: { kind: 'unseen' }, plain: s } : s));
   // 도구별 점검은 기록 폴더를 훑으므로 30초에 한 번만 한다.
   if (!tools || Date.now() - tools.at > 30_000) tools = { at: Date.now(), result: checkTools() };
   data.tools = tools.result;

@@ -171,11 +171,11 @@ function snapshot(st) {
 }
 
 function phaseOf(st, live) {
-  if (!live) return { kind: 'ended', text: '종료' };
-  if (!st.busy) return { kind: 'idle', text: '다음 지시 대기' };
+  if (!live) return { kind: 'ended' };
+  if (!st.busy) return { kind: 'idle' };
   const open = [...st.pending.values()];
-  if (open.length) return { kind: 'tool', text: `도구 실행 · ${open.at(-1)}` };
-  return st.lastKind === 'reply' ? { kind: 'write', text: '답변 작성 중' } : { kind: 'think', text: '생각 중' };
+  if (open.length) return { kind: 'tool', args: { what: open.at(-1) } };
+  return st.lastKind === 'reply' ? { kind: 'write' } : { kind: 'think' };
 }
 
 function applyLine(st, x) {
@@ -367,7 +367,7 @@ export function collectCodex({ showEnded, budget, filesOf = openFiles, startOf =
   // 아직 세션 파일을 만들지 않은(첫 입력 전) codex 프로세스도 보여 준다.
   for (const [cwd, pids] of slots) {
     for (const pid of pids) {
-      out.push({ tool: 'codex', id: `pid-${pid}`, pid, kind: 'interactive', name: basename(cwd ?? '') || 'codex', cwd, project: basename(cwd ?? ''), live: true, status: 'idle', phase: { kind: 'idle', text: '첫 입력 대기' }, cost: null, now: '', updatedAt: Date.now(), tokens: emptyTokens(), context: { used: 0, window: 0 }, events: [], members: [] });
+      out.push({ tool: 'codex', id: `pid-${pid}`, pid, kind: 'interactive', name: basename(cwd ?? '') || 'codex', cwd, project: basename(cwd ?? ''), live: true, status: 'idle', phase: { kind: 'idle', msg: 'firstInput' }, cost: null, now: '', updatedAt: Date.now(), tokens: emptyTokens(), context: { used: 0, window: 0 }, events: [], members: [] });
     }
   }
   return out;

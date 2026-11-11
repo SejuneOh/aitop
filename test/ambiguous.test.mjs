@@ -12,7 +12,7 @@ afterEach(() => setAmbiguous('narrow'));
 
 const strip = (x) => x.replace(/\x1b\[[0-9;]*m/g, '');
 const at = Date.parse('2026-11-10T05:00:00Z');
-const mk = (id, extra = {}) => ({ tool: 'claude', id, name: `세션-${id}`, cwd: '/w', status: 'idle', live: true, phase: { kind: 'idle', text: '다음 지시 대기 · 확인' }, updatedAt: at, tokens: { total: 1000 }, cost: 1.5, context: { used: 50, window: 100 }, members: [], events: [], ...extra });
+const mk = (id, extra = {}) => ({ tool: 'claude', id, name: `세션-${id}`, cwd: '/w', status: 'idle', live: true, phase: { kind: 'idle', args: { agents: 1 } }, updatedAt: at, tokens: { total: 1000 }, cost: 1.5, context: { used: 50, window: 100 }, members: [], events: [], ...extra });
 const view = (sessions, extra = {}) => ({ data: { sessions, usage: null, errors: [], at, tools: { tools: {} } }, selectedId: sessions[0]?.id, showDetail: true, frame: 0, ...extra });
 
 // 칸 수가 정해진 자리에 쓰던 기호들. wide 에서는 화면에 하나도 남지 않아야 한다.
@@ -41,7 +41,7 @@ test('wide 에서 자른 글은 … 의 2칸까지 넣어 폭을 넘지 않는�
 
 test('wide 화면은 상자·막대·상태 기호를 1칸 ASCII 로 그리고 모든 줄이 화면 폭이다', () => {
   setAmbiguous('wide');
-  const sessions = [mk('a'), mk('b', { status: 'waiting', phase: { kind: 'waiting', text: '응답 대기 · Bash' } }), mk('c', { status: 'ended', live: false, phase: { kind: 'ended', text: '종료' } })];
+  const sessions = [mk('a'), mk('b', { status: 'waiting', phase: { kind: 'waiting', args: { what: 'Bash' } } }), mk('c', { status: 'ended', live: false, phase: { kind: 'ended' } })];
   for (const [W, H] of [[140, 40], [80, 32], [60, 24]]) {
     const lines = render(view(sessions), W, H).map(strip);
     assert.equal(lines.length, H);

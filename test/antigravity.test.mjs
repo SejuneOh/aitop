@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { loadSqlite } from '../src/sqlite.mjs';
 import { canListProcesses } from '../src/procs.mjs';
+import { phaseText } from '../src/i18n.mjs';
 
 // macOS 의 임시 폴더는 /private/var 로 가는 심볼릭 링크라, 실제 경로로 바뀌는 AGY_ROOT 와 맞추려고 처음부터 실제 경로를 쓴다.
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'aitop-agy-')));
@@ -295,7 +296,8 @@ test('진행 기록: 아직 바뀌는 중인 단계는 상태가 끝날 때 넣�
   setStep('s3', 1, toolStep(mcp, 2));
   readConversation('s3', createBudget());
   assert.equal(waitingFor(g), null, '허락한 뒤에는 실행 중');
-  assert.deepEqual(phaseOf(true, { running: true, steps: 3 }, g), { kind: 'write', text: '답변 작성 중' }, '더 뒤의 끝난 답변이 지금 하는 일');
+  assert.deepEqual(phaseOf(true, { running: true, steps: 3 }, g), { kind: 'write' }, '더 뒤의 끝난 답변이 지금 하는 일');
+  assert.equal(phaseText(phaseOf(true, { running: true, steps: 3 }, g)), '답변 작성 중');
   setStep('s3', 1, toolStep(mcp, 3));
   readConversation('s3', createBudget());
   assert.deepEqual(kinds(g), ['prompt:올려', 'reply:기다리는 중 다른 답', 'tool:mcp cms/create']);
@@ -309,11 +311,11 @@ test('진행 기록: 앞의 명령이 도는 동안 뒤 단계가 허락을 기�
   makeSteps('s5', [toolStep(['run_command', { CommandLine: 'npm run dev' }], 2, T0), reply('x', null, T0 + 1000), toolStep(mcp, 9, T0 + 2000)]);
   const g = readConversation('s5', createBudget());
   assert.equal(waitingFor(g), 'mcp s/del');
-  assert.equal(phaseOf(true, { running: true, steps: 3 }, g).text, '응답 대기 · mcp s/del');
+  assert.equal(phaseText(phaseOf(true, { running: true, steps: 3 }, g)), '응답 대기 · mcp s/del');
   setStep('s5', 2, toolStep(mcp, 2, T0 + 2000));
   readConversation('s5', createBudget());
   assert.equal(waitingFor(g), null);
-  assert.equal(phaseOf(true, { running: true, steps: 3 }, g).text, '도구 실행 · mcp s/del', '가장 뒤의 바뀌는 중인 단계');
+  assert.equal(phaseText(phaseOf(true, { running: true, steps: 3 }, g)), '도구 실행 · mcp s/del', '가장 뒤의 바뀌는 중인 단계');
 });
 
 test('진행 기록: 내용이 아직 빈 채로 바뀌는 중인 단계도 다 쓰인 뒤에 넣고, 시각 순서로 둔다', { skip: noSqlite }, () => {
@@ -372,17 +374,18 @@ test('진행 기록: 읽기 한도에 닿으면 멈췄다가 빠짐없이 이어
 
 test('실행 중 단계: 마지막 단계로 지금 할 일을 보인다', () => {
   const r = { running: true, steps: 7 };
-  const ph = (g) => phaseOf(true, r, { open: null, last: null, ...g }).text;
+  const ph = (g) => phaseText(phaseOf(true, r, { open: null, last: null, ...g }));
   assert.equal(ph({}), '작업 중 · 7단계', '단계를 읽지 못했으면 단계 수');
   assert.equal(ph({ last: { type: STEP.PROMPT } }), '생각 중');
   assert.equal(ph({ last: { type: STEP.TOOL, tool: { what: 'read_file a' } } }), '생각 중', '끝난 도구 호출 뒤에는 결과를 읽는다');
   assert.equal(ph({ last: { type: STEP.REPLY, tool: { what: '$ ls' } } }), '도구 실행 · $ ls', '답변이 낸 도구를 실행할 차례');
   assert.equal(ph({ last: { type: STEP.REPLY, tool: null } }), '답변 작성 중');
   assert.equal(ph({ open: { type: STEP.REPLY, status: 8 } }), '답변 작성 중');
-  assert.equal(phaseOf(true, r, { open: null, last: { type: STEP.PROMPT } }, 2).text, '생각 중 · 에이전트 2개 실행 중');
-  assert.deepEqual(phaseOf(true, { running: false }, { open: null, last: null }), { kind: 'idle', text: '다음 지시 대기' });
-  assert.deepEqual(phaseOf(true, r, { open: { type: STEP.TOOL, status: 9 }, wait: { what: '$ rm x' } }), { kind: 'waiting', text: '응답 대기 · $ rm x' });
-  assert.equal(phaseOf(false, r, { open: { type: STEP.TOOL, status: 9 }, wait: { what: '$ rm x' } }).text, '종료');
+  assert.equal(phaseText(phaseOf(true, r, { open: null, last: { type: STEP.PROMPT } }, 2)), '생각 중 · 에이전트 2개 실행 중');
+  assert.deepEqual(phaseOf(true, { running: false }, { open: null, last: null }), { kind: 'idle' });
+  assert.deepEqual(phaseOf(true, r, { open: { type: STEP.TOOL, status: 9 }, wait: { what: '$ rm x' } }), { kind: 'waiting', args: { what: '$ rm x' } });
+  assert.equal(phaseText(phaseOf(true, r, { open: { type: STEP.TOOL, status: 9 }, wait: { what: '$ rm x' } })), '응답 대기 · $ rm x');
+  assert.equal(phaseText(phaseOf(false, r, { open: { type: STEP.TOOL, status: 9 }, wait: { what: '$ rm x' } })), '종료');
   assert.equal(ph({ open: { type: STEP.TOOL, idx: 1, tool: { what: 'npm run dev' } }, last: { type: STEP.REPLY, idx: 2, tool: { what: '$ ls' } } }), '도구 실행 · $ ls', '더 뒤의 단계가 지금 하는 일');
 });
 
@@ -418,7 +421,7 @@ test('실행 중인 agy 를 대화와 짝지어 Gemini 세션으로 보인다', 
     assert.equal(s.name, 'agy 작업');
     assert.equal(s.cwd, '/work/demo');
     assert.equal(s.status, 'busy');
-    assert.equal(s.phase.text, '작업 중 · 12단계 · 에이전트 1개 실행 중');
+    assert.equal(phaseText(s.phase), '작업 중 · 12단계 · 에이전트 1개 실행 중');
     assert.equal(s.model, 'gemini-4-argon');
     assert.equal(s.tokens.total, 1550 + 15);
     assert.equal(s.tokens.sub, 15);
@@ -437,7 +440,7 @@ test('실행 중인 agy 를 대화와 짝지어 Gemini 세션으로 보인다', 
     const w = collectAgy({ showEnded: false, budget: createBudget() }).find((x) => x.id === 'live-1');
     assert.equal(w.status, 'waiting');
     assert.equal(w.waitingFor, 'mcp cms/create');
-    assert.equal(w.phase.text, '응답 대기 · mcp cms/create · 에이전트 1개 실행 중');
+    assert.equal(phaseText(w.phase), '응답 대기 · mcp cms/create · 에이전트 1개 실행 중');
     assert.deepEqual(kinds(w), ['prompt:글 올려 줘']);
     assert.deepEqual(w.turns.map((t) => t.text), ['글 올려 줘']);
 
@@ -484,7 +487,7 @@ test('끝난 서브에이전트는 6초 동안만 행으로 보이고, 합계에
     assert.equal(s.tokens.total, 110 + 2 + 4 + 8);
     const k = 2;
     assert.equal(Math.round(s.cost * 1e8), Math.round((100 * 2 + 10 * 10 + 7 * (2 + 10)) * k * 100), '숨긴 서브에이전트 비용도 더한다');
-    assert.equal(s.phase.text, '작업 중 · 1단계 · 에이전트 1개 실행 중');
+    assert.equal(phaseText(s.phase), '작업 중 · 1단계 · 에이전트 1개 실행 중');
   } finally {
     child.kill();
   }
