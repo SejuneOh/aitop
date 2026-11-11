@@ -64,6 +64,7 @@ aitop --debug    디버그 로그 (AITOP_DEBUG=1, 설정 파일 debug). 아래 '
 AITOP_AMBIGUOUS=wide  폭이 모호한 기호를 2칸으로 그리는 터미널용 (설정 파일 ambiguous). 아래 '폭이 모호한 기호' 참고
 aitop --print-config   설정 값마다 값과 출처(flag/env/file/default), 설정 파일 위치를 보인다. --json 과 함께 가능
 aitop --line     tmux 상태줄용 한 줄 (예: $54.13/$50 wait 2 $3.1/h). 아래 'tmux 상태줄' 참고
+aitop --report daily [--by tool|model] [--days N] [--json]  최근 N일의 날짜별 토큰·비용 표. 아래 '기간 리포트' 참고
 aitop --lang ko|en  화면·--help·--doctor·오류 문구의 언어 (AITOP_LANG, 설정 파일 lang). 아래 '언어' 참고
 ```
 
@@ -80,6 +81,31 @@ aitop --lang ko|en  화면·--help·--doctor·오류 문구의 언어 (AITOP_LAN
 ```tmux
 set -g status-right '#(aitop --line=tmux)'
 set -g status-interval 15
+```
+
+### 기간 리포트 (`--report daily`)
+
+`aitop --report daily` 는 최근 N일의 날짜별 토큰과 비용을 표로 내고 끝난다 (실시간 화면 없음).
+
+- `--by tool` (기본) 은 도구(claude · codex · agy)별 열, `--by model` 은 모델별 열이다. 열은 기간 비용이 큰 순서이고, 기간에 쓰지 않은 열은 뺀다.
+- `--days N` 은 기본·최대 30일이다. 30을 넘기면 30일로 줄이고 stderr 에 알린다.
+- 줄은 최근 날짜가 위(오늘부터 거꾸로)이고 맨 아래가 합계다. 합계는 위 날짜 줄을 더한 값이다. 비용은 헤더와 같은 API 정가 환산이다.
+- `--json` 은 같은 값을 영어 키와 숫자로만 낸다: `report`, `by`, `days`, `from`, `to`, `basis`, `partial`, `unpriced`, `columns`, `rows[]{date, tokens, cost, unpriced, items}`, `total{tokens, cost, unpriced, items}`. `items` 의 칸도 `{tokens, cost, unpriced}` 다.
+- 가격표에 없는 모델이 낀 칸은 헤더처럼 비용 뒤에 `?` 를 붙인다 (예: `$12.30?`). `--json` 은 그 칸의 `unpriced` 가 `true` 다.
+- 장부는 날짜별·모델별 합계를 30일 남긴다 (캐시 형식 14). 평소 실행(화면 · `--json` · `--line`)은 지금처럼 최근 7일 안에 바뀐 기록만 읽고, `--report` 만 30일 안에 바뀐 기록까지 읽는다. 그래서 처음 `--report` 는 30일치 기록을 읽느라 수십 초 걸릴 수 있다. stderr 가 터미널이면 진행률을 보이고, 120초(`AITOP_REPORT_MS`)를 넘으면 읽은 만큼으로 표를 내며 덜 읽었다고 알린다 (`--json` 은 `partial: true`). 읽은 만큼은 캐시에 남아 다음 실행이 이어 읽는다.
+- 프로젝트별·월별 리포트는 아직 없다 (#164).
+
+```
+$ aitop --report daily --days 3 --lang en
+Daily usage, last 3 days (2026-11-09 to 2026-11-11), by tool, API list price
+
+Date            claude          agy       Total
+----------  ----------  -----------  ----------
+2026-11-11   394M $175  21.4M $3.62   415M $179
+2026-11-10   832M $326            -   832M $326
+2026-11-09   461M $176   4.8M $0.83   466M $177
+----------  ----------  -----------  ----------
+Total       1.69B $677  26.1M $4.45  1.71B $681
 ```
 
 ### 설정 파일

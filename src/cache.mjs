@@ -8,7 +8,8 @@ import { PRICE_TAG } from './pricing.mjs';
 import { debug, debugIo } from './log.mjs';
 
 // 캐시 형식이 바뀌면 VERSION 을, 가격표가 바뀌면 PRICE_TAG 가 폴더 이름을 바꿔서 예전 캐시를 버린다.
-const VERSION = 13;
+// 14: 장부의 하루 합계에 모델별 몫(models)을 더하고, 날짜를 10일이 아니라 30일 남긴다 (#128).
+const VERSION = 14;
 const ROOT = join(process.env.XDG_CACHE_HOME ?? join(homedir(), '.cache'), 'aitop');
 const NAME = `v${VERSION}-${PRICE_TAG}`;
 const DIR = join(ROOT, NAME);

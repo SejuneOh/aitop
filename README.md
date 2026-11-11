@@ -30,6 +30,7 @@ aitop --all      include sessions that ended in the last 24 hours
 aitop --json     print a snapshot as JSON and exit
 aitop --doctor   check which tools and logs aitop can see
 aitop --line     print one short status line and exit (for tmux, e.g. $54.13/$50 wait 2 $3.1/h)
+aitop --report daily  daily cost table and exit
 aitop --help     all options
 aitop --lang ko  Korean screen, help, doctor and error messages (also AITOP_LANG=ko or "lang": "ko" in the config file)
 ```
@@ -37,6 +38,14 @@ aitop --lang ko  Korean screen, help, doctor and error messages (also AITOP_LANG
 The language is picked from `--lang`, then `AITOP_LANG`, then `lang` in the config file, then `LC_ALL`, `LC_MESSAGES` and `LANG`: Korean when the locale starts with `ko`, English otherwise (including `C.UTF-8` and unset). If you used aitop on a `C.UTF-8` or `en_US` locale before, the screen, help and doctor output are now in English; set `AITOP_LANG=ko` to keep Korean.
 
 In `--json`, `phase` stays the Korean status text in every language (as does `AITOP_WAITING_FOR` for `--on-waiting`). For scripts, use `phaseKind`, a stable state name: `think`, `write`, `tool`, `team`, `waiting`, `idle`, `done`, `ended` (or `null`). Other text fields follow their own rules: with English selected, `--doctor --json` has Korean `tools.*.hint` but English `config.problems`.
+
+### Daily report
+
+`aitop --report daily` prints tokens and cost (API list price, like the header) per day, newest first, with a total row, then exits. Columns are per tool by default or per model with `--by model`; `--days N` goes back up to 30 days, and `--json` gives the same numbers for scripts. The first run reads up to 30 days of logs, so it can take a while (progress shows on stderr); later runs use the cache.
+
+```
+aitop --report daily --by model --days 14
+```
 
 ### tmux status line
 

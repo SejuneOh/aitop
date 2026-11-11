@@ -8,12 +8,11 @@ import { JsonlTail } from '../tail.mjs';
 import { loadCache, markDirty } from '../cache.mjs';
 import { codexCost } from '../pricing.mjs';
 import { dayDirs } from './codex.mjs';
-import { dayKey, lastDays, addSlot } from './common.mjs';
+import { dayKey, lastDays, addSlot, addModel, KEEP_DAYS } from './common.mjs';
 import { debugIo } from '../log.mjs';
 
 const KIND = 'codex-ledger';
 const DAYS = 7;
-const KEEP_DAYS = 10;
 const LIST_TTL_MS = 30_000;
 const SCAN_DAYS = 30;
 
@@ -86,20 +85,21 @@ export class CodexBook {
     day.tokens += tokens;
     day.cost += cost?.total ?? 0;
     day.costNoCache += cost?.noCache ?? 0;
+    addModel(day, this.model, tokens, cost?.total ?? 0, !cost);
     if (!cost) day.unknown = true;
     addSlot(this.slots, at, cost?.total ?? 0, cost?.noCache ?? 0, !cost);
   }
 }
 
-let listed = { at: 0, files: [] };
+let listed = { at: 0, files: [], days: 0 };
 
 // 며칠 전에 시작했거나 다시 이어 쓴 세션도 시작한 날짜 폴더에 쓰므로, 30일치 폴더에서 7일 안에 바뀐 기록을 고른다.
-// 7일보다 오래된 줄은 날짜 키로 걸러진다.
-function recentFiles() {
-  if (Date.now() - listed.at < LIST_TTL_MS) return listed.files;
-  const cutoff = Date.now() - DAYS * 86400_000;
+// 7일보다 오래된 줄은 날짜 키로 걸러진다. 리포트처럼 days 를 늘리면 폴더도 그만큼 더 거슬러 본다 (30일 리포트면 53일치).
+function recentFiles(days = DAYS) {
+  if (listed.days === days && Date.now() - listed.at < LIST_TTL_MS) return listed.files;
+  const cutoff = Date.now() - days * 86400_000;
   const files = [];
-  for (const dir of dayDirs(SCAN_DAYS)) {
+  for (const dir of dayDirs(SCAN_DAYS + days - DAYS)) {
     let names = [];
     try {
       names = readdirSync(dir);
@@ -114,16 +114,17 @@ function recentFiles() {
       } catch {}
     }
   }
-  listed = { at: Date.now(), files };
+  listed = { at: Date.now(), files, days };
   return files;
 }
 
 const books = new Map();
 
 // 기록마다 날짜별 합계(days)와 5분 칸(slots), 아직 읽지 않은 크기(pending)·전체 크기(size).
-export function collectCodexLedger({ budget } = {}) {
+// days: 최근 며칠 안에 바뀐 기록을 볼지 (평소 7일, 리포트는 더 길게).
+export function collectCodexLedger({ budget, days = DAYS } = {}) {
   const out = { days: [], slots: [], pending: 0, size: 0 };
-  const files = recentFiles();
+  const files = recentFiles(days);
   const keep = new Set(files);
   for (const p of books.keys()) if (!keep.has(p)) books.delete(p);
   for (const p of files) {
@@ -138,4 +139,4 @@ export function collectCodexLedger({ budget } = {}) {
   return out;
 }
 
-export const _test = { reset: () => ((listed = { at: 0, files: [] }), books.clear()) };
+export const _test = { reset: () => ((listed = { at: 0, files: [], days: 0 }), books.clear()) };

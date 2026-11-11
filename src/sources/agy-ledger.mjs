@@ -7,16 +7,16 @@ import { join } from 'node:path';
 import { AGY_ROOT, readCalls, sigOf, maxIdx } from './antigravity.mjs';
 import { openReadOnly, loadSqlite } from '../sqlite.mjs';
 import { loadCache, markDirty } from '../cache.mjs';
-import { dayKey, lastDays, addSlot } from './common.mjs';
+import { dayKey, lastDays, addSlot, addModel, KEEP_DAYS } from './common.mjs';
 import { debugIo } from '../log.mjs';
 
 const KIND = 'agy-ledger';
 const DAYS = 7;
-const KEEP_DAYS = 10;
 const LIST_TTL_MS = 30_000;
 
 const outOf = (budget) => budget.left <= 0 || (budget.read > 0 && Date.now() >= (budget.deadline ?? Infinity));
-const copyDays = (days) => Object.fromEntries(Object.entries(days).map(([k, v]) => [k, { ...v }]));
+// 하루 합계 안의 모델별 몫도 따로 복사해, 읽다가 버릴 때 원래 장부가 바뀌지 않게 한다.
+const copyDays = (days) => Object.fromEntries(Object.entries(days).map(([k, v]) => [k, v.models ? { ...v, models: Object.fromEntries(Object.entries(v.models).map(([m, x]) => [m, { ...x }])) } : { ...v }]));
 
 export class AgyBook {
   constructor(path) {
@@ -67,12 +67,13 @@ export class AgyBook {
       // 마지막 줄 번호가 줄었으면 기록이 새로 쓰인 것이니 처음부터 다시 센다.
       if (last < n.idx) n = { idx: -1, model: null, days: {}, slots: {} };
       result = has
-        ? readCalls(db, n, last, budget, mtime, ({ usage: u, cost, at }) => {
+        ? readCalls(db, n, last, budget, mtime, ({ model, usage: u, cost, at }) => {
             const day = (n.days[dayKey(at)] ??= { tokens: 0, cost: 0, costNoCache: 0, unknown: false });
             const tokens = u.input + u.output + u.cacheRead + u.cacheWrite;
             day.tokens += tokens;
             day.cost += cost?.total ?? 0;
             day.costNoCache += cost?.noCache ?? 0;
+            addModel(day, model, tokens, cost?.total ?? 0, !cost && tokens > 0);
             if (!cost && tokens > 0) day.unknown = true;
             addSlot(n.slots, at, cost?.total ?? 0, cost?.noCache ?? 0, !cost && tokens > 0);
           })
@@ -103,12 +104,13 @@ export class AgyBook {
   }
 }
 
-let listed = { at: 0, files: [] };
+let listed = { at: 0, files: [], days: 0 };
 
-function recentFiles() {
-  if (Date.now() - listed.at < LIST_TTL_MS) return listed.files;
+// 최근 days 일(평소 7일, 리포트는 더 길게) 안에 바뀐 대화 기록.
+function recentFiles(days = DAYS) {
+  if (listed.days === days && Date.now() - listed.at < LIST_TTL_MS) return listed.files;
   const dir = join(AGY_ROOT, 'conversations');
-  const cutoff = Date.now() - DAYS * 86400_000;
+  const cutoff = Date.now() - days * 86400_000;
   const files = [];
   let names = [];
   try {
@@ -123,7 +125,7 @@ function recentFiles() {
       if (statSync(p).mtimeMs >= cutoff) files.push(p);
     } catch {}
   }
-  listed = { at: Date.now(), files };
+  listed = { at: Date.now(), files, days };
   return files;
 }
 
@@ -131,10 +133,10 @@ const books = new Map();
 
 // 대화마다 날짜별 합계(days)와 5분 칸(slots), 처음 읽기가 덜 끝난 기록의 크기(pending)·전체 크기(size).
 // node:sqlite 를 못 쓰는 Node 에서는 비어 있다 (agy 는 프로세스만 보인다).
-export function collectAgyLedger({ budget } = {}) {
+export function collectAgyLedger({ budget, days = DAYS } = {}) {
   const out = { days: [], slots: [], pending: 0, size: 0 };
   if (!loadSqlite() || !existsSync(join(AGY_ROOT, 'conversations'))) return out;
-  const files = recentFiles();
+  const files = recentFiles(days);
   const keep = new Set(files);
   for (const p of books.keys()) if (!keep.has(p)) books.delete(p);
   for (const p of files) {
@@ -150,4 +152,4 @@ export function collectAgyLedger({ budget } = {}) {
   return out;
 }
 
-export const _test = { reset: () => ((listed = { at: 0, files: [] }), books.clear()) };
+export const _test = { reset: () => ((listed = { at: 0, files: [], days: 0 }), books.clear()) };
