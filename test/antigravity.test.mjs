@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, statSync, symlinkSync, realpathSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, statSync, symlinkSync, realpathSync, rmSync, utimesSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { tmpdir } from 'node:os';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -110,6 +110,11 @@ function makeSummaries(rows) {
 }
 
 const ts = (ms) => new Date(ms).toISOString().replace('T', ' ').replace('Z', '+00:00');
+
+// 단계가 없는 대화는 기록 파일의 수정 시각 가격으로 센다. 실행 날짜와 상관없게 그 시각을 고정한다.
+function pinTime(id, ms) {
+  utimesSync(join(root, 'conversations', `${id}.db`), ms / 1000, ms / 1000);
+}
 
 test('protobuf 맨 위 필드를 번호와 값으로 나눈다', () => {
   const f = pbFields(Buffer.concat([num(1, 300), bytes(2, 'hi'), Buffer.from([0x1d, 1, 2, 3, 4]), num(4, 7)]));
@@ -387,6 +392,9 @@ test('실행 중인 agy 를 대화와 짝지어 Gemini 세션으로 보인다', 
   makeConversation('kid-1', [{ input: 10, output: 5 }]);
   makeConversation('old-1', [{ input: 1, output: 1 }]);
   makeSteps('old-1', [prompt('지난 지시'), reply('지난 답')]);
+  // 11월 가격(2026-12-01 전)으로 고정한다.
+  pinTime('live-1', T0);
+  pinTime('kid-1', T0);
   makeSummaries([
     { id: 'live-1', title: 'agy 작업', steps: 12, modified: ts(now - 1000), ws: ['file:///work/demo'], status: 'CASCADE_RUN_STATUS_RUNNING' },
     { id: 'kid-1', title: '하위 작업', modified: ts(now - 500), ws: ['file:///work/demo'], agent: 'article_writer', parent: 'live-1', status: 'CASCADE_RUN_STATUS_RUNNING' },
@@ -414,8 +422,8 @@ test('실행 중인 agy 를 대화와 짝지어 Gemini 세션으로 보인다', 
     assert.equal(s.model, 'gemini-4-argon');
     assert.equal(s.tokens.total, 1550 + 15);
     assert.equal(s.tokens.sub, 15);
-    // 단계가 없어 기록 파일의 수정 시각(지금) 가격으로 센다. gemini-4-argon 은 2026-12-01 부터 두 배다.
-    const k = Date.now() >= Date.parse('2026-12-01') ? 2 : 1;
+    // 단계가 없어 기록 파일의 수정 시각(T0, 11월) 가격으로 센다. gemini-4-argon 은 2026-12-01 부터 두 배다.
+    const k = 1;
     assert.equal(Math.round(s.cost * 1e8), Math.round((500 * 2 + 50 * 10 + 1000 * 0.1 + 10 * 2 + 5 * 10) * k * 100), '메인 + 서브에이전트');
     assert.equal(Math.round(s.costNoCache * 1e8), Math.round((500 * 2 + 50 * 10 + 10 * 2 + 5 * 10) * k * 100));
     assert.equal(s.costUnknown, false);
@@ -451,6 +459,8 @@ test('끝난 서브에이전트는 6초 동안만 행으로 보이고, 합계에
   makeConversation('fade-run', [{ input: 1, output: 1 }]);
   makeConversation('fade-new', [{ input: 2, output: 2 }]);
   makeConversation('fade-old', [{ input: 4, output: 4 }]);
+  // 12월 가격(2026-12-01 부터 두 배)으로 고정한다.
+  for (const id of ['fade-1', 'fade-run', 'fade-new', 'fade-old']) pinTime(id, Date.UTC(2026, 11, 2));
   makeSummaries([
     { id: 'fade-1', title: '부모', modified: ts(now - 2000), ws: ['file:///work/fade'], status: 'CASCADE_RUN_STATUS_RUNNING' },
     { id: 'fade-run', title: '실행 중', modified: ts(now - 90_000), agent: 'writer', parent: 'fade-1', status: 'CASCADE_RUN_STATUS_RUNNING' },
@@ -472,7 +482,7 @@ test('끝난 서브에이전트는 6초 동안만 행으로 보이고, 합계에
     assert.equal(s.tokens.subCount, 3);
     assert.equal(s.tokens.sub, 2 + 4 + 8);
     assert.equal(s.tokens.total, 110 + 2 + 4 + 8);
-    const k = Date.now() >= Date.parse('2026-12-01') ? 2 : 1;
+    const k = 2;
     assert.equal(Math.round(s.cost * 1e8), Math.round((100 * 2 + 10 * 10 + 7 * (2 + 10)) * k * 100), '숨긴 서브에이전트 비용도 더한다');
     assert.equal(s.phase.text, '작업 중 · 1단계 · 에이전트 1개 실행 중');
   } finally {
@@ -539,4 +549,22 @@ test('날짜별 사용량 장부에 agy 호출을 호출 날짜로 더한다 (Cl
   // 다시 시작해도 5분 칸이 캐시에서 돌아와, 새 호출(입력 1M, $0.30)만 더해진다.
   const costs = again.slots.map((s) => Math.round(lastHourOf([s], now).cost * 1e4) / 1e4);
   assert.ok(costs.includes(2.8), `대화별 최근 1시간 ${costs}`);
+});
+
+test('장부: 2026-12-01 UTC 0시 양쪽의 agy 호출은 각자 그 시각의 가격으로 더한다', { skip: noSqlite }, () => {
+  const now = Date.UTC(2026, 11, 1, 12);
+  const edge = Date.UTC(2026, 11, 1);
+  agyLedger.reset();
+  const base = collectLedger({ budget: createBudget(), now });
+  makeSteps('edge-1', [prompt('a', edge - 1000), reply('b', null, edge + 1000)]);
+  makeConversation('edge-1', [
+    { model: 'gemini-4-argon', input: 1_000_000, cacheRead: 1_000_000, step: 0 },
+    { model: 'gemini-4-argon', input: 1_000_000, cacheRead: 1_000_000, step: 1 },
+  ]);
+  agyLedger.reset();
+  const r = collectLedger({ budget: createBudget(), now });
+  // 11월 단가(입력 2, 캐시 0.1) + 12월 단가(입력 4, 캐시 0.2).
+  assert.equal(Math.round((r.week.cost - base.week.cost) * 1e4) / 1e4, 6.3);
+  assert.equal(Math.round((r.week.costNoCache - base.week.costNoCache) * 1e4) / 1e4, 2 + 4);
+  assert.equal(r.week.tokens - base.week.tokens, 4_000_000);
 });

@@ -7,7 +7,7 @@ const { collectClaude } = await import('../src/sources/claude.mjs');
 const { createBudget } = await import('../src/tail.mjs');
 const { money } = await import('../src/ui.mjs');
 const { CACHE_DIR } = await import('../src/cache.mjs');
-const { PRICE_TAG } = await import('../src/pricing.mjs');
+const { PRICE_TAG, PRICE_TABLES, priceTag } = await import('../src/pricing.mjs');
 
 const run = () => collectClaude({ showEnded: false, budget: createBudget() });
 
@@ -49,4 +49,24 @@ test('토큰 사용이 없는 합성 메시지는 모르는 모델로 치지 않
 test('캐시 폴더 이름에 가격표 지문이 들어가서, 가격표가 바뀌면 새로 계산된다', () => {
   assert.match(PRICE_TAG, /^[0-9a-f]{8}$/);
   assert.ok(CACHE_DIR.endsWith(PRICE_TAG));
+});
+
+test('가격표의 값이 하나라도 바뀌면 지문(PRICE_TAG)이 바뀐다', () => {
+  const table = { 'gemini-4-argon': [{ input: 2, output: 10, cacheRead: 0.1 }, { from: '2026-12-01', input: 4, output: 20, cacheRead: 0.2 }] };
+  const same = structuredClone(table);
+  assert.equal(priceTag([table]), priceTag([same]), '같은 표는 같은 지문');
+  same['gemini-4-argon'][1].from = '2027-01-01';
+  assert.notEqual(priceTag([table]), priceTag([same]), '가격이 바뀌는 날짜');
+  const cheaper = structuredClone(table);
+  cheaper['gemini-4-argon'][0].input = 1.5;
+  assert.notEqual(priceTag([table]), priceTag([cheaper]), '단가');
+  assert.notEqual(priceTag([table]), priceTag([{ ...table, 'gemini-9': [{ input: 1, output: 1 }] }]), '모델 추가');
+  // 실제 지문은 Claude, Gemini, Codex 세 표로 만든다. Codex 단가만 바꿔도 지문이 바뀐다.
+  assert.equal(PRICE_TAG, priceTag(PRICE_TABLES));
+  const tables = structuredClone(PRICE_TABLES);
+  const codex = tables.find((t) => t['gpt-5.3-codex']);
+  assert.ok(codex, 'Codex 표가 지문에 들어 있다');
+  codex['gpt-5.3-codex'].output += 1;
+  assert.notEqual(priceTag(tables), PRICE_TAG, 'Codex 단가');
+  assert.match(PRICE_TAG, /^[0-9a-f]{8}$/);
 });

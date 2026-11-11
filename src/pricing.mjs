@@ -39,8 +39,8 @@ const GEMINI_PRICES = {
   'gemini-3.1-flash-lite': [{ input: 0.25, output: 1.5, cacheRead: 0.025 }],
 };
 
-// 가격표가 바뀌면 이 값이 바뀌고, 캐시 폴더도 바뀌어 예전 비용이 다시 계산된다.
-export const PRICE_TAG = createHash('sha1').update(JSON.stringify([PRICES, GEMINI_PRICES])).digest('hex').slice(0, 8);
+// 가격표의 지문(8자리). 표의 값이 하나라도 바뀌면 지문도 바뀐다.
+export const priceTag = (tables) => createHash('sha1').update(JSON.stringify(tables)).digest('hex').slice(0, 8);
 
 // 모델별 컨텍스트 창 크기(토큰). 출처: Anthropic 모델 표(2026-10). 표에 없는 모델은 contextWindow 가 추측한다.
 const WINDOWS = {
@@ -93,7 +93,9 @@ export function claudeCost(model, u) {
 }
 
 // Codex(OpenAI) API 정가 기준 환산 비용 (USD / 100만 토큰). Claude 와 같이 "API 로 썼다면" 기준이다.
-// 출처: 2026-11 가격 비교 사이트(pricepertoken.com, computeprices.com)의 OpenAI 정가. 추정값이라 README 에 적어 둔다.
+// 출처: OpenAI 공식 가격표 https://developers.openai.com/api/docs/pricing 와 모델별 문서
+// (https://developers.openai.com/api/docs/models/gpt-5.3-codex, gpt-5.1-codex, gpt-5.1-codex-mini, codex-mini-latest, gpt-4o-mini).
+// 2026-11-11 확인, 다섯 모델 모두 공식 값과 같다. cacheRead 는 cached input 가격이다.
 const OPENAI_PRICES = {
   'gpt-5.3-codex': { input: 1.75, cacheRead: 0.175, output: 14 },
   'gpt-5.1-codex-mini': { input: 0.25, cacheRead: 0.025, output: 2 },
@@ -101,6 +103,10 @@ const OPENAI_PRICES = {
   'codex-mini': { input: 1.5, cacheRead: 0.375, output: 6 },
   'gpt-4o-mini': { input: 0.15, cacheRead: 0.075, output: 0.6 },
 };
+
+// 가격표가 바뀌면 이 값이 바뀌고, 캐시 폴더도 바뀌어 예전 비용이 다시 계산된다. 세 표(Claude, Gemini, Codex)를 모두 넣는다.
+export const PRICE_TABLES = [PRICES, GEMINI_PRICES, OPENAI_PRICES];
+export const PRICE_TAG = priceTag(PRICE_TABLES);
 
 // Codex 세션 누적 토큰(tokens: input 은 캐시 제외, cacheRead, output)의 환산 비용. 가격표에 없는 모델이면 null.
 export function codexCost(model, t) {
