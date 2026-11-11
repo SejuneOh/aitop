@@ -1,4 +1,5 @@
-// 날짜별 사용량 장부: 최근 7일 안에 바뀐 Claude 기록(서브에이전트 포함)에서 사용량만 날짜별로 모은다.
+// 날짜별 사용량 장부: 최근 7일 안에 바뀐 Claude 기록(서브에이전트 포함)에서 사용량만 날짜별·모델별로 모은다.
+// 기간 리포트(--report)는 같은 장부를 최근 N일(최대 30일) 안에 바뀐 기록까지 넓혀 읽는다 (collectDaily).
 // Antigravity CLI(agy)·Codex CLI 사용량은 agy-ledger.mjs·codex-ledger.mjs 가 같은 모양으로 모으고, 여기서 함께 더한다.
 // 세션 화면과 상관없이 끝난 세션까지 세야 해서, 세션 tracker 와 따로 가볍게 읽고 캐시도 따로 둔다.
 import { readdirSync, statSync, existsSync } from 'node:fs';
@@ -7,7 +8,7 @@ import { homedir } from 'node:os';
 import { JsonlTail } from '../tail.mjs';
 import { loadCache, markDirty } from '../cache.mjs';
 import { claudeCost } from '../pricing.mjs';
-import { dayKey, lastDays, addSlot, lastHourOf, recentTodayOf } from './common.mjs';
+import { dayKey, lastDays, addSlot, addModel, lastHourOf, recentTodayOf, KEEP_DAYS } from './common.mjs';
 import { collectAgyLedger } from './agy-ledger.mjs';
 import { collectCodexLedger } from './codex-ledger.mjs';
 import { debugIo } from '../log.mjs';
@@ -18,7 +19,6 @@ const HOME = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude');
 const PROJECTS = join(HOME, 'projects');
 const KIND = 'ledger';
 const DAYS = 7;
-const KEEP_DAYS = 10;
 const LIST_TTL_MS = 30_000;
 const RECENT_IDS = 64;
 const LOADING_MIN_BYTES = 4 * 1024 * 1024;
@@ -74,8 +74,10 @@ export class UsageTracker {
     const dCost = (cost?.total ?? 0) - (prev?.cost ?? 0);
     const dNoCache = (cost?.noCache ?? 0) - (prev?.costNoCache ?? 0);
     const unknown = !cost && tokensOf(u) > 0;
-    day.tokens += tokensOf(u) - tokensOf(prev?.u);
+    const dTokens = tokensOf(u) - tokensOf(prev?.u);
+    day.tokens += dTokens;
     day.cost += dCost;
+    addModel(day, m.model, dTokens, dCost, !cost && tokensOf(u) > 0);
     day.costNoCache = (day.costNoCache ?? 0) + (cost?.noCache ?? 0) - (prev?.costNoCache ?? 0);
     if (unknown) day.unknown = true;
     addSlot(this.slots, at, dCost, dNoCache, unknown);
@@ -85,12 +87,12 @@ export class UsageTracker {
   }
 }
 
-let listed = { at: 0, files: [] };
+let listed = { at: 0, files: [], days: 0 };
 
-// 최근 7일 안에 바뀐 메인 기록과 서브에이전트 기록.
-function recentFiles() {
-  if (Date.now() - listed.at < LIST_TTL_MS) return listed.files;
-  const cutoff = Date.now() - DAYS * 86400_000;
+// 최근 days 일(평소 7일) 안에 바뀐 메인 기록과 서브에이전트 기록.
+function recentFiles(days = DAYS) {
+  if (listed.days === days && Date.now() - listed.at < LIST_TTL_MS) return listed.files;
+  const cutoff = Date.now() - days * 86400_000;
   const files = [];
   const add = (p) => {
     try {
@@ -121,15 +123,15 @@ function recentFiles() {
       }
     }
   }
-  listed = { at: Date.now(), files };
+  listed = { at: Date.now(), files, days };
   return files;
 }
 
 const trackers = new Map();
 
-// 오늘·최근 7일·최근 1시간 합계 (Claude + agy + Codex). 아직 다 읽지 못했으면 loading 에 진행률(0~1).
-export function collectLedger({ budget, now = Date.now() } = {}) {
-  const files = recentFiles();
+// 최근 days 일 안에 바뀐 기록(Claude + agy + Codex)을 읽는다. books 는 기록마다 { tool, days }.
+function gather({ budget, now, days = DAYS }) {
+  const files = recentFiles(days);
   const keep = new Set(files);
   for (const p of trackers.keys()) if (!keep.has(p)) trackers.delete(p);
   let pending = 0;
@@ -141,15 +143,34 @@ export function collectLedger({ budget, now = Date.now() } = {}) {
     pending += t.pending;
     size += t.tail.size;
   }
-  const others = [collectAgyLedger({ budget, now }), collectCodexLedger({ budget })];
-  const books = [...trackers.values()].map((t) => t.days);
+  const others = [
+    ['agy', collectAgyLedger({ budget, now, days })],
+    ['codex', collectCodexLedger({ budget, days })],
+  ];
+  const books = [...trackers.values()].map((t) => ({ tool: 'claude', days: t.days }));
   const slots = [...trackers.values()].map((t) => t.slots);
-  for (const o of others) {
+  for (const [tool, o] of others) {
     pending += o.pending;
     size += o.size;
-    books.push(...o.days);
+    books.push(...o.days.map((d) => ({ tool, days: d })));
     slots.push(...o.slots);
   }
+  return { books, slots, pending, size };
+}
+
+// 기간 리포트용: 최근 days 일(최대 KEEP_DAYS) 안에 바뀐 기록의 날짜별·모델별 장부.
+// 평소 화면(collectLedger)은 7일 안에 바뀐 기록만 보므로, 이 함수를 부를 때만 더 오래된 기록을 읽는다.
+export function collectDaily({ budget, now = Date.now(), days = KEEP_DAYS } = {}) {
+  const { books, pending, size } = gather({ budget, now, days: Math.max(DAYS, Math.min(KEEP_DAYS, days)) });
+  return { books, pending, size };
+}
+
+// 오늘·최근 7일·최근 1시간 합계 (Claude + agy + Codex). 아직 다 읽지 못했으면 loading 에 진행률(0~1).
+export function collectLedger({ budget, now = Date.now() } = {}) {
+  const g = gather({ budget, now });
+  const { pending, size } = g;
+  const books = g.books.map((b) => b.days);
+  const slots = g.slots;
   const sum = (keys) => {
     const out = { tokens: 0, cost: 0, costNoCache: 0, unknown: false };
     for (const days of books)

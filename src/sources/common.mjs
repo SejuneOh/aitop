@@ -27,6 +27,19 @@ export function lastDays(n, now = Date.now()) {
   return keys;
 }
 
+// 장부가 날짜별로 남기는 일수. 기간 리포트(--report)가 볼 수 있는 가장 긴 기간이기도 하다.
+// 평소 실행은 최근 7일 안에 바뀐 기록만 읽지만, 그 기록 안의 30일치 날짜 합계는 캐시에 남겨 리포트가 다시 읽지 않게 한다.
+export const KEEP_DAYS = 30;
+
+// 하루 합계(day)에 모델별 몫 { tokens, cost } 를 더한다. 모델 이름을 모르면 'unknown' 으로 센다.
+// unknown: 가격표에 없는 모델이라 비용을 0 으로 셌을 때. 그 모델 몫에 unknown 을 남겨 리포트가 ? 를 붙인다.
+export function addModel(day, model, tokens, cost, unknown = false) {
+  const m = ((day.models ??= {})[String(model || 'unknown')] ??= { tokens: 0, cost: 0 });
+  m.tokens += tokens;
+  m.cost += cost;
+  if (unknown) m.unknown = true;
+}
+
 // 지출 속도용 짧은 구간 장부. 비용을 5분 칸(키 = 칸 시작 시각 ms)에 모으고, 그 장부에서 가장 새 칸부터
 // 2시간 안의 칸만 남긴다. 기준이 시계가 아니라 기록 안의 시각이라 처음 읽기 중에도 칸 수가 일정하다.
 export const SLOT_MS = 5 * 60_000;

@@ -65,6 +65,8 @@ const HELP_KO = `{logo} aitop - 터미널에서 Claude Code · Codex · Antigrav
                    --line=tmux 는 tmux 색 서식(#[fg=...])을 넣는다. --line-width <N> 폭 상한(기본 40, 넘으면 뒤 항목부터 뺀다)
                    장부 캐시만 읽는다. 캐시가 없어 1.5초 안에 못 읽으면 ... 을 낸다. 응답 대기 수는 Claude Code 세션만 센다
   aitop --json     세션 목록과 사용량 합계를 JSON 으로 한 번 출력한다 (--all 과 함께 쓸 수 있다)
+  aitop --report daily [--by tool|model] [--days N] [--json]  최근 N일(기본·최대 30)의 날짜별 토큰·비용(API 정가 환산)을
+                   도구별 또는 모델별 표로 내고 끝낸다. 최근 날짜가 위, 맨 아래는 합계. 처음 실행은 30일치 기록을 읽느라 오래 걸릴 수 있다
   aitop --doctor   Claude · Codex · Antigravity · Gemini 기록과 실행 중인 프로세스, 설정 파일을 점검한다 (--json 과 함께 쓸 수 있다)
   aitop --bell     응답 대기 세션이 새로 생기면 터미널 벨을 울린다
   aitop --notify   응답 대기 세션이 새로 생기면 데스크톱 알림을 띄운다 (notify-send · osascript, 없으면 건너뜀)
@@ -103,6 +105,8 @@ const HELP_EN = `{logo} aitop - watch Claude Code, Codex, Antigravity and Gemini
                    --line=tmux adds tmux colors (#[fg=...]). --line-width <N> sets the max width (default 40, drops items from the end)
                    Reads only the cache. With no cache it prints ... after 1.5 seconds. The waiting count covers Claude Code sessions only
   aitop --json     print the session list and usage totals as JSON once (works with --all)
+  aitop --report daily [--by tool|model] [--days N] [--json]  print daily tokens and cost (API list price) for the last N days
+                   (default and max 30) by tool or by model, then exit. Newest day first, total at the bottom. The first run reads 30 days of logs and may take a while
   aitop --doctor   check Claude, Codex, Antigravity and Gemini logs, running processes and the config file (works with --json)
   aitop --bell     ring the terminal bell when a session starts waiting for you
   aitop --notify   show a desktop notification when a session starts waiting (notify-send or osascript, skipped if missing)
@@ -187,6 +191,25 @@ export const STRINGS = {
     'opt.lineBad': '--line 값 {value} 이 잘못되었습니다 (plain 또는 tmux)',
     'opt.lineWidthMissing': '--line-width 값이 없습니다 (글자 수)',
     'opt.lineWidthBad': '--line-width 값 {value} 이 잘못되었습니다 (0 보다 큰 정수)',
+    'opt.reportMissing': '--report 값이 없습니다 (daily)',
+    'opt.reportBad': '--report 값 {value} 이 잘못되었습니다 (daily)',
+    'opt.byMissing': '--by 값이 없습니다 (tool 또는 model)',
+    'opt.byBad': '--by 값 {value} 이 잘못되었습니다 (tool 또는 model)',
+    'opt.daysMissing': '--days 값이 없습니다 (일 수)',
+    'opt.daysBad': '--days 값 {value} 이 잘못되었습니다 (0 보다 큰 정수)',
+    'opt.reportOnly': '--by, --days 는 --report 와 함께 쓴다',
+
+    // 기간 리포트 (--report daily). 도구·모델 이름은 번역하지 않는다.
+    'report.title': '날짜별 사용량 · 최근 {n}일 ({from} ~ {to}) · {by} · API 정가 환산',
+    'report.by.tool': '도구별',
+    'report.by.model': '모델별',
+    'report.date': '날짜',
+    'report.total': '합계',
+    'report.empty': '이 기간에 기록된 사용량이 없습니다',
+    'report.unpriced': '? 가격표에 없는 모델이 있어 비용이 실제보다 적게 잡혔을 수 있습니다',
+    'report.partial': '시간 상한 안에 기록을 다 읽지 못해 일부만 셌습니다. 다시 실행하면 이어 읽습니다',
+    'report.progress': '사용량 장부 읽는 중 {pct}% ({s}초)',
+    'report.capped': '--days 는 장부가 남기는 {n}일까지만 볼 수 있어 {n}일로 줄입니다',
 
     'cfg.notFile': '설정 파일이 일반 파일이 아니라 읽지 않습니다',
     'cfg.tooBig': '설정 파일이 {kb}KB 를 넘어 읽지 않습니다',
@@ -511,6 +534,24 @@ export const STRINGS = {
     'opt.lineBad': 'bad --line value {value} (plain or tmux)',
     'opt.lineWidthMissing': '--line-width needs a value (characters)',
     'opt.lineWidthBad': 'bad --line-width value {value} (a whole number above 0)',
+    'opt.reportMissing': '--report needs a value (daily)',
+    'opt.reportBad': 'bad --report value {value} (daily)',
+    'opt.byMissing': '--by needs a value (tool or model)',
+    'opt.byBad': 'bad --by value {value} (tool or model)',
+    'opt.daysMissing': '--days needs a value (number of days)',
+    'opt.daysBad': 'bad --days value {value} (a whole number above 0)',
+    'opt.reportOnly': '--by and --days only work with --report',
+
+    'report.title': 'Daily usage, last {n} days ({from} to {to}), {by}, API list price',
+    'report.by.tool': 'by tool',
+    'report.by.model': 'by model',
+    'report.date': 'Date',
+    'report.total': 'Total',
+    'report.empty': 'No usage recorded in this period',
+    'report.unpriced': '? includes unpriced models, so the cost may be lower than actual',
+    'report.partial': 'Could not read all logs within the time limit, so this is partial. Run again to continue',
+    'report.progress': 'Reading usage logs {pct}% ({s}s)',
+    'report.capped': '--days is limited to the {n} days the ledger keeps, using {n}',
 
     'cfg.notFile': 'config file is not a regular file, not reading it',
     'cfg.tooBig': 'config file is over {kb}KB, not reading it',

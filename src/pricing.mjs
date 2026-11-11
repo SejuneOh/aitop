@@ -94,15 +94,37 @@ export function claudeCost(model, u) {
 
 // Codex(OpenAI) API 정가 기준 환산 비용 (USD / 100만 토큰). Claude 와 같이 "API 로 썼다면" 기준이다.
 // 출처: OpenAI 공식 가격표 https://developers.openai.com/api/docs/pricing 와 모델별 문서
-// (https://developers.openai.com/api/docs/models/gpt-5.3-codex, gpt-5.1-codex, gpt-5.1-codex-mini, codex-mini-latest, gpt-4o-mini).
-// 2026-11-11 확인, 다섯 모델 모두 공식 값과 같다. cacheRead 는 cached input 가격이다.
+// https://developers.openai.com/api/docs/models/<모델 이름> (2026-11-11 확인, 표의 모든 모델이 공식 값과 같다).
+// cacheRead 는 cached input 가격이다. gpt-5.1-codex, gpt-5.1-codex-max, gpt-5-codex 는 가격표에는 없고 모델별 문서에만 있다
+// (세 모델 모두 지원 종료). gpt-5.6-sol 값은 2026-11-30 까지의 프로모션 가격이며, 그 뒤 가격은 아직 공개되지 않았다.
+// 긴 컨텍스트 단가(입력 272K 초과 요청은 입력 2배·출력 1.5배, gpt-5.6-*, gpt-5.5, gpt-5.4)는 반영하지 않는다:
+// 세션 누적 토큰만으로는 요청마다 272K 를 넘었는지 알 수 없어서, 모두 기본 단가로 계산한다.
+// 컨텍스트 창은 Codex 기록의 model_context_window 를 그대로 쓰므로 WINDOWS 표에 넣지 않는다.
 const OPENAI_PRICES = {
+  'gpt-5.6-sol': { input: 4, cacheRead: 0.4, output: 20 },
+  'gpt-5.6-terra': { input: 2, cacheRead: 0.2, output: 12 },
+  'gpt-5.6-luna': { input: 0.2, cacheRead: 0.02, output: 1.2 },
+  'gpt-5.5': { input: 5, cacheRead: 0.5, output: 30 },
+  'gpt-5.4': { input: 2.5, cacheRead: 0.25, output: 15 },
+  'gpt-5.4-mini': { input: 0.75, cacheRead: 0.075, output: 4.5 },
   'gpt-5.3-codex': { input: 1.75, cacheRead: 0.175, output: 14 },
+  'gpt-5.2': { input: 1.75, cacheRead: 0.175, output: 14 },
+  'gpt-5.1-codex-max': { input: 1.25, cacheRead: 0.125, output: 10 },
   'gpt-5.1-codex-mini': { input: 0.25, cacheRead: 0.025, output: 2 },
   'gpt-5.1-codex': { input: 1.25, cacheRead: 0.125, output: 10 },
+  'gpt-5-codex': { input: 1.25, cacheRead: 0.125, output: 10 },
+  'gpt-5-mini': { input: 0.25, cacheRead: 0.025, output: 2 },
+  'gpt-5': { input: 1.25, cacheRead: 0.125, output: 10 },
   'codex-mini': { input: 1.5, cacheRead: 0.375, output: 6 },
   'gpt-4o-mini': { input: 0.15, cacheRead: 0.075, output: 0.6 },
 };
+
+// Codex 모델 가격. 이름이 표와 똑같을 때, 또는 끝의 -latest 나 날짜(-2025-08-07)만 뗐을 때 표와 똑같을 때만 찾는다.
+// 앞부분만 같은 다른 모델(gpt-5.5-pro 와 gpt-5.5, gpt-5.4-nano 와 gpt-5.4 등)에 엉뚱한 가격을 매기지 않기 위해서다.
+export function openaiPrice(model) {
+  if (!model) return null;
+  return OPENAI_PRICES[model] ?? OPENAI_PRICES[model.replace(/-(latest|\d{4}-\d{2}-\d{2})$/, '')] ?? null;
+}
 
 // 가격표가 바뀌면 이 값이 바뀌고, 캐시 폴더도 바뀌어 예전 비용이 다시 계산된다. 세 표(Claude, Gemini, Codex)를 모두 넣는다.
 export const PRICE_TABLES = [PRICES, GEMINI_PRICES, OPENAI_PRICES];
@@ -110,7 +132,7 @@ export const PRICE_TAG = priceTag(PRICE_TABLES);
 
 // Codex 세션 누적 토큰(tokens: input 은 캐시 제외, cacheRead, output)의 환산 비용. 가격표에 없는 모델이면 null.
 export function codexCost(model, t) {
-  const p = lookup(OPENAI_PRICES, model);
+  const p = openaiPrice(model);
   if (!p || !t) return null;
   const base = (t.input ?? 0) * p.input + (t.output ?? 0) * p.output;
   return { total: (base + (t.cacheRead ?? 0) * p.cacheRead) / 1e6, noCache: base / 1e6 };
