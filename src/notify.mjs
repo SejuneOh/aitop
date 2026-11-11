@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { accessSync, constants, readFileSync } from 'node:fs';
 import { join, delimiter } from 'node:path';
 import { mask, stripControl } from './text.mjs';
-import { t } from './i18n.mjs';
+import { phaseText, t } from './i18n.mjs';
 
 export const HOOK_TIMEOUT_MS = 10_000;
 const LABEL_MAX = 120;
@@ -104,8 +104,10 @@ export function notifierCommand(notifier, title, body) {
 const escapeMarkup = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 // 세션에서 짧은 대기 사유. "응답 대기 · Bash" → "Bash". 비밀값처럼 보이는 것은 가린다.
+// AITOP_WAITING_FOR 로도 넘기는 값이라 화면 언어와 상관없이 예전과 같은 한국어 문구로 만든다. 요청도 에이전트도 없으면 빈 글.
 export function waitingLabel(s) {
-  const text = String(s.phase?.kind === 'waiting' ? (s.phase.text ?? '') : '').replace(/^응답 대기(?: · )?/, '');
+  const a = s.phase?.args ?? {};
+  const text = s.phase?.kind === 'waiting' && (a.what || a.agents) ? phaseText(s.phase, { lang: 'ko', short: true }) : '';
   const one = stripControl(text).replace(/\s+/g, ' ').trim();
   return mask(one.length > LABEL_MAX ? one.slice(0, LABEL_MAX - 1) + '…' : one);
 }

@@ -49,7 +49,7 @@ test('상세 패널 컨텍스트 줄은 왼쪽 칸 폭 안에 % 까지 들어간
   const { render } = await import('../src/ui.mjs');
   const strip = (x) => x.replace(/\x1b\[[0-9;]*m/g, '');
   const at = Date.now();
-  const s = { tool: 'claude', id: 's', name: 'demo', cwd: '/w', status: 'idle', live: true, phase: { kind: 'idle', text: '대기' }, updatedAt: at, tokens: { total: 1 }, context: { used: 162_000, window: 1_000_000 }, members: [], events: [] };
+  const s = { tool: 'claude', id: 's', name: 'demo', cwd: '/w', status: 'idle', live: true, phase: { kind: 'idle' }, updatedAt: at, tokens: { total: 1 }, context: { used: 162_000, window: 1_000_000 }, members: [], events: [] };
   for (const W of [100, 140, 200]) {
     const row = render({ data: { sessions: [s], usage: null, errors: [], at }, selectedId: 's', showDetail: true, frame: 0 }, W, 30).map(strip).find((l) => l.includes('컨텍스트 162k'));
     assert.match(row, /16% │/, `W=${W}: ${row}`);

@@ -105,7 +105,7 @@ test('예전 shell 형식의 apply_patch 도 해석한다', () => {
 test('줄 번호 없는 diff 는 @@ 문맥만 보이고 번호 칸을 비운다. 삭제한 파일은 그렇다고 보인다', () => {
   const st = session([meta, prompt(1, '고쳐줘'), call(2, 'p1', PATCH), result(3, 'p1', 0)]);
   const files = mergeFiles([{ agent: '메인', files: st.files }]);
-  const s = { tool: 'codex', id: 'c1', name: 'w', cwd: '/w', status: 'idle', live: true, phase: { kind: 'idle', text: '대기' }, updatedAt: Date.now(), tokens: { total: 10 }, context: {}, members: [], events: [], files, turns: st.turns };
+  const s = { tool: 'codex', id: 'c1', name: 'w', cwd: '/w', status: 'idle', live: true, phase: { kind: 'idle' }, updatedAt: Date.now(), tokens: { total: 10 }, context: {}, members: [], events: [], files, turns: st.turns };
   const draw = (filePath) => render({ data: { sessions: [s], usage: null, errors: [], at: Date.now() }, selectedId: 'c1', showDetail: true, frame: 0, focus: 'diff', filePath, tab: 'all' }, 140, 30).map((l) => l.replace(/\x1b\[[0-9;]*m/g, '')).join('\n');
   const a = draw('/w/src/a.mjs');
   assert.match(a, /메인 · @@ function foo/);

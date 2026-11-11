@@ -14,7 +14,7 @@ export function collectGemini() {
     project: basename(p.cwd ?? ''),
     live: true,
     status: 'live',
-    phase: { kind: 'idle', text: '실행 중 (세부 정보 미지원)' },
+    phase: { kind: 'idle', msg: 'geminiLimited' },
     cost: null,
     now: '',
     updatedAt: Date.now(),

@@ -20,7 +20,7 @@ export const session = () => ({
   pid: 218093,
   status: 'busy',
   live: true,
-  phase: { kind: 'tool', text: '도구 실행 · Bash' },
+  phase: { kind: 'tool', args: { what: 'Bash' } },
   startedAt: min(185),
   updatedAt: at,
   tokens: { total: 571_234, main: 520_000, sub: 51_234, subCount: 2, input: 90_312, output: 18_405, cacheRead: 440_117, cacheWrite: 22_400 },

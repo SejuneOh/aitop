@@ -68,7 +68,7 @@ test('다시 시작해도 캐시에서 최근 칸이 돌아오고, 이어 읽은
 });
 
 const strip = (x) => x.replace(/\x1b\[[0-9;]*m/g, '');
-const sess = { tool: 'claude', id: 'a', name: 'a', cwd: '/w', status: 'busy', live: true, phase: { kind: 'think', text: '' }, updatedAt: NOW, tokens: { total: 1 }, cost: 1, context: {}, members: [], events: [] };
+const sess = { tool: 'claude', id: 'a', name: 'a', cwd: '/w', status: 'busy', live: true, phase: { kind: 'think' }, updatedAt: NOW, tokens: { total: 1 }, cost: 1, context: {}, members: [], events: [] };
 const usageOf = (lastHour, loading = null) => ({ today: { cost: 194.2, costNoCache: 40, tokens: 5.8e8 }, week: { cost: 808, costNoCache: 118, tokens: 2.2e9 }, lastHour, loading });
 const head = (u, W, costMode = 'api') => strip(header({ data: { sessions: [sess, { ...sess, id: 'b', status: 'idle' }], usage: u, errors: [], at: NOW }, costMode }, W));
 

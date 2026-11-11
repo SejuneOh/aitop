@@ -1,7 +1,7 @@
 // 화면 밖 문구(--help, --doctor, 옵션 오류, --print-config)의 한국어·영어 표와 t(). 의존성 없이 이 파일만으로 돈다.
 // 언어는 --lang > AITOP_LANG > 설정 파일 lang > LC_ALL > LC_MESSAGES > LANG 순서로 고른다 (bin 이 setLang 으로 정한다).
 // 로캘 문자열이 ko 로 시작하면 ko, 그 밖(C, C.UTF-8, POSIX, 없음 포함)은 en 이다.
-// 실시간 화면(표·상세·도움말 화면)은 아직 한국어다. 화면 문구는 영어 화면 3/3 에서 이 표로 옮긴다.
+// 실시간 화면(표·상세·도움말 화면)은 상태 문구(phaseText)만 이 표를 쓴다. 나머지 화면 문구는 영어 화면 3/3 에서 옮긴다.
 // 표의 값은 문자열이거나 { long, short } 다. short 는 좁은 폭에서 쓰고, 없으면 long 을 쓴다.
 // {name} 은 t(key, { name }) 의 값으로 바꾼다. vars 에 없는 {name} 은 그대로 둔다 (설정 예시의 { ... } 를 건드리지 않게).
 
@@ -233,6 +233,28 @@ export const STRINGS = {
     'doctor.debugOn': '켬',
     'doctor.debugOff': '꺼짐',
     'doctor.debugTail': ' · --debug 로 켬',
+
+    // 상태 문구 (phaseText 가 phase.msg ?? phase.kind 로 고른다). --json 의 phase 는 늘 이 한국어 표로 만든다.
+    'phase.ended': '종료',
+    'phase.done': '완료',
+    'phase.unseen': '완료 · 확인 전',
+    'phase.idle': '다음 지시 대기',
+    'phase.starting': '시작 중',
+    'phase.firstInput': '첫 입력 대기',
+    'phase.noPrompt': '아직 지시 없음',
+    'phase.geminiLimited': '실행 중 (세부 정보 미지원)',
+    'phase.agyOldNode': '실행 중 (세부 정보는 Node 22.15 이상)',
+    'phase.waiting': '응답 대기',
+    'phase.shell': '쉘 명령 실행 중',
+    'phase.tool': '도구 실행 · {what}',
+    'phase.toolUnknown': '도구 실행 · 도구',
+    'phase.team': '팀원 {n}명 작업 중',
+    'phase.think': '생각 중',
+    'phase.working': '작업 중',
+    'phase.steps': '작업 중 · {n}단계',
+    'phase.loading': '기록 읽는 중 {pct}%',
+    'phase.write': '답변 작성 중',
+    'phase.agents': '에이전트 {n}개 실행 중',
   },
   en: {
     'help.usage': HELP_EN,
@@ -334,6 +356,27 @@ export const STRINGS = {
     'doctor.debugOn': 'on',
     'doctor.debugOff': 'off',
     'doctor.debugTail': ' · turn on with --debug',
+
+    'phase.ended': 'Ended',
+    'phase.done': 'Done',
+    'phase.unseen': { long: 'Done · not checked', short: 'Done · new' },
+    'phase.idle': { long: 'Waiting for prompt', short: 'Idle' },
+    'phase.starting': 'Starting',
+    'phase.firstInput': { long: 'Waiting for first prompt', short: 'Idle' },
+    'phase.noPrompt': 'No prompt yet',
+    'phase.geminiLimited': { long: 'Running (no details yet)', short: 'Running' },
+    'phase.agyOldNode': { long: 'Running (details need Node 22.15+)', short: 'Running' },
+    'phase.waiting': { long: 'Waiting for you', short: 'Waiting' },
+    'phase.shell': { long: 'Running shell command', short: 'Shell' },
+    'phase.tool': { long: 'Running tool · {what}', short: 'Tool · {what}' },
+    'phase.toolUnknown': { long: 'Running tool', short: 'Tool' },
+    'phase.team': { long: 'Team working · {n}', short: 'Team · {n}' },
+    'phase.think': 'Thinking',
+    'phase.working': 'Working',
+    'phase.steps': { long: 'Working · step {n}', short: 'Step {n}' },
+    'phase.loading': { long: 'Reading log {pct}%', short: 'Loading {pct}%' },
+    'phase.write': { long: 'Writing reply', short: 'Writing' },
+    'phase.agents': { long: 'agents running {n}', short: 'agents {n}' },
   },
 };
 
@@ -345,4 +388,19 @@ export function t(key, vars, { lang = current, short = false } = {}) {
   const s = typeof v === 'string' ? v : short ? (v.short ?? v.long) : v.long;
   if (!vars) return s;
   return s.replace(/\{(\w+)\}/g, (m, name) => (Object.hasOwn(vars, name) ? String(vars[name]) : m));
+}
+
+// 상태 문구. 수집 단계는 phase = { kind, msg?, args? } 만 보내고 문장은 화면(과 --json)이 여기서 만든다.
+// msg 가 없으면 kind 가 문구 이름이다. args: what(도구 이름·대기 요청), n(팀원 수·단계 수), pct(기록 읽은 비율), agents(같이 도는 에이전트 수).
+// 응답 대기는 '응답 대기 · {what}' 처럼 요청을 붙이고, agents 가 있으면 어느 상태든 ' · 에이전트 N개 실행 중' 을 붙인다.
+// short: 표의 STATUS 칸. 짧은 문구를 쓰고, 응답 대기는 ◆ 와 행 색으로 이미 보이므로 앞의 '응답 대기' 를 뗀다 (뒤에 붙은 것이 없으면 남긴다).
+export function phaseText(phase, { lang = current, short = false } = {}) {
+  if (!phase?.kind) return '';
+  const o = { lang, short };
+  const a = phase.args ?? {};
+  const parts = [t(`phase.${phase.msg ?? phase.kind}`, a, o)];
+  if (phase.kind === 'waiting' && a.what) parts.push(String(a.what));
+  if (a.agents) parts.push(t('phase.agents', { n: a.agents }, o));
+  if (short && phase.kind === 'waiting' && parts.length > 1) parts.shift();
+  return parts.join(' · ');
 }

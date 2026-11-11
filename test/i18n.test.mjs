@@ -6,7 +6,9 @@ import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { STRINGS, LANGS, t, langOf, localeLang, pickLang, langOption, langValue } from '../src/i18n.mjs';
+import { STRINGS, LANGS, t, langOf, localeLang, pickLang, langOption, langValue, phaseText, getLang, setLang } from '../src/i18n.mjs';
+import { statusText } from '../src/ui/table.mjs';
+import { width } from '../src/text.mjs';
 import { VIEWS, COMMON, keysText } from '../src/help.mjs';
 import { readConfigFile, resolveConfig } from '../src/config.mjs';
 import { toJson } from '../src/json.mjs';
@@ -111,7 +113,7 @@ test('키 안내의 짧은 이름은 모두 표에 있고, 영어 키 안내에�
 });
 
 test('--json 의 phaseKind 는 언어와 상관없는 상태 이름이고 phase 문구는 그대로다', () => {
-  const data = { at: Date.now(), usage: null, sessions: [{ tool: 'claude', id: 'a', status: 'waiting', phase: { kind: 'waiting', text: '응답 대기 · Bash' }, members: [{ name: 'm', status: 'running', phase: { kind: 'tool', text: '도구 실행 · Read' } }, { name: 'n', status: 'done' }] }, { tool: 'codex', id: 'b', status: 'idle' }] };
+  const data = { at: Date.now(), usage: null, sessions: [{ tool: 'claude', id: 'a', status: 'waiting', phase: { kind: 'waiting', args: { what: 'Bash' } }, members: [{ name: 'm', status: 'running', phase: { kind: 'tool', args: { what: 'Read' } } }, { name: 'n', status: 'done' }] }, { tool: 'codex', id: 'b', status: 'idle' }] };
   const j = toJson(data, '9.9.9');
   assert.equal(j.sessions[0].phase, '응답 대기 · Bash');
   assert.equal(j.sessions[0].phaseKind, 'waiting');
@@ -120,6 +122,74 @@ test('--json 의 phaseKind 는 언어와 상관없는 상태 이름이고 phase 
   // phaseKind 는 phase 바로 뒤에 둔다
   const keys = Object.keys(j.sessions[0]);
   assert.equal(keys[keys.indexOf('phase') + 1], 'phaseKind');
+});
+
+// 영어 화면 2/3: 상태 문구는 소스가 kind·args 만 보내고 화면이 만든다.
+// 소스마다 보내는 대표 상태. [phase, 예전 한국어 phase.text, 영어 긴 문구, 영어 짧은 문구(표 STATUS 칸)]
+const PHASES = [
+  [{ kind: 'ended' }, '종료', 'Ended', 'Ended'],
+  [{ kind: 'done' }, '완료', 'Done', 'Done'],
+  [{ kind: 'unseen' }, '완료 · 확인 전', 'Done · not checked', 'Done · new'],
+  [{ kind: 'idle' }, '다음 지시 대기', 'Waiting for prompt', 'Idle'],
+  [{ kind: 'idle', msg: 'starting' }, '시작 중', 'Starting', 'Starting'],
+  [{ kind: 'idle', msg: 'firstInput' }, '첫 입력 대기', 'Waiting for first prompt', 'Idle'],
+  [{ kind: 'idle', msg: 'geminiLimited' }, '실행 중 (세부 정보 미지원)', 'Running (no details yet)', 'Running'],
+  [{ kind: 'idle', msg: 'agyOldNode' }, '실행 중 (세부 정보는 Node 22.15 이상)', 'Running (details need Node 22.15+)', 'Running'],
+  [{ kind: 'waiting' }, '응답 대기', 'Waiting for you', 'Waiting'],
+  [{ kind: 'waiting', args: { what: 'Bash' } }, '응답 대기 · Bash', 'Waiting for you · Bash', 'Bash'],
+  [{ kind: 'waiting', args: { what: 'approve Bash', agents: 1 } }, '응답 대기 · approve Bash · 에이전트 1개 실행 중', 'Waiting for you · approve Bash · agents running 1', 'approve Bash · agents 1'],
+  [{ kind: 'waiting', args: { agents: 2 } }, '응답 대기 · 에이전트 2개 실행 중', 'Waiting for you · agents running 2', 'agents 2'],
+  [{ kind: 'tool', msg: 'shell' }, '쉘 명령 실행 중', 'Running shell command', 'Shell'],
+  [{ kind: 'tool', args: { what: 'Grep' } }, '도구 실행 · Grep', 'Running tool · Grep', 'Tool · Grep'],
+  [{ kind: 'tool', msg: 'toolUnknown' }, '도구 실행 · 도구', 'Running tool', 'Tool'],
+  [{ kind: 'team', args: { n: 2 } }, '팀원 2명 작업 중', 'Team working · 2', 'Team · 2'],
+  [{ kind: 'think' }, '생각 중', 'Thinking', 'Thinking'],
+  [{ kind: 'think', msg: 'working' }, '작업 중', 'Working', 'Working'],
+  [{ kind: 'think', msg: 'steps', args: { n: 12, agents: 1 } }, '작업 중 · 12단계 · 에이전트 1개 실행 중', 'Working · step 12 · agents running 1', 'Step 12 · agents 1'],
+  [{ kind: 'think', msg: 'loading', args: { pct: 42 } }, '기록 읽는 중 42%', 'Reading log 42%', 'Loading 42%'],
+  [{ kind: 'write' }, '답변 작성 중', 'Writing reply', 'Writing'],
+];
+
+test('--json 의 phase 는 화면 언어와 상관없이 예전과 같은 한국어 문구다', () => {
+  const before = getLang();
+  try {
+    for (const lang of LANGS) {
+      setLang(lang);
+      const sessions = PHASES.map(([phase], i) => ({ tool: 'claude', id: `s${i}`, status: 'busy', phase, members: [{ name: 'm', status: 'busy', phase }] }));
+      const j = toJson({ at: Date.now(), usage: null, sessions }, '9.9.9');
+      assert.deepEqual(j.sessions.map((s) => s.phase), PHASES.map((p) => p[1]), lang);
+      assert.deepEqual(j.sessions.map((s) => s.members[0].phase), PHASES.map((p) => p[1]), `${lang} 팀원`);
+      assert.deepEqual(j.sessions.map((s) => s.phaseKind), PHASES.map((p) => p[0].kind), `${lang} phaseKind`);
+    }
+  } finally {
+    setLang(before);
+  }
+});
+
+test('상태 문구: 한국어 표 STATUS 칸은 응답 대기 접두어만 떼고, 영어는 긴·짧은 문구가 있다', () => {
+  for (const [phase, ko, long, short] of PHASES) {
+    const name = JSON.stringify(phase);
+    assert.equal(phaseText(phase, { lang: 'ko' }), ko, name);
+    assert.equal(phaseText(phase, { lang: 'ko', short: true }), phase.kind === 'waiting' && ko !== '응답 대기' ? ko.replace(/^응답 대기 · /, '') : ko, name);
+    assert.equal(phaseText(phase, { lang: 'en' }), long, name);
+    assert.equal(phaseText(phase, { lang: 'en', short: true }), short, name);
+    assert.ok(width(short) <= width(long), `${name} 짧은 문구가 더 길다`);
+  }
+  assert.equal(phaseText(undefined), '');
+  assert.equal(phaseText({}), '');
+});
+
+test('표의 STATUS 칸과 상세 창의 상태 문구는 화면 언어를 따른다', () => {
+  const before = getLang();
+  try {
+    setLang('en');
+    assert.equal(statusText({ kind: 'waiting', args: { what: 'Bash' } }), 'Bash');
+    assert.equal(statusText({ kind: 'idle' }), 'Idle');
+    setLang('ko');
+    assert.equal(statusText({ kind: 'idle' }), '다음 지시 대기');
+  } finally {
+    setLang(before);
+  }
 });
 
 // 실제 bin. 언어 관련 환경 변수를 지우고 원하는 것만 넣는다. 설정 파일은 빈 임시 폴더.

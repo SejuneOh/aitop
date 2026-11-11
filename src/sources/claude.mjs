@@ -70,7 +70,7 @@ export function _stats() {
 }
 
 function loadingPhase(t) {
-  return t?.loading != null ? { kind: 'think', text: `기록 읽는 중 ${Math.floor(t.loading * 100)}%` } : null;
+  return t?.loading != null ? { kind: 'think', msg: 'loading', args: { pct: Math.floor(t.loading * 100) } } : null;
 }
 
 // 서브에이전트 전체(끝난 것 포함)의 토큰·비용 합계. 메인 세션 합계에 더해 화면에 보인다.
@@ -128,7 +128,7 @@ function readMembers(transcript, parent, budget) {
       task: meta.description ?? '',
       status: finished ? 'done' : 'busy',
       started,
-      phase: finished ? { kind: 'done', text: '완료' } : !started ? { kind: 'idle', text: '시작 중' } : loadingPhase(t) ?? t.phase(),
+      phase: finished ? { kind: 'done' } : !started ? { kind: 'idle', msg: 'starting' } : loadingPhase(t) ?? t.phase(),
       now: t.lastTool,
       tokens: t.tokens.total,
       cost: t.cost,
@@ -148,25 +148,25 @@ function statusOf(entry, alive, mtime) {
   return Date.now() - mtime < 5000 ? 'busy' : 'idle';
 }
 
-// 응답 대기는 Claude Code 가 세션 파일에 적은 값이다. 그동안 서브에이전트가 돌고 있으면 함께 적어 구분되게 한다.
+// 응답 대기는 Claude Code 가 세션 파일에 적은 값이다. 그동안 서브에이전트가 돌고 있으면 수를 args.agents 로 함께 보내 구분되게 한다.
 function withRunningMembers(phase, status, members) {
   if (status !== 'waiting') return phase;
   const running = members.filter((m) => m.status !== 'done' && m.phase?.kind !== 'done').length;
-  return running ? { ...phase, text: `${phase.text} · 에이전트 ${running}개 실행 중` } : phase;
+  return running ? { ...phase, args: { ...phase.args, agents: running } } : phase;
 }
 
 function phaseOf(status, entry, t) {
   switch (status) {
     case 'ended':
-      return { kind: 'ended', text: '종료' };
+      return { kind: 'ended' };
     case 'waiting':
-      return { kind: 'waiting', text: entry.waitingFor ? `응답 대기 · ${entry.waitingFor}` : '응답 대기' };
+      return entry.waitingFor ? { kind: 'waiting', args: { what: entry.waitingFor } } : { kind: 'waiting' };
     case 'shell':
-      return { kind: 'tool', text: '쉘 명령 실행 중' };
+      return { kind: 'tool', msg: 'shell' };
     case 'idle':
-      return { kind: 'idle', text: '다음 지시 대기' };
+      return { kind: 'idle' };
     default:
-      return loadingPhase(t) ?? (t ? t.phase() : { kind: 'think', text: '작업 중' });
+      return loadingPhase(t) ?? (t ? t.phase() : { kind: 'think', msg: 'working' });
   }
 }
 
@@ -276,7 +276,7 @@ function endedFromTranscripts(known, selectedId, budget) {
       live: false,
       lazy: !t,
       status: 'ended',
-      phase: loadingPhase(t) ?? { kind: 'ended', text: '종료' },
+      phase: loadingPhase(t) ?? { kind: 'ended' },
       waitingFor: null,
       now: '',
       startedAt: head.startedAt,

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { claudeCost } from '../src/pricing.mjs';
 import { ClaudeTracker } from '../src/sources/claude-tracker.mjs';
+import { phaseText } from '../src/i18n.mjs';
 
 test('Opus 5.5 환산 비용: 입력 4, 출력 20, 캐시 읽기 0.2, 1시간 캐시 쓰기 2배', () => {
   const u = { input_tokens: 1_000_000, output_tokens: 1_000_000, cache_read_input_tokens: 1_000_000, cache_creation_input_tokens: 1_000_000, cache_creation: { ephemeral_1h_input_tokens: 1_000_000, ephemeral_5m_input_tokens: 0 } };
@@ -28,12 +29,14 @@ test('같은 message.id 가 여러 줄이어도 토큰은 한 번만 더하고, 
   const t = new ClaudeTracker(f);
   t.update();
   assert.equal(t.tokens.total, 115);
-  assert.deepEqual(t.phase(), { kind: 'tool', text: '도구 실행 · Bash' });
+  assert.deepEqual(t.phase(), { kind: 'tool', args: { what: 'Bash' } });
+  assert.equal(phaseText(t.phase()), '도구 실행 · Bash');
 
   t.apply(user([{ type: 'tool_result', tool_use_id: 't1' }]));
-  assert.equal(t.phase().text, '생각 중');
+  assert.equal(phaseText(t.phase()), '생각 중');
 
   t.apply(asst('m2', [{ type: 'tool_use', id: 't2', name: 'Agent', input: { subagent_type: 'Explore' } }], u));
-  assert.deepEqual(t.phase(), { kind: 'team', text: '팀원 1명 작업 중' });
+  assert.deepEqual(t.phase(), { kind: 'team', args: { n: 1 } });
+  assert.equal(phaseText(t.phase()), '팀원 1명 작업 중');
   assert.equal(t.tokens.total, 230);
 });

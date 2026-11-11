@@ -30,7 +30,7 @@ test('막대는 7일 중 가장 큰 날을 █ 로 맞추고, 0 인 날은 흐�
 
 const strip = (x) => x.replace(/\x1b\[[0-9;]*m/g, '');
 const AT = new Date(2026, 10, 10, 18).getTime();
-const sess = { tool: 'claude', id: 'a', name: 'a', cwd: '/w', status: 'busy', live: true, phase: { kind: 'think', text: '' }, updatedAt: AT, tokens: { total: 1 }, cost: 1, context: {}, members: [], events: [] };
+const sess = { tool: 'claude', id: 'a', name: 'a', cwd: '/w', status: 'busy', live: true, phase: { kind: 'think' }, updatedAt: AT, tokens: { total: 1 }, cost: 1, context: {}, members: [], events: [] };
 const U = { today: { cost: 12.3, costNoCache: 3, tokens: 5.8e7 }, week: { cost: 174.3, costNoCache: 43, tokens: 2.2e9 }, days7: D([40, 0, 12, 80, 25, 5, 12.3], 0.25), lastHour: { cost: 5, costNoCache: 1, unknown: false }, recentToday: { cost: 5, costNoCache: 1, unknown: false, ms: 3600_000 }, loading: null };
 const head = (W, { budgetDay, costMode = 'api', u = U } = {}) => strip(header({ data: { sessions: [sess, { ...sess, id: 'b', status: 'idle' }, { ...sess, id: 'c', status: 'waiting' }], usage: u, at: AT }, costMode, budgetDay }, W));
 const BAR = '▅▁▃█▄▂▃';
