@@ -67,10 +67,11 @@ export function which(name, envPath = process.env.PATH ?? '') {
   return null;
 }
 
-export function isWsl(env = process.env) {
+// WSL 인지. --doctor 의 알림 안내에 쓴다. readVersion 은 테스트에서 /proc/version 대신 넣는다.
+export function isWsl(env = process.env, readVersion = () => readFileSync('/proc/version', 'utf8')) {
   if (env.WSL_DISTRO_NAME || env.WSL_INTEROP) return true;
   try {
-    return /microsoft/i.test(readFileSync('/proc/version', 'utf8'));
+    return /microsoft/i.test(readVersion());
   } catch {
     return false;
   }
