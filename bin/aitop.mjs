@@ -4,6 +4,7 @@ import { budgetDayOption, configJson, configPath, configText, readConfigFile, re
 import { langOption, pickLang, setLang, t } from '../src/i18n.mjs';
 import { notifyOptions } from '../src/notify.mjs';
 import { lineOption } from '../src/line.mjs';
+import { reportOption } from '../src/report.mjs';
 import { mask, setAmbiguous, stripControl } from '../src/text.mjs';
 
 const KNOWN = new Set(['-h', '--help', '-v', '--version', '--once', '--all', '--json', '--doctor', '--bell', '--show-requests', '--print-config', '--no-bell', '--no-all', '--no-show-requests', '--debug', '--no-debug', '--color-blind', '--no-color-blind']);
@@ -40,10 +41,16 @@ if (line.error) {
   process.stderr.write(`aitop: ${line.error}\n`);
   process.exit(2);
 }
+// --report daily, --by tool|model, --days <N> 은 reportOption 이 꺼낸다.
+const report = reportOption(line.rest);
+if (report.error) {
+  process.stderr.write(`aitop: ${report.error}\n`);
+  process.exit(2);
+}
 // 사용자가 준 NO_COLOR. 아래에서 파이프 출력이면 NO_COLOR 를 켜므로 그 전에 읽어 둔다 (tmux 의 #() 는 TTY 가 아니다).
 const userNoColor = Boolean(process.env.NO_COLOR);
 // --theme light, --theme=light 처럼 값을 받는 옵션은 따로 꺼낸다.
-const argv = line.rest;
+const argv = report.rest;
 let theme = null;
 const rest = [];
 for (let i = 0; i < argv.length; i++) {
@@ -135,6 +142,26 @@ if (line.mode) {
   } catch (e) {
     debug('aitop', 'line failed', e);
   }
+  await new Promise((resolve) => process.stdout.write(text + '\n', resolve));
+  process.exit(0);
+}
+
+// --report: 날짜별 사용량 표(또는 --json)를 내고 끝낸다. 실시간 화면·세션 목록은 읽지 않고 장부만 읽는다.
+// 처음 실행은 30일치 기록을 읽으므로 stderr 가 터미널이면 진행률을 보이고, 시간 상한(AITOP_REPORT_MS, 기본 120초)을 넘으면 읽은 만큼 낸다.
+if (report.kind) {
+  const { buildReport, collectReport, formatReport, progressWriter, reportJson, MAX_DAYS } = await import('../src/report.mjs');
+  const { flushCache } = await import('../src/cache.mjs');
+  if (report.capped) process.stderr.write(`aitop: ${t('report.capped', { n: MAX_DAYS })}\n`);
+  const progress = progressWriter();
+  const maxMs = Number(process.env.AITOP_REPORT_MS) > 0 ? Number(process.env.AITOP_REPORT_MS) : undefined;
+  const now = Date.now();
+  const got = await collectReport({ days: report.days, maxMs, now, onProgress: progress.update });
+  progress.done();
+  flushCache();
+  if (got.partial && args.has('--json')) process.stderr.write(`aitop: ${t('report.partial')}\n`);
+  const r = buildReport(got.books, { by: report.by, days: report.days, now });
+  const text = args.has('--json') ? JSON.stringify(reportJson(r, VERSION, { partial: got.partial }), null, 2) : formatReport(r, { partial: got.partial });
+  process.stdout.on('error', (err) => process.exit(err.code === 'EPIPE' ? 0 : 1));
   await new Promise((resolve) => process.stdout.write(text + '\n', resolve));
   process.exit(0);
 }
