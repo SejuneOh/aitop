@@ -6,6 +6,7 @@ import { closeSync, constants, fstatSync, openSync, readSync, statSync } from 'n
 import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { stripControl } from './text.mjs';
+import { langValue, localeLang, t } from './i18n.mjs';
 
 const bool = (v) => typeof v === 'boolean';
 const oneOf = (...xs) => (v) => xs.includes(v);
@@ -37,31 +38,37 @@ export function budgetDayOption(argv) {
     const next = argv[i + 1];
     const raw = m[1] ?? (next == null || (next.startsWith('-') && !/^-[\d.]/.test(next)) ? '' : argv[++i]);
     const n = usd(raw);
-    if (n == null) error ??= raw === '' ? '--budget-day 값이 없습니다 (하루 예산, 달러)' : `--budget-day 값 ${JSON.stringify(raw)} 이 잘못되었습니다 (0 보다 큰 수)`;
+    if (n == null) error ??= raw === '' ? t('opt.budgetMissing') : t('opt.budgetBad', { value: JSON.stringify(raw) });
     else value = n;
   }
   return { value, rest, error };
 }
 
+const BOOL = ['true', 'false'];
+// expect, envExpect: 둘 중 하나면 [a, b], 아니면 i18n 키. 문구는 쓸 때 지금 언어로 만든다.
+const expectText = (x) => (Array.isArray(x) ? t('cfg.either', { a: x[0], b: x[1] }) : t(x));
+
 // env: 환경 변수 이름과 그 값을 옵션 값으로 바꾸는 함수 (undefined 면 설정하지 않은 것으로 본다).
 // envProblem: 환경 변수 값이 잘못되면 무시하고 problems 에 남긴다 (--doctor, --print-config 가 보인다).
 // notify, onWaiting 은 응답 대기 알림(notify.mjs)이 쓴다. debug 는 디버그 로그(log.mjs)를 켠다. budgetDay 는 하루 예산(달러)으로, 헤더와 --json 의 예상 비용 경고(budget.mjs)가 쓴다.
 export const KEYS = {
-  theme: { ok: oneOf('light', 'dark'), expect: 'light 또는 dark', def: null, env: ['AITOP_THEME', (v) => (v === 'light' || v === 'dark' ? v : undefined)] },
-  icons: { ok: oneOf('plain', 'ascii'), expect: 'plain 또는 ascii', def: 'full', env: ['AITOP_ICONS', (v) => (v === 'plain' || v === 'ascii' ? v : undefined)] },
-  bell: { ok: bool, expect: 'true 또는 false', def: false },
-  showRequests: { ok: bool, expect: 'true 또는 false', def: false, env: ['AITOP_SHOW_REQUESTS', (v) => (v === '1' ? true : v === '0' ? false : undefined)] },
-  all: { ok: bool, expect: 'true 또는 false', def: false },
-  notify: { ok: bool, expect: 'true 또는 false', def: false },
-  onWaiting: { ok: (v) => typeof v === 'string' && v.trim() !== '', expect: '실행할 명령 문자열', def: null },
-  debug: { ok: bool, expect: 'true 또는 false', def: false, env: ['AITOP_DEBUG', (v) => (v === '1' ? true : v === '0' ? false : undefined)], envProblem: true, envExpect: '1 또는 0' },
-  budgetDay: { ok: (v) => typeof v === 'number' && Number.isFinite(v) && v > 0, expect: '0 보다 큰 수', def: null, env: ['AITOP_BUDGET_DAY', (v) => usd(v) ?? undefined], envProblem: true },
+  theme: { ok: oneOf('light', 'dark'), expect: ['light', 'dark'], def: null, env: ['AITOP_THEME', (v) => (v === 'light' || v === 'dark' ? v : undefined)] },
+  icons: { ok: oneOf('plain', 'ascii'), expect: ['plain', 'ascii'], def: 'full', env: ['AITOP_ICONS', (v) => (v === 'plain' || v === 'ascii' ? v : undefined)] },
+  bell: { ok: bool, expect: BOOL, def: false },
+  showRequests: { ok: bool, expect: BOOL, def: false, env: ['AITOP_SHOW_REQUESTS', (v) => (v === '1' ? true : v === '0' ? false : undefined)] },
+  all: { ok: bool, expect: BOOL, def: false },
+  notify: { ok: bool, expect: BOOL, def: false },
+  onWaiting: { ok: (v) => typeof v === 'string' && v.trim() !== '', expect: 'cfg.command', def: null },
+  debug: { ok: bool, expect: BOOL, def: false, env: ['AITOP_DEBUG', (v) => (v === '1' ? true : v === '0' ? false : undefined)], envProblem: true, envExpect: ['1', '0'] },
+  budgetDay: { ok: (v) => typeof v === 'number' && Number.isFinite(v) && v > 0, expect: 'cfg.positive', def: null, env: ['AITOP_BUDGET_DAY', (v) => usd(v) ?? undefined], envProblem: true },
   // colorBlind 는 적록 색약 팔레트(ui/theme.mjs)를 고른다. theme(밝기)과 따로 정한다.
-  colorBlind: { ok: bool, expect: 'true 또는 false', def: false, env: ['AITOP_COLOR_BLIND', (v) => (v === '1' ? true : v === '0' ? false : undefined)], envProblem: true, envExpect: '1 또는 0' },
+  colorBlind: { ok: bool, expect: BOOL, def: false, env: ['AITOP_COLOR_BLIND', (v) => (v === '1' ? true : v === '0' ? false : undefined)], envProblem: true, envExpect: ['1', '0'] },
   // 실행 중 세션이 없고 7일 동안 쓰지 않은 도구를 도구 줄에서 숨긴다. false 면 늘 셋 다 보인다.
-  hideIdleTools: { ok: bool, expect: 'true 또는 false', def: true },
+  hideIdleTools: { ok: bool, expect: BOOL, def: true },
   // 폭이 모호한 기호(·, →, ─, ● 등)를 2칸으로 그리는 터미널이면 wide. 표 칸이 밀리지 않게 1칸 기호로 바꾸고 폭을 2칸으로 센다.
-  ambiguous: { ok: oneOf('narrow', 'wide'), expect: 'narrow 또는 wide', def: 'narrow', env: ['AITOP_AMBIGUOUS', (v) => (v === 'narrow' || v === 'wide' ? v : undefined)], envProblem: true },
+  ambiguous: { ok: oneOf('narrow', 'wide'), expect: ['narrow', 'wide'], def: 'narrow', env: ['AITOP_AMBIGUOUS', (v) => (v === 'narrow' || v === 'wide' ? v : undefined)], envProblem: true },
+  // --help·--doctor·오류 문구의 언어(i18n.mjs). 기본값은 로캘(LC_ALL > LC_MESSAGES > LANG)이 ko 로 시작하면 ko, 아니면 en.
+  lang: { ok: oneOf('ko', 'en'), expect: ['ko', 'en'], def: localeLang, env: ['AITOP_LANG', langValue], envProblem: true },
 };
 
 export function configPath(env = process.env, home = homedir()) {
@@ -80,8 +87,8 @@ export function readConfigFile(path, { uid = process.getuid?.() } = {}) {
   let fd;
   let text;
   let st;
-  const notFile = () => res.problems.push('설정 파일이 일반 파일이 아니라 읽지 않습니다');
-  const tooBig = () => res.problems.push(`설정 파일이 ${MAX_BYTES / 1024}KB 를 넘어 읽지 않습니다`);
+  const notFile = () => res.problems.push(t('cfg.notFile'));
+  const tooBig = () => res.problems.push(t('cfg.tooBig', { kb: MAX_BYTES / 1024 }));
   try {
     // FIFO 나 장치 파일을 열면 멈출 수 있으므로 열기 전에 확인하고, 열 때도 기다리지 않게 연다.
     st = statSync(path);
@@ -101,7 +108,7 @@ export function readConfigFile(path, { uid = process.getuid?.() } = {}) {
   } catch (err) {
     if (err.code !== 'ENOENT') {
       res.exists = err.code !== 'ENOTDIR';
-      res.problems.push(`설정 파일을 읽을 수 없습니다 (${err.code ?? err.message})`);
+      res.problems.push(t('cfg.unreadable', { code: err.code ?? err.message }));
     }
     return res;
   } finally {
@@ -112,17 +119,17 @@ export function readConfigFile(path, { uid = process.getuid?.() } = {}) {
     obj = JSON.parse(text);
   } catch (err) {
     // 오류 문구에 파일 내용 일부가 들어가므로 제어문자를 지우고 줄인다.
-    res.problems.push(`설정 파일이 올바른 JSON 이 아니라 무시합니다 (${stripControl(err.message).slice(0, 120)})`);
+    res.problems.push(t('cfg.badJson', { why: stripControl(err.message).slice(0, 120) }));
     return res;
   }
   if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
-    res.problems.push('설정 파일의 맨 위는 JSON 객체({ ... })여야 합니다');
+    res.problems.push(t('cfg.notObject'));
     return res;
   }
   for (const [key, value] of Object.entries(obj)) {
     const spec = Object.hasOwn(KEYS, key) ? KEYS[key] : null;
-    if (!spec) res.problems.push(`모르는 키 ${show(key)} 는 무시합니다`);
-    else if (!spec.ok(value)) res.problems.push(`${key} 값 ${show(value)} 이 잘못되어 무시합니다 (${spec.expect})`);
+    if (!spec) res.problems.push(t('cfg.unknownKey', { key: show(key) }));
+    else if (!spec.ok(value)) res.problems.push(t('cfg.badValue', { key, value: show(value), expect: expectText(spec.expect) }));
     else res.values[key] = value;
   }
   // 응답 대기 때 실행할 명령은 다른 사용자가 바꿀 수 없는 파일에서만 받는다.
@@ -131,8 +138,8 @@ export function readConfigFile(path, { uid = process.getuid?.() } = {}) {
     const shared = (st.mode & 0o022) !== 0;
     if (!mine || shared) {
       delete res.values.onWaiting;
-      const why = [!mine && '파일 소유자가 현재 사용자가 아님', shared && `그룹·다른 사용자가 쓸 수 있음 (mode ${(st.mode & 0o777).toString(8).padStart(3, '0')})`].filter(Boolean).join(', ');
-      res.problems.push(`onWaiting 은 무시합니다: ${why}. chmod 600 으로 고치세요`);
+      const why = [!mine && t('cfg.notMine'), shared && t('cfg.shared', { mode: (st.mode & 0o777).toString(8).padStart(3, '0') })].filter(Boolean).join(', ');
+      res.problems.push(t('cfg.onWaitingIgnored', { why }));
     }
   }
   return res;
@@ -145,18 +152,19 @@ export function resolveConfig({ flags = {}, env = process.env, file } = {}) {
   const problems = [...file.problems];
   for (const [key, spec] of Object.entries(KEYS)) {
     const fromEnv = spec.env && env[spec.env[0]] != null ? spec.env[1](env[spec.env[0]]) : undefined;
-    if (spec.envProblem && env[spec.env[0]] != null && fromEnv === undefined) problems.push(`환경 변수 ${spec.env[0]} 값 ${show(env[spec.env[0]])} 이 잘못되어 무시합니다 (${spec.envExpect ?? spec.expect})`);
+    if (spec.envProblem && env[spec.env[0]] != null && fromEnv === undefined) problems.push(t('cfg.badEnv', { name: spec.env[0], value: show(env[spec.env[0]]), expect: expectText(spec.envExpect ?? spec.expect) }));
     if (flags[key] !== undefined) values[key] = { value: flags[key], source: 'flag' };
     else if (fromEnv !== undefined) values[key] = { value: fromEnv, source: 'env' };
     else if (key in file.values) values[key] = { value: file.values[key], source: 'file' };
-    else values[key] = { value: spec.def, source: 'default' };
+    // 기본값이 함수면 환경에서 고른다 (lang 은 로캘).
+    else values[key] = { value: typeof spec.def === 'function' ? spec.def(env) : spec.def, source: 'default' };
   }
   return { path: file.path, exists: file.exists, values, problems };
 }
 
 // --print-config 의 사람용 출력.
 export function configText(cfg) {
-  const out = [`설정 파일: ${stripControl(cfg.path)} (${cfg.exists ? '있음' : '없음'})`, ''];
+  const out = [t('cfg.file', { path: stripControl(cfg.path), state: t(cfg.exists ? 'cfg.exists' : 'cfg.missing') }), ''];
   for (const [key, { value, source }] of Object.entries(cfg.values)) {
     const v = value == null ? (key === 'theme' ? 'auto' : '-') : typeof value === 'string' ? JSON.stringify(value) : String(value);
     out.push(`${key.padEnd(14)}${v.padEnd(12)} ${source}`);

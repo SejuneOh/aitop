@@ -37,7 +37,9 @@ export function toJson(data, version = null, opts = {}) {
       pid: s.pid ?? null,
       live: Boolean(s.live),
       status: s.status,
+      // phase 는 화면 문구(한국어) 그대로 두고, 언어와 상관없는 상태 이름은 phaseKind 로 준다.
       phase: s.phase?.text ?? null,
+      phaseKind: s.phase?.kind ?? null,
       waitingFor: s.waitingFor ?? null,
       // 허락을 기다리는 요청의 전체 내용 (Bash 명령, 파일 경로 등). --show-requests 를 켰을 때만 넣는다. 비밀값 가림은 최선을 다할 뿐이다.
       ...(opts.showRequests ? { waitDetail: s.waitDetail ?? null } : {}),
@@ -51,7 +53,7 @@ export function toJson(data, version = null, opts = {}) {
       context: { used: s.context?.used ?? 0, window: s.context?.window ?? null },
       // 변경 내용(diff)은 넣지 않고 파일별 통계만 넣는다. 줄 수는 편집마다 더한 누적값이다 (git diff 아님).
       files: (s.files ?? []).map((f) => ({ path: f.path, created: Boolean(f.created), edits: f.edits, writtenLines: f.add, deletedLines: f.del, updatedAt: iso(f.at), agents: f.agents ?? [] })),
-      members: (s.members ?? []).map((m) => ({ name: m.name, task: m.task ?? null, model: m.model ?? null, status: m.status, phase: m.phase?.text ?? null, tokens: m.tokens ?? 0, cost: money(m.cost) })),
+      members: (s.members ?? []).map((m) => ({ name: m.name, task: m.task ?? null, model: m.model ?? null, status: m.status, phase: m.phase?.text ?? null, phaseKind: m.phase?.kind ?? null, tokens: m.tokens ?? 0, cost: money(m.cost) })),
     })),
   };
 }

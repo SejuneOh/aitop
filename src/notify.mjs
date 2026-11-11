@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import { accessSync, constants, readFileSync } from 'node:fs';
 import { join, delimiter } from 'node:path';
 import { mask, stripControl } from './text.mjs';
+import { t } from './i18n.mjs';
 
 export const HOOK_TIMEOUT_MS = 10_000;
 const LABEL_MAX = 120;
@@ -42,8 +43,8 @@ export function notifyOptions(argv, config = {}, valueOpts = VALUE_OPTS) {
       continue;
     }
     const v = m[1] ?? (i + 1 < argv.length ? argv[++i] : '');
-    if (!v.trim()) error = '--on-waiting 값이 없습니다 (실행할 명령)';
-    else if (m[1] == null && v.startsWith('-')) error = `--on-waiting 값이 - 로 시작합니다 (${v}). 명령이 맞으면 --on-waiting='${v}' 처럼 = 로 붙여 쓴다`;
+    if (!v.trim()) error = t('opt.onWaitingMissing');
+    else if (m[1] == null && v.startsWith('-')) error = t('opt.onWaitingDash', { value: v });
     else onWaiting = v;
   }
   return { notify, onWaiting, rest, error };
