@@ -7,6 +7,7 @@ import { TABLE_BOX_H, columns, emptyLines, filterSessions, groupRow, header, mem
 import { detail } from './ui/detail.mjs';
 import { detailOpen, footer, help } from './ui/chrome.mjs';
 import { arrange } from './order.mjs';
+import { t } from './i18n.mjs';
 
 export { PALETTE, style } from './ui/theme.mjs';
 export { money } from './ui/draw.mjs';
@@ -25,7 +26,7 @@ export function render(view, W, H) {
   const lines = [];
   if (!view.data) {
     // 첫 수집은 동기로 돌아 이 화면이 다시 그려지지 않으므로 움직이지 않는 로고를 둔다.
-    const msg = `${BRAND.logo}  세션 기록을 읽는 중…`;
+    const msg = `${BRAND.logo}  ${t('ui.loading')}`;
     for (let i = 0; i < H; i++) lines.push(i === Math.floor(H / 2) ? line([{ t: ' '.repeat(Math.max(0, Math.floor((W - width(msg)) / 2))) }, { t: msg, fg: PALETTE.brand }], W) : line([], W));
     return lines;
   }
@@ -78,13 +79,13 @@ export function render(view, W, H) {
   const isSession = (r) => r.s && !r.m;
   const visible = rows.slice(start, start + shown);
   const hot = topCost(visible.filter(isSession).map((r) => r.s), view.costMode);
-  if (!sessions.length) table.push(...(view.filter ? [line([{ t: `   '${view.filter}' 에 맞는 세션이 없습니다.`, fg: PALETTE.muted, italic: true }], TW)] : emptyLines(view, TW)));
+  if (!sessions.length) table.push(...(view.filter ? [line([{ t: `   ${t('ui.noMatch', { q: view.filter })}`, fg: PALETTE.muted, italic: true }], TW)] : emptyLines(view, TW)));
   for (const r of visible) table.push(r.g ? groupRow(r.g, TW) : r.m ? memberRow(r.m, r.last, c, TW, view.frame, r.s.model, view.costMode) : sessionRow(r.s, c, TW, r.s === sel, view.frame, hot, view.costMode, Boolean(view.pins?.includes(r.s.id))));
   if (clipped) {
     const onScreen = new Set(visible.filter(isSession).map((r) => r.s));
     const hidden = sessions.filter((s) => !onScreen.has(s));
     const waitingHidden = hidden.filter((s) => s.status === 'waiting').length;
-    table.push(line([{ t: `   … +${hidden.length} 세션`, fg: PALETTE.muted }, ...(waitingHidden ? [{ t: ` (응답 대기 ${waitingHidden})`, fg: PALETTE.waiting, bold: true }] : []), { t: '  ↑↓ 로 이동', fg: PALETTE.info }], TW));
+    table.push(line([{ t: `   ${t('ui.more', { n: hidden.length })}`, fg: PALETTE.muted }, ...(waitingHidden ? [{ t: t('ui.moreWaiting', { n: waitingHidden }), fg: PALETTE.waiting, bold: true }] : []), { t: t('ui.moveHint'), fg: PALETTE.info }], TW));
   }
   lines.push(...(boxed ? tableBox(table, W, sessions.length) : table));
   if (wantDetail) {

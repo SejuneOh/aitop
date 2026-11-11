@@ -11,7 +11,7 @@
 - **Changed files and diffs** per session and per prompt
 - **Read-only**: no network, no ports, no dependencies. It only reads the session logs each CLI already writes
 
-> `--help`, `--doctor` and error messages are in English, or Korean with `--lang ko` or `AITOP_LANG=ko`. The live screen is still in Korean for now. Keys and options work the same everywhere.
+> The UI follows your locale: English by default, Korean when the locale starts with `ko`. Set `AITOP_LANG=ko|en` (or `--lang`) to pick one. This covers the live screen, `--once`, `--help`, `--doctor`, error messages and desktop notifications. Keys and options work the same in both.
 
 ## Install
 
@@ -31,12 +31,12 @@ aitop --json     print a snapshot as JSON and exit
 aitop --doctor   check which tools and logs aitop can see
 aitop --line     print one short status line and exit (for tmux, e.g. $54.13/$50 wait 2 $3.1/h)
 aitop --help     all options
-aitop --lang ko  Korean help, doctor and error messages (also AITOP_LANG=ko or "lang": "ko" in the config file)
+aitop --lang ko  Korean screen, help, doctor and error messages (also AITOP_LANG=ko or "lang": "ko" in the config file)
 ```
 
-The language is picked from `--lang`, then `AITOP_LANG`, then `lang` in the config file, then `LC_ALL`, `LC_MESSAGES` and `LANG`: Korean when the locale starts with `ko`, English otherwise (including `C.UTF-8` and unset). If you used aitop on a `C.UTF-8` or `en_US` locale before, help and doctor output are now in English; set `AITOP_LANG=ko` to keep Korean.
+The language is picked from `--lang`, then `AITOP_LANG`, then `lang` in the config file, then `LC_ALL`, `LC_MESSAGES` and `LANG`: Korean when the locale starts with `ko`, English otherwise (including `C.UTF-8` and unset). If you used aitop on a `C.UTF-8` or `en_US` locale before, the screen, help and doctor output are now in English; set `AITOP_LANG=ko` to keep Korean.
 
-In `--json`, `phase` stays the Korean text shown on screen in every language. For scripts, use `phaseKind`, a stable state name: `think`, `write`, `tool`, `team`, `waiting`, `idle`, `done`, `ended` (or `null`). Other text fields follow their own rules: with English selected, `--doctor --json` has Korean `tools.*.hint` but English `config.problems`.
+In `--json`, `phase` stays the Korean status text in every language (as does `AITOP_WAITING_FOR` for `--on-waiting`). For scripts, use `phaseKind`, a stable state name: `think`, `write`, `tool`, `team`, `waiting`, `idle`, `done`, `ended` (or `null`). Other text fields follow their own rules: with English selected, `--doctor --json` has Korean `tools.*.hint` but English `config.problems`.
 
 ### tmux status line
 

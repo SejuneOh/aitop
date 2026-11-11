@@ -15,7 +15,9 @@ import { toJson } from '../src/json.mjs';
 
 const BIN = fileURLToPath(new URL('../bin/aitop.mjs', import.meta.url));
 const HANGUL = /[ㄱ-ㆎ가-힣]/;
-const vars = (v) => [...new Set([v, ...(typeof v === 'object' ? [v.long, v.short] : [])].filter((x) => typeof x === 'string').flatMap((s) => [...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1])))].sort();
+// 값 안의 모든 문자열 (long·short·one·other 를 펼친다).
+const texts = (v) => (typeof v === 'string' ? [v] : v && typeof v === 'object' ? Object.values(v).flatMap(texts) : []);
+const vars = (v) => [...new Set(texts(v).flatMap((s) => [...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1])))].sort();
 
 test('두 언어 표의 키가 같고, 같은 키는 같은 {변수} 를 쓴다', () => {
   assert.deepEqual(LANGS, ['ko', 'en']);
@@ -25,7 +27,7 @@ test('두 언어 표의 키가 같고, 같은 키는 같은 {변수} 를 쓴다'
   for (const k of ko) {
     for (const lang of LANGS) {
       const v = STRINGS[lang][k];
-      assert.ok(typeof v === 'string' || (v && typeof v.long === 'string'), `${lang} ${k}`);
+      assert.ok(typeof v === 'string' || (v && texts(v).length > 0 && (typeof v.long === 'string' || typeof v.other === 'string' || typeof v.long?.other === 'string')), `${lang} ${k}`);
     }
     assert.deepEqual(vars(STRINGS.en[k]), vars(STRINGS.ko[k]), k);
   }
@@ -33,7 +35,7 @@ test('두 언어 표의 키가 같고, 같은 키는 같은 {변수} 를 쓴다'
 
 test('영어 표에는 한글과 em dash 가 없다', () => {
   for (const [k, v] of Object.entries(STRINGS.en)) {
-    const s = typeof v === 'string' ? v : `${v.long} ${v.short ?? ''}`;
+    const s = texts(v).join(' ');
     assert.doesNotMatch(s, HANGUL, k);
     assert.doesNotMatch(s, /\u2014/, k);
   }
@@ -129,23 +131,23 @@ test('--json 의 phaseKind 는 언어와 상관없는 상태 이름이고 phase 
 const PHASES = [
   [{ kind: 'ended' }, '종료', 'Ended', 'Ended'],
   [{ kind: 'done' }, '완료', 'Done', 'Done'],
-  [{ kind: 'unseen' }, '완료 · 확인 전', 'Done · not checked', 'Done · new'],
-  [{ kind: 'idle' }, '다음 지시 대기', 'Waiting for prompt', 'Idle'],
+  [{ kind: 'unseen' }, '완료 · 확인 전', 'Done, unseen', 'Done, unseen'],
+  [{ kind: 'idle' }, '다음 지시 대기', 'Idle, ready for the next prompt', 'Idle'],
   [{ kind: 'idle', msg: 'starting' }, '시작 중', 'Starting', 'Starting'],
-  [{ kind: 'idle', msg: 'firstInput' }, '첫 입력 대기', 'Waiting for first prompt', 'Idle'],
+  [{ kind: 'idle', msg: 'firstInput' }, '첫 입력 대기', 'Idle, ready for the first prompt', 'Idle'],
   [{ kind: 'idle', msg: 'geminiLimited' }, '실행 중 (세부 정보 미지원)', 'Running (no details yet)', 'Running'],
   [{ kind: 'idle', msg: 'agyOldNode' }, '실행 중 (세부 정보는 Node 22.15 이상)', 'Running (details need Node 22.15+)', 'Running'],
   [{ kind: 'waiting' }, '응답 대기', 'Waiting for you', 'Waiting'],
   [{ kind: 'waiting', args: { what: 'Bash' } }, '응답 대기 · Bash', 'Waiting for you · Bash', 'Bash'],
-  [{ kind: 'waiting', args: { what: 'approve Bash', agents: 1 } }, '응답 대기 · approve Bash · 에이전트 1개 실행 중', 'Waiting for you · approve Bash · agents running 1', 'approve Bash · agents 1'],
-  [{ kind: 'waiting', args: { agents: 2 } }, '응답 대기 · 에이전트 2개 실행 중', 'Waiting for you · agents running 2', 'agents 2'],
+  [{ kind: 'waiting', args: { what: 'approve Bash', agents: 1 } }, '응답 대기 · approve Bash · 에이전트 1개 실행 중', 'Waiting for you · approve Bash · 1 agent running', 'approve Bash · 1 agent'],
+  [{ kind: 'waiting', args: { agents: 2 } }, '응답 대기 · 에이전트 2개 실행 중', 'Waiting for you · 2 agents running', '2 agents'],
   [{ kind: 'tool', msg: 'shell' }, '쉘 명령 실행 중', 'Running shell command', 'Shell'],
   [{ kind: 'tool', args: { what: 'Grep' } }, '도구 실행 · Grep', 'Running tool · Grep', 'Tool · Grep'],
   [{ kind: 'tool', msg: 'toolUnknown' }, '도구 실행 · 도구', 'Running tool', 'Tool'],
   [{ kind: 'team', args: { n: 2 } }, '팀원 2명 작업 중', 'Team working · 2', 'Team · 2'],
   [{ kind: 'think' }, '생각 중', 'Thinking', 'Thinking'],
   [{ kind: 'think', msg: 'working' }, '작업 중', 'Working', 'Working'],
-  [{ kind: 'think', msg: 'steps', args: { n: 12, agents: 1 } }, '작업 중 · 12단계 · 에이전트 1개 실행 중', 'Working · step 12 · agents running 1', 'Step 12 · agents 1'],
+  [{ kind: 'think', msg: 'steps', args: { n: 12, agents: 1 } }, '작업 중 · 12단계 · 에이전트 1개 실행 중', 'Working · step 12 · 1 agent running', 'Step 12 · 1 agent'],
   [{ kind: 'think', msg: 'loading', args: { pct: 42 } }, '기록 읽는 중 42%', 'Reading log 42%', 'Loading 42%'],
   [{ kind: 'write' }, '답변 작성 중', 'Writing reply', 'Writing'],
 ];
