@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { makeClaudeHome } from './fixture.mjs';
 import { canListProcesses, processStart } from '../src/procs.mjs';
+import { phaseText } from '../src/i18n.mjs';
 
 makeClaudeHome();
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'aitop-codex-idle-')));
@@ -65,7 +66,7 @@ test('25시간 쉰 codex 세션은 프로세스가 열어 둔 기록 파일로 �
     const rows = await rowOf(child.pid);
     assert.equal(rows.length, 1, '빈 행과 세션 행이 겹치지 않는다');
     assert.equal(rows[0].id, 'idle-day');
-    assert.notEqual(rows[0].phase.text, '첫 입력 대기');
+    assert.notEqual(phaseText(rows[0]?.phase), '첫 입력 대기');
     assert.equal(rows[0].tokens.total, 1050);
     assert.equal(rows[0].context.used, 900);
   } finally {
@@ -116,7 +117,7 @@ test('새 codex 프로세스는 시작 전에 쓰인 같은 작업 폴더의 기
     const started = processStart(child.pid);
     assert.ok(started !== null && Math.abs(Date.now() - started) < 60_000, '프로세스 시작 시각을 읽는다');
     assert.equal(rows.length, 1);
-    assert.equal(rows[0].phase.text, '첫 입력 대기');
+    assert.equal(phaseText(rows[0]?.phase), '첫 입력 대기');
     assert.equal(rows[0].tokens.total, 0);
   } finally {
     child.kill();
@@ -133,7 +134,7 @@ test('처음엔 기록이 없던 codex 도 나중에 생긴 기록이 하루 넘
       await sleep(100);
       rows = collectCodex({ showEnded: false, budget: undefined, ...opts }).filter((r) => r.pid === child.pid);
     }
-    assert.equal(rows[0]?.phase.text, '첫 입력 대기');
+    assert.equal(phaseText(rows[0]?.phase), '첫 입력 대기');
     rollout('later', cwd, 25 * 3600_000);
     rows = await rowOf(child.pid, opts);
     assert.equal(rows.length, 1);
@@ -189,7 +190,7 @@ test('두 시간 전에 끝난 세션이 있는 폴더에서 새로 띄운 codex
       rows = collectCodex({ showEnded: false, budget: undefined }).filter((r) => r.pid === child.pid);
     }
     assert.equal(rows.length, 1);
-    assert.equal(rows[0].phase.text, '첫 입력 대기');
+    assert.equal(phaseText(rows[0]?.phase), '첫 입력 대기');
     assert.equal(rows[0].tokens.total, 0);
   } finally {
     child.kill();

@@ -8,7 +8,7 @@ const at = Date.parse('2026-10-30T05:00:00Z');
 const hunk = (agent, newStart, lines) => ({ at, agent, oldStart: newStart, oldLines: 1, newStart, newLines: lines.length, lines, cut: 0 });
 
 function session(files) {
-  return { tool: 'claude', id: 's1', name: 'demo', cwd: '/work/demo', status: 'busy', live: true, phase: { kind: 'tool', text: '도구 실행 · Edit' }, updatedAt: Date.now(), tokens: { total: 10 }, context: {}, members: [], events: [{ at, kind: 'tool', text: 'Edit ui.mjs' }], files };
+  return { tool: 'claude', id: 's1', name: 'demo', cwd: '/work/demo', status: 'busy', live: true, phase: { kind: 'tool', args: { what: 'Edit' } }, updatedAt: Date.now(), tokens: { total: 10 }, context: {}, members: [], events: [{ at, kind: 'tool', text: 'Edit ui.mjs' }], files };
 }
 const view = (s, extra = {}) => ({ data: { sessions: [s], usage: null, errors: [], at: Date.now() }, selectedId: s.id, showDetail: true, frame: 0, focus: null, ...extra });
 

@@ -118,7 +118,7 @@ test('단계: 예산의 80% 이상은 caution, 100% 이상은 warn', () => {
 
 const strip = (x) => x.replace(/\x1b\[[0-9;]*m/g, '');
 const AT = local(18);
-const sess = { tool: 'claude', id: 'a', name: 'a', cwd: '/w', status: 'busy', live: true, phase: { kind: 'think', text: '' }, updatedAt: AT, tokens: { total: 1 }, cost: 1, context: {}, members: [], events: [] };
+const sess = { tool: 'claude', id: 'a', name: 'a', cwd: '/w', status: 'busy', live: true, phase: { kind: 'think' }, updatedAt: AT, tokens: { total: 1 }, cost: 1, context: {}, members: [], events: [] };
 // 오늘 $12.30, 시간당 $5 → 18시 기준 예상 $42.30.
 const U = { today: { cost: 12.3, costNoCache: 3, tokens: 5.8e7 }, week: { cost: 208, costNoCache: 18, tokens: 2.2e9 }, lastHour: { cost: 5, costNoCache: 1, unknown: false }, recentToday: { cost: 5, costNoCache: 1, unknown: false, ms: HOUR }, loading: null };
 const head = (W, budgetDay, costMode = 'api', u = U) => strip(header({ data: { sessions: [sess, { ...sess, id: 'b', status: 'idle' }], usage: u, at: AT }, costMode, budgetDay }, W));

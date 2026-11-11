@@ -6,7 +6,7 @@ import { PALETTE, hex } from '../src/ui/theme.mjs';
 const strip = (x) => x.replace(/\x1b\[[0-9;]*m/g, '');
 const MONEY = `38;2;${hex(PALETTE.money)}`;
 const at = Date.now();
-const sess = (id, extra = {}) => ({ tool: 'claude', id, name: id, cwd: '/w', status: 'idle', live: true, phase: { kind: 'idle', text: '다음 지시 대기' }, updatedAt: at, tokens: { total: 1000 }, cost: 1, context: {}, members: [], events: [], ...extra });
+const sess = (id, extra = {}) => ({ tool: 'claude', id, name: id, cwd: '/w', status: 'idle', live: true, phase: { kind: 'idle' }, updatedAt: at, tokens: { total: 1000 }, cost: 1, context: {}, members: [], events: [], ...extra });
 const usage = { today: { cost: 52.1, tokens: 1e8 }, week: { cost: 644, tokens: 1e9 }, loading: null };
 const draw = (sessions, W = 140, H = 30, extra = {}) => render({ data: { sessions, usage, errors: [], at }, selectedId: sessions[0]?.id, showDetail: false, frame: 0, ...extra }, W, H);
 
@@ -22,7 +22,7 @@ test('토큰 0 세션은 숫자 칸을 비우고 아직 지시 없음으로 보�
 });
 
 test('토큰 0 이어도 작업 중이면 상태 글자는 그대로 둔다', () => {
-  const row = strip(draw([sess('busy0', { status: 'busy', tokens: { total: 0 }, phase: { kind: 'think', text: '생각 중' } })]).find((l) => l.includes('busy0')));
+  const row = strip(draw([sess('busy0', { status: 'busy', tokens: { total: 0 }, phase: { kind: 'think' } })]).find((l) => l.includes('busy0')));
   assert.match(row, /생각 중/);
 });
 

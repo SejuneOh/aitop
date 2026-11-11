@@ -7,7 +7,7 @@ const strip = (x) => x.replace(/\x1b\[[0-9;]*m/g, '');
 const at = Date.parse('2026-10-30T05:00:00Z');
 const file = (name, m) => ({ path: `/work/demo/${name}`, created: false, edits: 1, add: 1, del: 0, at: at + m * 60_000, hidden: false, dropped: 0, hunks: [{ at: at + m * 60_000, agent: '메인', oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ['-a', '+b'], cut: 0 }], log: [{ at: at + m * 60_000, add: 1, del: 0 }] });
 const events = Array.from({ length: 30 }, (_, i) => ({ at: at + i * 1000, kind: 'tool', text: `작업 ${i}` }));
-const session = (n) => ({ tool: 'claude', id: 's', name: 'demo', cwd: '/work/demo', status: 'busy', live: true, phase: { kind: 'tool', text: '도구' }, updatedAt: at, tokens: { total: 1 }, context: {}, members: [], events, files: Array.from({ length: n }, (_, i) => file(`f${i}.mjs`, i + 1)), turns: [{ n: 1, at, text: 'footer 정리해줘' }] });
+const session = (n) => ({ tool: 'claude', id: 's', name: 'demo', cwd: '/work/demo', status: 'busy', live: true, phase: { kind: 'tool', msg: 'toolUnknown' }, updatedAt: at, tokens: { total: 1 }, context: {}, members: [], events, files: Array.from({ length: n }, (_, i) => file(`f${i}.mjs`, i + 1)), turns: [{ n: 1, at, text: 'footer 정리해줘' }] });
 
 // 상세 패널 오른쪽 칸만 잘라 낸다. 칸의 시작은 최근 활동 가로줄(▌ 막대가 붙지 않는 줄)이 시작하는 화면 열이다.
 // diff 화면처럼 그 가로줄이 없으면 첫 줄의 가로줄로 찾는다.

@@ -8,10 +8,11 @@ import { costOf } from './ui/draw.mjs';
 
 export const SORTS = ['default', 'cost', 'context', 'recent'];
 export const GROUPS = ['none', 'project', 'tool'];
-export const SORT_LABEL = { default: '기본', cost: '비용', context: '컨텍스트', recent: '최근' };
-export const GROUP_LABEL = { none: '없음', project: '프로젝트', tool: '도구' };
 export const WAITING_GROUP = '응답 대기';
 export const PINNED_GROUP = '고정';
+// 폴더를 모르는 세션의 프로젝트 묶음 이름. 응답 대기·고정·폴더 없음 이름은 묶음 키라 ko 로 두고 화면(ui/table.mjs groupRow)이 지금 언어로 바꾼다.
+// 정렬·묶기 이름(s:비용 g:프로젝트)은 i18n.mjs 의 sort.*·groupBy.* 에 있다.
+export const NO_FOLDER = '(폴더 없음)';
 
 // pins 에 id 가 있으면 빼고, 없으면 끝에 붙인다 (고정한 순서를 지킨다). 새 배열을 돌려준다.
 export const togglePin = (pins = [], id) => (pins.includes(id) ? pins.filter((x) => x !== id) : [...pins, id]);
@@ -35,7 +36,7 @@ export function compare(sort, costMode = 'api') {
   return (a, b) => ended(a) - ended(b) || key(b, costMode) - key(a, costMode);
 }
 
-const projectOf = (s) => s.project || String(s.cwd ?? '').split('/').filter(Boolean).at(-1) || '(폴더 없음)';
+const projectOf = (s) => s.project || String(s.cwd ?? '').split('/').filter(Boolean).at(-1) || NO_FOLDER;
 const GROUP_KEY = { project: projectOf, tool: (s) => s.tool ?? '?' };
 
 // 돌려주는 sessions 는 화면에 그리는 순서 그대로다 (↑↓·n 도 이 순서를 따른다).

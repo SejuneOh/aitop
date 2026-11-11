@@ -46,7 +46,7 @@ test('기록 파일이 줄어 처음부터 다시 읽으면 두 번 더하지 �
 });
 
 test('장부가 없으면 헤더에 세션 누적 토큰을 보인다', () => {
-  const view = { data: { sessions: [{ tool: 'codex', id: 'x', name: 'c', status: 'idle', live: true, phase: { kind: 'idle', text: '' }, updatedAt: Date.now(), tokens: { total: 1_200_000 }, context: {}, events: [], members: [] }], usage: null, errors: [], at: Date.now() }, selectedId: 'x', showDetail: false, frame: 0 };
+  const view = { data: { sessions: [{ tool: 'codex', id: 'x', name: 'c', status: 'idle', live: true, phase: { kind: 'idle' }, updatedAt: Date.now(), tokens: { total: 1_200_000 }, context: {}, events: [], members: [] }], usage: null, errors: [], at: Date.now() }, selectedId: 'x', showDetail: false, frame: 0 };
   const head = render(view, 140, 8)[0].replace(/\x1b\[[0-9;]*m/g, '');
   assert.match(head, /Σ 1\.2M tok/);
 });

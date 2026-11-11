@@ -5,7 +5,7 @@ import { render } from '../src/ui.mjs';
 
 const strip = (x) => x.replace(/\x1b\[[0-9;]*m/g, '');
 const at = Date.parse('2026-11-06T05:00:00Z');
-const sess = (id, status, startedAt, updatedAt, extra = {}) => ({ tool: 'claude', id, name: id, cwd: '/w', status, live: true, phase: { kind: 'idle', text: '대기' }, startedAt, updatedAt, tokens: { total: 1000 }, cost: 1, context: {}, members: [], events: [], ...extra });
+const sess = (id, status, startedAt, updatedAt, extra = {}) => ({ tool: 'claude', id, name: id, cwd: '/w', status, live: true, phase: { kind: 'idle' }, startedAt, updatedAt, tokens: { total: 1000 }, cost: 1, context: {}, members: [], events: [], ...extra });
 
 // 갱신 두 번: 같은 세션인데 두 번째에는 updatedAt 순서가 뒤집힌다.
 const first = () => [sess('old', 'idle', at - 3000, at - 10), sess('new', 'idle', at - 1000, at - 500), sess('w', 'waiting', at - 2000, at - 900), sess('b1', 'busy', at - 5000, at - 1), sess('b2', 'busy', at - 4000, at - 2000)];

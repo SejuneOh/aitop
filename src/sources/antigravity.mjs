@@ -605,7 +605,7 @@ function member(r, g) {
     task: r.title ?? '',
     status: r.running ? 'busy' : 'done',
     started: g.tokens.total > 0,
-    phase: r.running ? { kind: 'think', text: `작업 중 · ${r.steps}단계` } : { kind: 'done', text: '완료' },
+    phase: r.running ? { kind: 'think', msg: 'steps', args: { n: r.steps } } : { kind: 'done' },
     now: '',
     tokens: g.tokens.total,
     cost: g.cost,
@@ -639,24 +639,25 @@ export function waitingFor(g) {
 // 실행 중일 때는 아직 바뀌는 중인 단계, 없으면 마지막으로 끝난 단계로 지금 할 일을 짐작한다.
 // 끝난 답변이 도구 호출을 냈으면 그 도구를 실행할 차례이고, 끝난 도구 호출 뒤에는 모델이 결과를 읽고 생각한다.
 export function phaseOf(live, r, g, runningMembers = 0) {
-  if (!live) return { kind: 'ended', text: '종료' };
-  const extra = runningMembers ? ` · 에이전트 ${runningMembers}개 실행 중` : '';
+  if (!live) return { kind: 'ended' };
+  // 같이 도는 에이전트 수는 args.agents 로 보내고, 화면이 문구 뒤에 붙인다.
+  const extra = runningMembers ? { agents: runningMembers } : {};
   const wait = waitingFor(g);
-  if (wait) return { kind: 'waiting', text: `응답 대기 · ${wait}${extra}` };
-  if (!r.running) return { kind: 'idle', text: '다음 지시 대기' };
+  if (wait) return { kind: 'waiting', args: { what: wait, ...extra } };
+  if (!r.running) return { kind: 'idle' };
   // 바뀌는 중인 단계와 끝난 단계 가운데 더 뒤의 것이 지금 하는 일이다 (앞의 명령이 오래 도는 동안 뒤 단계가 이어질 수 있다).
   const open = g.open && (!g.last || (g.open.idx ?? Infinity) > (g.last.idx ?? -1));
   const s = open ? g.open : (g.last ?? g.open);
   let p;
-  if (!s) p = { kind: 'think', text: `작업 중 · ${r.steps}단계` };
-  else if (s.type === STEP.TOOL && open) p = { kind: 'tool', text: `도구 실행 · ${s.tool?.what || '도구'}` };
-  else if (s.type === STEP.REPLY && !open && s.tool) p = { kind: 'tool', text: `도구 실행 · ${s.tool.what}` };
-  else if (s.type === STEP.REPLY) p = { kind: 'write', text: '답변 작성 중' };
-  else p = { kind: 'think', text: '생각 중' };
-  return { ...p, text: p.text + extra };
+  if (!s) p = { kind: 'think', msg: 'steps', args: { n: r.steps } };
+  else if (s.type === STEP.TOOL && open) p = s.tool?.what ? { kind: 'tool', args: { what: s.tool.what } } : { kind: 'tool', msg: 'toolUnknown' };
+  else if (s.type === STEP.REPLY && !open && s.tool) p = { kind: 'tool', args: { what: s.tool.what } };
+  else if (s.type === STEP.REPLY) p = { kind: 'write' };
+  else p = { kind: 'think' };
+  return runningMembers ? { ...p, args: { ...p.args, ...extra } } : p;
 }
 
-function placeholder(p, text) {
+function placeholder(p, msg) {
   return {
     tool: 'gemini',
     id: `agy-${p.pid}`,
@@ -668,7 +669,7 @@ function placeholder(p, text) {
     model: null,
     live: true,
     status: 'idle',
-    phase: { kind: 'idle', text },
+    phase: { kind: 'idle', msg },
     cost: null,
     now: '',
     updatedAt: Date.now(),
@@ -683,7 +684,7 @@ export function collectAgy({ showEnded, budget }) {
   const procs = findProcesses(isAgy);
   // 기록 폴더가 없으면 agy 를 실행한 적이 없는 것이다 (테스트에서 AITOP_AGY_HOME 으로 실제 기록과 떼어 놓을 때도 쓴다).
   if (!existsSync(AGY_ROOT) || (!procs.length && !showEnded)) return [];
-  if (!loadSqlite()) return procs.map((p) => placeholder(p, '실행 중 (세부 정보는 Node 22.15 이상)'));
+  if (!loadSqlite()) return procs.map((p) => placeholder(p, 'agyOldNode'));
 
   const rows = readSummaries();
   const { live, loose } = matchLive(procs, rows);
@@ -755,7 +756,7 @@ export function collectAgy({ showEnded, budget }) {
       members: isLive ? members : [],
     });
   }
-  for (const p of loose) out.push(placeholder(p, '첫 입력 대기'));
+  for (const p of loose) out.push(placeholder(p, 'firstInput'));
 
   const keep = new Set(rows.map((r) => r.id));
   for (const id of convs.keys()) if (!keep.has(id)) convs.delete(id);

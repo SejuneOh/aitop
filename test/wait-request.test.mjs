@@ -7,6 +7,7 @@ import { setNow } from '../src/ui/draw.mjs';
 import { detail, wrapText, REQUEST_LINES } from '../src/ui/detail.mjs';
 import { toolDetail, DETAIL_MAX } from '../src/sources/common.mjs';
 import { toJson } from '../src/json.mjs';
+import { phaseText } from '../src/i18n.mjs';
 
 const fx = makeClaudeHome();
 const { collectClaude } = await import('../src/sources/claude.mjs');
@@ -14,7 +15,7 @@ const { createBudget } = await import('../src/tail.mjs');
 
 const strip = (x) => x.replace(/\x1b\[[0-9;]*m/g, '');
 const CMD = 'git -C /home/dev/Document/dev/playground/aitop log --oneline --decorate -n 20 origin/dev..HEAD && npm test -- --test-name-pattern=waiting';
-const waiting = (extra = {}) => ({ ...session(), status: 'waiting', phase: { kind: 'waiting', text: '응답 대기 · approve Bash' }, waitDetail: CMD, ...extra });
+const waiting = (extra = {}) => ({ ...session(), status: 'waiting', phase: { kind: 'waiting', args: { what: 'approve Bash' } }, waitDetail: CMD, ...extra });
 const draw = (s, W, H = 16) => {
   setNow(at);
   return detail(s, W, H, 0, { tab: 'now', showRequests: true }).map(strip);
@@ -56,7 +57,7 @@ test('Claude 세션이 허락을 기다리면 waitDetail 에 실제 명령이 �
   fx.session({ sessionId: 'rqrqrqrq-1', pid: process.pid, status: 'waiting', waitingFor: 'approve Bash' });
   fx.transcript('rqrqrqrq-1', [user('커밋 보여줘'), assistant('m1', [{ type: 'tool_use', id: 't1', name: 'Bash', input: { description: 'Show commits', command: CMD } }], usage(1, 1))]);
   const s = collectClaude({ showEnded: false, budget: createBudget() }).find((x) => x.id === 'rqrqrqrq-1');
-  assert.equal(s.phase.text, '응답 대기 · approve Bash');
+  assert.equal(phaseText(s.phase), '응답 대기 · approve Bash');
   assert.equal(s.waitDetail, CMD);
   assert.equal(toJson({ sessions: [s] }, null, { showRequests: true }).sessions[0].waitDetail, CMD);
 });

@@ -49,7 +49,7 @@ test('헤더의 응답 대기 수와 응답 대기 행 수가 같고, 가려진 
 });
 
 test('IDLE 열: 작업 중이면 now, 쉬고 있으면 경과 시간', () => {
-  const busy = { ...session(0, 'busy'), phase: { kind: 'think', text: '생각 중' } };
+  const busy = { ...session(0, 'busy'), phase: { kind: 'think' } };
   const idle = { ...session(1), updatedAt: Date.now() - 5 * 60_000 };
   const lines = render(view([busy, idle], { showDetail: false }), 140, 12).map(strip);
   assert.match(lines[3], /IDLE\s*$/);

@@ -146,14 +146,14 @@ for (const name of ['dark-cb', 'light-cb']) {
 
 test('▲ 가 붙어도 큰 금액과 ? 가 잘리지 않는다', () => {
   const at = Date.now();
-  const s = { tool: 'claude', id: 'big', name: 'big', cwd: '/w', status: 'idle', live: true, phase: { kind: 'idle', text: '대기' }, updatedAt: at, tokens: { total: 1000 }, cost: 12345, costUnknown: true, context: {}, members: [], events: [] };
+  const s = { tool: 'claude', id: 'big', name: 'big', cwd: '/w', status: 'idle', live: true, phase: { kind: 'idle' }, updatedAt: at, tokens: { total: 1000 }, cost: 12345, costUnknown: true, context: {}, members: [], events: [] };
   const row = render({ data: { sessions: [s], usage: null, errors: [], at }, selectedId: 'big', showDetail: false, frame: 0 }, 140, 20).map((l) => l.replace(/\x1b\[[0-9;]*m/g, '')).find((l) => l.includes(' big '));
   assert.match(row, /▲\$12,345\?/);
 });
 
 test('비용 상위에는 ▲, 컨텍스트 85% 이상에는 ! 를 붙인다 (색 없이도 보이게)', () => {
   const at = Date.now();
-  const s = (id, cost, used) => ({ tool: 'claude', id, name: id, cwd: '/w', status: 'idle', live: true, phase: { kind: 'idle', text: '대기' }, updatedAt: at, tokens: { total: 1000 }, cost, context: { used, window: 1_000_000 }, members: [], events: [] });
+  const s = (id, cost, used) => ({ tool: 'claude', id, name: id, cwd: '/w', status: 'idle', live: true, phase: { kind: 'idle' }, updatedAt: at, tokens: { total: 1000 }, cost, context: { used, window: 1_000_000 }, members: [], events: [] });
   const lines = render({ data: { sessions: [s('aa', 50, 900_000), s('bb', 40, 100_000), s('cc', 1, 100_000)], usage: null, errors: [], at }, selectedId: 'aa', showDetail: false, frame: 0 }, 140, 20).map((l) => l.replace(/\x1b\[[0-9;]*m/g, ''));
   const row = (id) => lines.find((l) => l.includes(` ${id} `));
   assert.match(row('aa'), /▲\$50\.00/);

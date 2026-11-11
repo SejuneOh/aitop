@@ -11,8 +11,8 @@ const { width } = await import('../src/text.mjs');
 
 const strip = (x) => x.replace(/\x1b\[[0-9;]*m/g, '');
 const at = Date.now();
-const member = (name, task, model, extra = {}) => ({ id: task, name, task, model, status: 'busy', started: true, phase: { kind: 'tool', text: '도구 실행 · Read' }, tokens: 1000, cost: 0.5, costNoCache: 0.1, ...extra });
-const sess = (id, extra = {}) => ({ tool: 'claude', id, name: id, cwd: '/w', project: 'w', model: 'claude-opus-5-5', status: 'idle', live: true, phase: { kind: 'idle', text: '다음 지시 대기' }, updatedAt: at, tokens: { total: 1000 }, cost: 100, costNoCache: 10, context: {}, members: [], events: [], ...extra });
+const member = (name, task, model, extra = {}) => ({ id: task, name, task, model, status: 'busy', started: true, phase: { kind: 'tool', args: { what: 'Read' } }, tokens: 1000, cost: 0.5, costNoCache: 0.1, ...extra });
+const sess = (id, extra = {}) => ({ tool: 'claude', id, name: id, cwd: '/w', project: 'w', model: 'claude-opus-5-5', status: 'idle', live: true, phase: { kind: 'idle' }, updatedAt: at, tokens: { total: 1000 }, cost: 100, costNoCache: 10, context: {}, members: [], events: [], ...extra });
 const usageData = { today: { cost: 52, costNoCache: 5.2, tokens: 1e8 }, week: { cost: 640, costNoCache: 64, tokens: 1e9 }, loading: null };
 const view = (sessions, extra = {}) => ({ data: { sessions, usage: usageData, errors: [], at }, selectedId: sessions[0]?.id, showDetail: false, frame: 0, costMode: 'api', ...extra });
 const draw = (v, W = 160, H = 24) => render(v, W, H).map(strip);
@@ -31,13 +31,13 @@ test('팀원 행: 부모와 같은 모델은 비우고, 하는 일 글을 PROJEC
 });
 
 test('헤더: 응답 대기가 있으면 로고 바로 뒤에 둔다', () => {
-  const head = draw(view([sess('w', { status: 'waiting', phase: { kind: 'waiting', text: '응답 대기' } })]))[0];
+  const head = draw(view([sess('w', { status: 'waiting', phase: { kind: 'waiting' } })]))[0];
   assert.match(head, /^ ⣠⣴⣾ +◆ 1 응답 대기 +1 live/);
   assert.doesNotMatch(draw(view([sess('a')]))[0], /◆/, '없으면 보이지 않는다');
 });
 
 test('좁은 헤더는 live 수와 ○ 대기를 먼저 빼서 오늘 비용을 남긴다', () => {
-  const list = [sess('w', { status: 'waiting', phase: { kind: 'waiting', text: '응답 대기' } }), sess('b', { status: 'busy', phase: { kind: 'think', text: '생각 중' } }), sess('i1'), sess('i2')];
+  const list = [sess('w', { status: 'waiting', phase: { kind: 'waiting' } }), sess('b', { status: 'busy', phase: { kind: 'think' } }), sess('i1'), sess('i2')];
   // 캐시 제외 기준은 '캐시제외' 표시가 끝까지 남는다. 그 9칸 때문에 좁으면 시각을 먼저 빼고 오늘 비용을 지킨다.
   const sweep = (from) => Array.from({ length: 70 - from + 1 }, (_, i) => from + i);
   for (const [costMode, widths] of [['api', sweep(50)], ['net', sweep(48)]]) {
@@ -76,13 +76,13 @@ test('헤더: 0 인 상태 수는 빼고 live 수는 남긴다', () => {
   const head = draw(view([sess('a'), sess('b')]))[0];
   assert.match(head, /2 live +○ 2 대기/);
   assert.doesNotMatch(head, /[⠿◆●] |\b0 /);
-  const busy = draw(view([sess('a', { status: 'busy', phase: { kind: 'think', text: '생각 중' } })]))[0];
+  const busy = draw(view([sess('a', { status: 'busy', phase: { kind: 'think' } })]))[0];
   assert.match(busy, /1 live +⠿ 1 작업 중 /);
   assert.doesNotMatch(busy, /○|\b0 /);
 });
 
 test('헤더: 80 칸에서 live 7·작업 2·대기 5 여도 7일 비용이 잘리지 않는다', () => {
-  const busy = { status: 'busy', phase: { kind: 'think', text: '생각 중' } };
+  const busy = { status: 'busy', phase: { kind: 'think' } };
   const list = [...Array.from({ length: 2 }, (_, i) => sess(`b${i}`, busy)), ...Array.from({ length: 5 }, (_, i) => sess(`i${i}`))];
   const big = { today: { cost: 158, costNoCache: 15, tokens: 3.74e8 }, week: { cost: 751, costNoCache: 75, tokens: 2.02e9 }, loading: null };
   for (const costMode of ['api', 'net']) {
@@ -92,7 +92,7 @@ test('헤더: 80 칸에서 live 7·작업 2·대기 5 여도 7일 비용이 잘�
     assert.match(head, /7 live +⠿ 2 작업.*○ 5 대기 .*7일 \$75.* \d\d:\d\d:\d\d/, `${costMode}: ${head}`);
     assert.ok(width(head) <= 80);
   }
-  const waiting = sess('w', { status: 'waiting', phase: { kind: 'waiting', text: '응답 대기' } });
+  const waiting = sess('w', { status: 'waiting', phase: { kind: 'waiting' } });
   const v = view([waiting, ...list.slice(1)]);
   v.data.usage = big;
   assert.match(draw(v, 80)[0], /◆ 1 응답 +7 live .*7일 \$751/, '응답 대기가 앞에 붙어도 7일은 남는다');
@@ -123,7 +123,7 @@ test('c 키로 비용 기준을 바꾸면 표·헤더·상세가 같이 바뀐�
 });
 
 test('응답 대기를 앞에 둘 때 로고 뒤 공백은 두 칸', () => {
-  const head = draw(view([sess('w', { status: 'waiting', phase: { kind: 'waiting', text: '응답 대기' } })]))[0];
+  const head = draw(view([sess('w', { status: 'waiting', phase: { kind: 'waiting' } })]))[0];
   assert.match(head, /^ ⣠⣴⣾   ◆ 1 응답 대기/);
 });
 
@@ -134,8 +134,8 @@ test('날짜별 합계에 캐시 제외 비용도 더한다', () => {
 });
 
 test('응답 대기 행의 STATUS 칸은 요청 내용을 바로 보이고, 상세 창은 전체 문구를 보인다', () => {
-  const s = sess('w', { status: 'waiting', phase: { kind: 'waiting', text: '응답 대기 · $ which cloudflared && which python3' } });
-  const bare = sess('b', { status: 'waiting', phase: { kind: 'waiting', text: '응답 대기' } });
+  const s = sess('w', { status: 'waiting', phase: { kind: 'waiting', args: { what: '$ which cloudflared && which python3' } } });
+  const bare = sess('b', { status: 'waiting', phase: { kind: 'waiting' } });
   const lines = draw(view([s, bare], { showDetail: true }), 160, 30);
   const row = lines.find((l) => l.includes('◆ claude') && / w +/.test(l));
   assert.match(row, / w +\$ which cloudflared && which python3/);
@@ -147,18 +147,19 @@ test('응답 대기 행의 STATUS 칸은 요청 내용을 바로 보이고, 상�
 
 test('STATUS 칸 글: 응답 대기 접두어를 빼고, 요청이 없으면 응답 대기를 남긴다', async () => {
   const { statusText } = await import('../src/ui/table.mjs');
-  assert.equal(statusText({ kind: 'waiting', text: '응답 대기 · approve Bash · 에이전트 1개 실행 중' }), 'approve Bash · 에이전트 1개 실행 중');
-  assert.equal(statusText({ kind: 'waiting', text: '응답 대기' }), '응답 대기');
-  assert.equal(statusText({ kind: 'tool', text: '응답 대기 · x' }), '응답 대기 · x', '대기가 아니면 그대로');
+  assert.equal(statusText({ kind: 'waiting', args: { what: 'approve Bash', agents: 1 } }), 'approve Bash · 에이전트 1개 실행 중');
+  assert.equal(statusText({ kind: 'waiting', args: { agents: 2 } }), '에이전트 2개 실행 중');
+  assert.equal(statusText({ kind: 'waiting' }), '응답 대기');
+  assert.equal(statusText({ kind: 'tool', args: { what: 'x' } }), '도구 실행 · x', '대기가 아니면 그대로');
   assert.equal(statusText(undefined), '');
-  const m = member('Explore', '찾기', 'claude-haiku-5-5', { phase: { kind: 'waiting', text: '응답 대기 · $ ls' } });
+  const m = member('Explore', '찾기', 'claude-haiku-5-5', { phase: { kind: 'waiting', args: { what: '$ ls' } } });
   const row = draw(view([sess('p', { members: [m] })])).find((l) => l.includes('찾기'));
   assert.match(row, /\$ ls/);
   assert.doesNotMatch(row, /응답 대기/, '팀원 행도 같은 규칙');
 });
 
 test('종료 행과 끝난 팀원 행은 기울임꼴, 색이 없어도 · 와 종료 글자로 구분된다', () => {
-  const ended = sess('e', { status: 'ended', live: false, phase: { kind: 'ended', text: '종료' } });
+  const ended = sess('e', { status: 'ended', live: false, phase: { kind: 'ended' } });
   const raw = render(view([sess('a'), ended], { showEnded: true }), 160, 24);
   const row = raw.find((l) => strip(l).includes(' e '));
   if (!process.env.NO_COLOR) assert.match(row, /\x1b\[3m/);

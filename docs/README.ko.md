@@ -52,6 +52,7 @@ aitop --once     현재 상태를 한 번 출력
 aitop --json     세션 목록과 오늘·7일 사용량을 JSON 으로 한 번 출력 (--all 과 함께 가능)
                  0.5.0 부터 files[] 의 줄 수 필드는 writtenLines·deletedLines (편집 누적, 예전 added·removed)
                  0.6.1 부터 비용(cost 등)은 소수 넷째 자리까지 반올림
+                 phase 는 상태 문구(한국어, 화면 언어와 상관없음) 그대로이고, 언어와 상관없는 상태 이름은 phaseKind (세션·팀원 모두)
 aitop --version  설치된 버전
 aitop --doctor   도구별 연결 점검 (기록 폴더, 기록 수, 마지막 기록, 실행 수). --json 과 함께 가능
 aitop --theme light|dark  밝은 배경 / 어두운 배경 색. 없으면 AITOP_THEME 환경변수, 설정 파일의 theme, 그다음 COLORFGBG 로 고르고, 모르면 어두운 배경
@@ -63,6 +64,7 @@ aitop --debug    디버그 로그 (AITOP_DEBUG=1, 설정 파일 debug). 아래 '
 AITOP_AMBIGUOUS=wide  폭이 모호한 기호를 2칸으로 그리는 터미널용 (설정 파일 ambiguous). 아래 '폭이 모호한 기호' 참고
 aitop --print-config   설정 값마다 값과 출처(flag/env/file/default), 설정 파일 위치를 보인다. --json 과 함께 가능
 aitop --line     tmux 상태줄용 한 줄 (예: $54.13/$50 wait 2 $3.1/h). 아래 'tmux 상태줄' 참고
+aitop --lang ko|en  화면·--help·--doctor·오류 문구의 언어 (AITOP_LANG, 설정 파일 lang). 아래 '언어' 참고
 ```
 
 ### tmux 상태줄 (`--line`)
@@ -102,10 +104,21 @@ set -g status-interval 15
 | `budgetDay` | 0 보다 큰 수 (달러) | `--budget-day <usd>` · `--budget-day=<usd>` · `--no-budget-day`, `AITOP_BUDGET_DAY` |
 | `hideIdleTools` | true (기본) · false | 없음. 실행 중 세션이 없고 7일 동안 쓰지 않은 도구를 도구 줄에서 숨긴다 |
 | `ambiguous` | `narrow` (기본) · `wide` | `AITOP_AMBIGUOUS` |
+| `lang` | `ko` · `en` | `--lang`, `AITOP_LANG`. 없으면 로캘로 고른다 (아래 '언어') |
 
 잘못된 JSON, 모르는 키, 잘못된 값은 그 키만 무시하고 `aitop --doctor` 에 알린다. `showRequests` 는 설정 파일로도 켤 수 있다 (내 파일이라 권한 검사는 하지 않는다). 켜면 위의 `--show-requests` 주의가 그대로 적용된다. `onWaiting` 은 파일 소유자가 나이고 그룹·다른 사용자가 쓸 수 없을 때(예: `chmod 600`)만 받는다.
 
 `--show-requests` 는 기본으로 꺼져 있다. 비밀값 가림은 최선일 뿐이라, 켜면 명령 속 비밀값이 그대로 보일 수 있다. 가림을 거친 요청 내용은 옵션과 관계없이 로컬 캐시(`~/.cache/aitop`)에 저장된다.
+
+### 언어
+
+화면 언어는 로캘을 따른다. 실시간 화면(표·상세·도움말 화면·키 안내 줄), `--once`, `--help`, `--doctor`, 옵션 오류, `--print-config`, 데스크톱 알림 문구가 모두 한국어나 영어로 나온다. `AITOP_LANG=ko|en` 으로 정할 수 있다.
+
+고르는 순서: `--lang ko|en` > `AITOP_LANG` > 설정 파일 `lang` > `LC_ALL` > `LC_MESSAGES` > `LANG`. 로캘 값이 `ko` 로 시작하면(`ko_KR.UTF-8` 등) 한국어, 그 밖은 모두 영어다. `C`, `C.UTF-8`, `POSIX`, `en_US.UTF-8`, 값이 없을 때도 영어다.
+
+`C.UTF-8`·`en_US` 로캘에서 화면과 이 문구들을 한국어로 보던 사용자는 언어 선택이 들어온 버전부터 영어로 보게 된다. 한국어로 보려면 `AITOP_LANG=ko` 를 셸 설정에 넣거나 설정 파일에 `"lang": "ko"` 를 둔다. 잘못된 `AITOP_LANG`·`lang` 값은 무시하고 `--doctor` 에 알린다.
+
+`--json` 의 `phase` 와 `--on-waiting` 의 `AITOP_WAITING_FOR` 는 언어와 상관없이 예전처럼 한국어 문구다. 스크립트는 언어와 상관없는 상태 이름 `phaseKind` (`think` · `write` · `tool` · `team` · `waiting` · `idle` · `done` · `ended`, 모르면 `null`) 를 보면 된다. 다른 글 필드는 따로 정해진다: 영어일 때 `--doctor --json` 의 `tools.*.hint` 는 한국어, `config.problems` 는 영어로 섞여 나온다.
 
 ### 디버그 로그
 

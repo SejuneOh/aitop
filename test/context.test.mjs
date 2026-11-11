@@ -30,7 +30,7 @@ test('Opus 5.5 세션의 컨텍스트 게이지는 1M 기준이다', () => {
 test('최근 활동은 기록 순서가 어긋나도 시각 순으로 보인다', () => {
   const s = {
     tool: 'claude', id: 'x', name: 'main', project: 'p', status: 'idle', live: true,
-    phase: { kind: 'idle', text: '다음 지시 대기' }, updatedAt: Date.now(), tokens: { total: 0 }, cost: 0,
+    phase: { kind: 'idle' }, updatedAt: Date.now(), tokens: { total: 0 }, cost: 0,
     context: { used: 0, window: 0 }, members: [],
     events: [
       { at: Date.parse('2026-10-30T03:27:46Z'), kind: 'tool', text: '두번째' },

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs';
-import { budgetDayOption, configJson, configText, resolveConfig } from '../src/config.mjs';
+import { budgetDayOption, configJson, configPath, configText, readConfigFile, resolveConfig } from '../src/config.mjs';
+import { langOption, pickLang, setLang, t } from '../src/i18n.mjs';
 import { notifyOptions } from '../src/notify.mjs';
 import { lineOption } from '../src/line.mjs';
 import { mask, setAmbiguous, stripControl } from '../src/text.mjs';
@@ -9,8 +10,19 @@ const KNOWN = new Set(['-h', '--help', '-v', '--version', '--once', '--all', '--
 const THEMES = ['light', 'dark'];
 const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
+// 언어는 다른 옵션의 오류 문구보다 먼저 정한다: --lang > AITOP_LANG > 설정 파일 lang > LC_ALL > LC_MESSAGES > LANG.
+// 설정 파일의 문제 문구는 읽을 때 만들어지므로(처음엔 한국어) 언어가 한국어가 아니면 한 번 더 읽는다.
+const langOpt = langOption(process.argv.slice(2));
+const cfgPath = configPath();
+let cfgFile = readConfigFile(cfgPath);
+if (setLang(pickLang({ flag: langOpt.value, file: cfgFile.values.lang })) !== 'ko') cfgFile = readConfigFile(cfgPath);
+if (langOpt.error) {
+  process.stderr.write(`aitop: ${t(...langOpt.error)}\n`);
+  process.exit(2);
+}
+
 // --notify, --no-notify, --on-waiting, --no-on-waiting 은 notifyOptions 한 곳에서 해석한다. 여기서는 명령줄에서 준 값만 본다.
-const cliArgs = process.argv.slice(2);
+const cliArgs = langOpt.rest;
 const cli = notifyOptions(cliArgs);
 if (cli.error) {
   process.stderr.write(`aitop: ${cli.error}\n`);
@@ -52,7 +64,7 @@ const flag = (name) => {
 const notifyFlag = cli.notify ? true : notifyOptions(cliArgs, { notify: true }).notify ? undefined : false;
 // onWaiting 은 --on-waiting 이 뒤에 오면 그 명령, --no-on-waiting 이 뒤에 오면 null(끔), 둘 다 없으면 정하지 않은 것이다.
 const onWaitingFlag = cli.onWaiting ?? (notifyOptions(cliArgs, { onWaiting: 'x' }).onWaiting === null ? null : undefined);
-const config = resolveConfig({ flags: { theme: THEMES.includes(theme) ? theme : undefined, colorBlind: flag('color-blind'), bell: flag('bell'), showRequests: flag('show-requests'), all: flag('all'), debug: flag('debug'), notify: notifyFlag, onWaiting: onWaitingFlag, budgetDay: budget.value } });
+const config = resolveConfig({ flags: { theme: THEMES.includes(theme) ? theme : undefined, colorBlind: flag('color-blind'), bell: flag('bell'), showRequests: flag('show-requests'), all: flag('all'), debug: flag('debug'), notify: notifyFlag, onWaiting: onWaitingFlag, budgetDay: budget.value, lang: langOpt.value }, file: cfgFile });
 const opt = Object.fromEntries(Object.entries(config.values).map(([k, v]) => [k, v.value]));
 // 알림은 설정 파일 값(onWaiting 은 권한 검사를 통과한 것만)을 깔고 명령줄 옵션이 덮는다.
 const fromFile = (k) => (config.values[k].source === 'file' ? config.values[k].value : undefined);
@@ -75,55 +87,21 @@ process.on('unhandledRejection', (reason) => {
     restore();
   } catch {}
   const why = reason instanceof Error ? reason.message : String(reason);
-  process.stderr.write(`aitop: 처리되지 않은 오류로 끝냅니다 (${stripControl(mask(why)).slice(0, 200)})\n`);
+  process.stderr.write(`aitop: ${t('cli.unhandled', { why: stripControl(mask(why)).slice(0, 200) })}\n`);
   process.exit(1);
 });
 
-const HELP = `${BRAND.logo} aitop - 터미널에서 Claude Code · Codex · Antigravity · Gemini 세션을 실시간으로 본다
-
-  aitop            실시간 화면
-  aitop --once     현재 상태를 한 번 출력하고 끝낸다
-  aitop --all      종료된 세션(24시간 이내)도 함께 본다
-  aitop --line     오늘 비용·응답 대기 수·시간당 지출을 한 줄로 내고 끝낸다 (tmux 상태줄용, 예: $54.13/$50 wait 2 $3.1/h)
-                   --line=tmux 는 tmux 색 서식(#[fg=...])을 넣는다. --line-width <N> 폭 상한(기본 40, 넘으면 뒤 항목부터 뺀다)
-                   장부 캐시만 읽는다. 캐시가 없어 1.5초 안에 못 읽으면 ... 을 낸다. 응답 대기 수는 Claude Code 세션만 센다
-  aitop --json     세션 목록과 사용량 합계를 JSON 으로 한 번 출력한다 (--all 과 함께 쓸 수 있다)
-  aitop --doctor   Claude · Codex · Antigravity · Gemini 기록과 실행 중인 프로세스, 설정 파일을 점검한다 (--json 과 함께 쓸 수 있다)
-  aitop --bell     응답 대기 세션이 새로 생기면 터미널 벨을 울린다
-  aitop --notify   응답 대기 세션이 새로 생기면 데스크톱 알림을 띄운다 (notify-send · osascript, 없으면 건너뜀)
-  aitop --on-waiting <명령>  응답 대기 세션이 새로 생기면 /bin/sh -c 로 명령을 실행한다 (내 권한으로 실행, 10초 제한)
-                   세션 정보는 환경변수로만: AITOP_TOOL AITOP_PROJECT AITOP_SESSION_ID AITOP_CWD AITOP_WAITING_FOR
-  aitop --show-requests  응답 대기 요청 전체를 상세 패널·--json 에 보인다 (AITOP_SHOW_REQUESTS=1). 비밀값 가림은 최선일 뿐이라 명령 속 비밀값이 보일 수 있다
-  aitop --budget-day <달러>  하루 예산. 헤더에 오늘 $12.30/$50 처럼 보이고, 오늘 끝 예상 비용(오늘 + 최근 속도 × 자정까지, 늘 API 환산)이
-                   80% 를 넘으면 '예상 $45', 100% 를 넘으면 '예상 $60!' 로 알린다 (AITOP_BUDGET_DAY, 설정 파일 budgetDay)
-  aitop --theme light|dark  밝은 배경 / 어두운 배경 색 (없으면 COLORFGBG 로 고른다)
-  aitop --color-blind  적록 색약용 색. 응답 대기·돈·경고·diff 를 노랑·파랑 계열로 가른다 (AITOP_COLOR_BLIND=1, 설정 파일 colorBlind). --theme 과 함께 쓴다
-  aitop --no-bell · --no-all · --no-show-requests · --no-notify · --no-on-waiting · --no-budget-day · --no-debug · --no-color-blind  설정 파일에서 켠 값을 이번 실행만 끈다
-  aitop --debug    디버그 로그를 남긴다 (AITOP_DEBUG=1, 설정 파일 debug). 기록 형식이 바뀌어 값이 빌 때 원인 확인용
-                   ${logPath()} (1MB 넘으면 .1 로 하나만 남김, 오류 이름·파일 이름만 쓰고 비밀값은 가림)
-  aitop --print-config  설정 값마다 값과 출처(flag/env/file/default), 설정 파일 위치를 보인다 (--json 과 함께 쓸 수 있다)
-  aitop --version  설치된 버전을 보인다
-
-  AITOP_ICONS=plain  창 제목의 Nerd Font 아이콘과 WezTerm 탭 값을 끈다 (ascii 면 로고도 ASCII)
-  AITOP_AMBIGUOUS=wide  ·, →, ─, ● 같은 폭이 모호한 기호를 2칸으로 그리는 터미널(동아시아 폭 설정)용. 표·상자 기호를 1칸 기호로 바꿔 줄이 밀리지 않게 한다 (설정 파일 ambiguous)
-
-  설정 파일: ${config.path}
-    예) { "theme": "light", "icons": "plain", "bell": true, "notify": true, "onWaiting": "say 대기", "budgetDay": 50, "ambiguous": "wide", "hideIdleTools": false }
-    hideIdleTools: 실행 중 세션이 없고 7일 동안 쓰지 않은 도구를 헤더 아래 도구 줄에서 숨긴다 (기본 true, false 면 늘 셋 다)
-    onWaiting 은 파일 소유자가 나이고 그룹·다른 사용자가 쓸 수 없을 때(chmod 600)만 받는다.
-    옵션 > 환경 변수 > 설정 파일 순서로 정한다. 잘못된 값은 무시하고 --doctor 에 알린다.
-
-${keysText().replace(/^/gm, '  ')}
-  실시간 화면에서 ? 를 누르면 지금 화면의 키부터 보인다`;
+// --help 문구는 i18n.mjs 의 help.usage 표에 있다.
+const HELP = t('help.usage', { logo: BRAND.logo, logPath: logPath(), configPath: config.path, keys: keysText().replace(/^/gm, '  ') });
 
 if (theme === '') {
-  process.stderr.write(`aitop: --theme 값이 없습니다 (light 또는 dark)\n`);
+  process.stderr.write(`aitop: ${t('cli.themeMissing')}\n`);
   process.exit(2);
 }
 const unknown = [...args].filter((a) => !KNOWN.has(a));
 if (theme != null && !THEMES.includes(theme)) unknown.push(`--theme ${theme}`);
 if (unknown.length) {
-  process.stderr.write(`aitop: 모르는 옵션 ${unknown.join(' ')}\n\n${HELP}\n`);
+  process.stderr.write(`aitop: ${t('cli.unknown', { opts: unknown.join(' ') })}\n\n${HELP}\n`);
   process.exit(2);
 }
 if (args.has('-h') || args.has('--help')) {
@@ -141,7 +119,7 @@ if (args.has('--print-config')) {
 
 // 디버그 로그는 켰을 때만 파일을 만든다. --help·--version·--print-config 처럼 바로 끝나는 경우에는 만들지 않는다.
 const log = initLog({ enabled: opt.debug, version: VERSION });
-if (opt.debug && !log.on) process.stderr.write(`aitop: 디버그 로그를 열 수 없어 끕니다 (${log.path})\n`);
+if (opt.debug && !log.on) process.stderr.write(`aitop: ${t('cli.logOff', { path: log.path })}\n`);
 
 // --line: 세션 화면·프로세스 목록 없이 장부 캐시만 읽어 한 줄을 내고 끝낸다. 실패해도 tmux 에 오류를 남기지 않게 0 으로 끝낸다.
 if (line.mode) {
@@ -175,7 +153,7 @@ const printAndExit = async (text) => {
 
 // 알림은 실시간 화면에서만 동작한다.
 if ((cli.notify || cli.onWaiting) && (args.has('--once') || args.has('--json') || args.has('--doctor') || !process.stdout.isTTY)) {
-  process.stderr.write('aitop: --notify, --on-waiting 은 실시간 화면에서만 동작한다 (--once·--json·--doctor·파이프 출력에서는 무시)\n');
+  process.stderr.write(`aitop: ${t('cli.notifyLiveOnly')}\n`);
 }
 
 const { checkTools, doctorText, toolsJson } = await import('../src/doctor.mjs');
@@ -223,7 +201,7 @@ function refresh() {
     view.tab = 'now';
   }
   updateAttention(attention, data.sessions, view.selectedId);
-  data.sessions = data.sessions.map((s) => (attention.unseen.has(s.id) ? { ...s, unseen: true, phase: { kind: 'unseen', text: '완료 · 확인 전' }, plain: s } : s));
+  data.sessions = data.sessions.map((s) => (attention.unseen.has(s.id) ? { ...s, unseen: true, phase: { kind: 'unseen' }, plain: s } : s));
   // 도구별 점검은 기록 폴더를 훑으므로 30초에 한 번만 한다.
   if (!tools || Date.now() - tools.at > 30_000) tools = { at: Date.now(), result: checkTools() };
   data.tools = tools.result;

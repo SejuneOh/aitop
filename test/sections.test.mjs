@@ -6,7 +6,7 @@ const strip = (x) => x.replace(/\x1b\[[0-9;]*m/g, '');
 const at = Date.parse('2026-10-30T05:00:00Z');
 const file = (name, min) => ({ path: `/work/demo/${name}`, created: false, edits: 1, add: 1, del: 0, at: at + min * 60_000, hidden: false, dropped: 0, hunks: [], log: [{ at: at + min * 60_000, add: 1, del: 0 }] });
 const s = {
-  tool: 'claude', id: 's', name: 'demo', cwd: '/work/demo', status: 'busy', live: true, phase: { kind: 'tool', text: '도구 실행' }, updatedAt: at, tokens: { total: 1 }, context: {}, members: [],
+  tool: 'claude', id: 's', name: 'demo', cwd: '/work/demo', status: 'busy', live: true, phase: { kind: 'tool', msg: 'toolUnknown' }, updatedAt: at, tokens: { total: 1 }, context: {}, members: [],
   events: [{ at, kind: 'prompt', text: 'footer 정리해줘' }],
   files: [file('a.mjs', 2), file('b.mjs', 1)],
   turns: [{ n: 1, at, text: 'footer 정리해줘' }],

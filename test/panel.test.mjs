@@ -8,7 +8,7 @@ const at = Date.parse('2026-10-30T05:00:00Z');
 const min = (m) => at + m * 60_000;
 const file = (name, m) => ({ path: `/w/${name}`, edits: 1, add: 1, del: 0, at: min(m), hunks: [], log: [{ at: min(m), add: 1, del: 0 }] });
 const turns = Array.from({ length: 8 }, (_, i) => ({ n: i + 1, at: min(i * 10), text: `지시 ${i + 1}` }));
-const s = { tool: 'claude', id: 's', name: 'demo', cwd: '/w', model: 'claude-opus-5-5', status: 'busy', live: true, phase: { kind: 'tool', text: '도구' }, updatedAt: at, tokens: { total: 1 }, cost: 1, context: { used: 680_000, window: 1_000_000 }, members: [], events: [], files: turns.map((t, i) => file(`f${i}.mjs`, i * 10 + 1)), turns };
+const s = { tool: 'claude', id: 's', name: 'demo', cwd: '/w', model: 'claude-opus-5-5', status: 'busy', live: true, phase: { kind: 'tool', msg: 'toolUnknown' }, updatedAt: at, tokens: { total: 1 }, cost: 1, context: { used: 680_000, window: 1_000_000 }, members: [], events: [], files: turns.map((t, i) => file(`f${i}.mjs`, i * 10 + 1)), turns };
 const view = (extra = {}) => ({ data: { sessions: [s], usage: null, errors: [], at }, selectedId: 's', showDetail: true, frame: 0, tab: 'now', ...extra });
 
 test('파일 목록·diff 에 들어가면 상세 상자 테두리만 강조색이 된다', () => {

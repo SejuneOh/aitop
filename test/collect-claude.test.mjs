@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { makeClaudeHome, assistant, user, usage } from './fixture.mjs';
+import { phaseText } from '../src/i18n.mjs';
 
 const fx = makeClaudeHome();
 const { collectClaude, _stats } = await import('../src/sources/claude.mjs');
@@ -18,9 +19,9 @@ test('살아 있는 세션의 상태·토큰·팀원을 읽는다', () => {
   const [s] = run();
   assert.equal(s.name, 'demo-session');
   assert.equal(s.status, 'busy');
-  assert.equal(s.phase.text, '팀원 1명 작업 중');
+  assert.equal(phaseText(s.phase), '팀원 1명 작업 중');
   assert.equal(s.members.length, 1);
-  assert.equal(s.members[0].phase.text, '도구 실행 · Grep');
+  assert.equal(phaseText(s.members[0].phase), '도구 실행 · Grep');
   assert.equal(s.tokens.total, 115 + 3);
 });
 
@@ -38,10 +39,10 @@ test('읽기 한도가 작으면 진행률을 보여 주고, 다음 갱신에서
   fx.transcript('bbbbbbbb-2', [user('긴 기록'), assistant('m1', [{ type: 'text', text: big }], usage(1, 1)), assistant('m2', [{ type: 'text', text: big }], usage(1, 1))]);
 
   const [partial] = run({ budget: createBudget(1) });
-  assert.match(partial.phase.text, /^기록 읽는 중 \d+%$/);
+  assert.match(phaseText(partial.phase), /^기록 읽는 중 \d+%$/);
   let s;
   for (let i = 0; i < 20; i++) [s] = run({ budget: createBudget(1024 * 1024) });
-  assert.doesNotMatch(s.phase.text, /기록 읽는 중/);
+  assert.doesNotMatch(phaseText(s.phase), /기록 읽는 중/);
   assert.equal(s.tokens.total, 4);
 });
 
@@ -51,5 +52,5 @@ test('몇 줄만 밀린 세션은 읽는 중 대신 실제 진행 단계를 보�
   run();
   fx.append(p, [user([{ type: 'tool_result', tool_use_id: 't1' }])]);
   const [s] = run({ budget: createBudget(0) });
-  assert.equal(s.phase.text, '도구 실행 · Bash');
+  assert.equal(phaseText(s.phase), '도구 실행 · Bash');
 });
