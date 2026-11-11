@@ -289,15 +289,15 @@ function endedFromTranscripts(known, selectedId, budget) {
   return out;
 }
 
-export function collectClaude({ showEnded, budget, selectedId }) {
+// ~/.claude/sessions/*.json 을 세션 id 마다 하나로 (살아 있는 쪽, 그다음 최근에 바뀐 쪽). 폴더를 읽지 못하면 null.
+function sessionEntries() {
   let files;
   try {
     files = readdirSync(SESSIONS).filter((n) => n.endsWith('.json'));
   } catch (e) {
     debugIo('claude', 'sessions read failed', e);
-    return [];
+    return null;
   }
-  seen = new Set();
   const latest = new Map();
   for (const f of files) {
     const e = readJson(join(SESSIONS, f));
@@ -306,6 +306,20 @@ export function collectClaude({ showEnded, budget, selectedId }) {
     const prev = latest.get(e.sessionId);
     if (!prev || (e.alive && !prev.alive) || (e.updatedAt ?? e.startedAt) > (prev.updatedAt ?? prev.startedAt)) latest.set(e.sessionId, e);
   }
+  return latest;
+}
+
+// 응답 대기 중인 Claude 세션 수. 세션 파일과 pid 만 보므로 대화 기록·프로세스 목록을 읽지 않는다 (aitop --line 용).
+export function claudeWaitingCount() {
+  let n = 0;
+  for (const e of sessionEntries()?.values() ?? []) if (e.alive && e.waitingFor) n++;
+  return n;
+}
+
+export function collectClaude({ showEnded, budget, selectedId }) {
+  const latest = sessionEntries();
+  if (!latest) return [];
+  seen = new Set();
 
   // 읽기 한도가 큰 기록 하나에 다 쓰이지 않도록, 살아 있는 세션의 새 줄부터 읽는다.
   const entries = [...latest.values()].sort((a, b) => Number(b.alive) - Number(a.alive));
