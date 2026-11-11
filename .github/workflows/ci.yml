@@ -1,10 +1,16 @@
 name: ci
 
+# main 대상 PR 은 release-pr 워크플로가 만드는 dev -> main 릴리스 PR 뿐이라 pull_request 로 돌리지 않는다.
+# 봇(github-actions[bot])이 연 PR 의 실행은 첫 기여자 승인 대기(action_required)로 멈췄다가 PR 이 닫히면
+# job 0개 실패로 남는다. 같은 커밋은 dev 푸시 때 여기서 검사하고, 그 결과가 릴리스 PR 화면에도 보인다.
 on:
   pull_request:
-    branches: [dev, main]
+    branches: [dev]
   push:
     branches: [dev]
+
+permissions:
+  contents: read
 
 concurrency:
   group: ci-${{ github.ref }}
