@@ -9,7 +9,7 @@ import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { openReadOnly, loadSqlite } from '../sqlite.mjs';
 import { findProcesses, isAgy, openFiles } from '../procs.mjs';
-import { emptyTokens, pushEvent, describeTool, toolDetail, isNoisePrompt, MEMBER_FADE_MS } from './common.mjs';
+import { addActivity, emptyTokens, mergeActivity, pushEvent, describeTool, toolDetail, isNoisePrompt, MEMBER_FADE_MS } from './common.mjs';
 import { contextWindow, geminiCost } from '../pricing.mjs';
 import { debug, debugIo } from '../log.mjs';
 
@@ -237,6 +237,8 @@ const fresh = () => ({
   cost: 0,
   costNoCache: 0,
   costUnknown: false,
+  // 시간별 토큰 (common.mjs addActivity). 호출 시각은 호출 직전 단계의 만든 시각이다.
+  activity: {},
   // steps 는 step 번까지 다 넣었고, 그 뒤로는 seen 에 적힌 줄만 넣었다.
   step: -1,
   seen: [],
@@ -350,7 +352,7 @@ const callTokens = (u) => u.input + u.output + u.cacheRead + u.cacheWrite;
 
 // gen_metadata 를 이어 읽어 n 의 토큰과 비용에 더한다. 돌려주는 값은 readCalls 와 같다.
 function readGenerations(db, n, last, budget, fallbackAt) {
-  return readCalls(db, n, last, budget, fallbackAt, ({ usage: u, cost }) => {
+  return readCalls(db, n, last, budget, fallbackAt, ({ usage: u, cost, at }) => {
     const t = n.tokens;
     t.input += u.input;
     t.output += u.output;
@@ -358,6 +360,7 @@ function readGenerations(db, n, last, budget, fallbackAt) {
     t.cacheWrite += u.cacheWrite;
     t.total += callTokens(u);
     n.prompt = u.input + u.cacheRead + u.cacheWrite;
+    addActivity(n.activity, at, callTokens(u));
     n.cost += cost?.total ?? 0;
     n.costNoCache += cost?.noCache ?? 0;
     if (!cost && callTokens(u) > 0) n.costUnknown = true;
@@ -473,7 +476,7 @@ export function readConversation(id, budget) {
   }
   const mtime = mtimeOf(path);
   // 복사본에 더하고, 끝까지 탈 없이 읽었을 때만 반영한다.
-  let n = { ...g, tokens: { ...g.tokens }, events: [...g.events], turns: [...g.turns], seen: [...g.seen] };
+  let n = { ...g, tokens: { ...g.tokens }, activity: { ...g.activity }, events: [...g.events], turns: [...g.turns], seen: [...g.seen] };
   let db;
   let ok = false;
   try {
@@ -748,6 +751,7 @@ export function collectAgy({ showEnded, budget }) {
       events: g.events,
       files: [],
       turns: g.turns,
+      activity: mergeActivity([g.activity, ...kidUsage.map((u) => u.activity)]),
       members: isLive ? members : [],
     });
   }

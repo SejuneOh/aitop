@@ -2,8 +2,9 @@
 import { pad, width } from '../text.mjs';
 import { NO_COLOR, PALETTE } from './theme.mjs';
 import { box, line, segsWidth } from './draw.mjs';
+import { glyphs, legendMark } from './glyphs.mjs';
 import { GROUP_LABEL, SORT_LABEL } from '../order.mjs';
-import { OPTIONS, VIEWS, helpContext, keysLine, settingsLine } from '../help.mjs';
+import { COMMON, OPTIONS, VIEWS, helpContext, keysLine, settingsLine } from '../help.mjs';
 
 // 상세 패널을 기본으로 여는 최소 화면 높이. 이보다 낮으면 세션 표에 줄을 준다.
 export const DETAIL_MIN_H = 24;
@@ -16,11 +17,12 @@ export function detailOpen(view, H) {
 // 상태 기호와 열 설명. 키는 help.mjs 의 VIEWS 에서 화면별로 고른다.
 export const LEGEND = [
   ['상태 기호', null],
-  ['⠋', '작업 중 (색: 초록 생각·답변, 파랑 도구 실행, 분홍 팀원 작업)'],
+  ['⠋', '작업 중 (STATUS 칸에 생각·답변, 도구 실행, 팀원 작업. 색으로도 나뉜다)'],
   ['◆', '응답 대기 (권한·질문). 행 배경이 강조된다'],
   ['●', '완료 · 확인 전 (작업이 끝났는데 아직 선택해 보지 않음)'],
   ['○', '다음 지시 대기'],
   ['·', '종료'],
+  ['★', '고정한 세션 (p). SESSION 칸 앞에 붙는다'],
   ['', ''],
   ['열', null],
   ['STATUS', '지금 단계. 큰 기록을 처음 읽는 동안은 기록 읽는 중 N%'],
@@ -28,16 +30,18 @@ export const LEGEND = [
   ['COST', 'API 정가로 환산한 비용 (Codex 는 OpenAI 정가 추정). ? 는 가격표에 없는 모델 포함'],
   ['CONTEXT', '마지막 요청의 컨텍스트 사용률 (모델별 창 크기 기준)'],
   ['IDLE', '마지막 활동 후 지난 시간. 작업 중이면 now'],
+  ['숨김 N', '도구 줄 끝: 7일 동안 안 쓴 도구를 숨김. 다시 보려면 설정 파일에 "hideIdleTools": false'],
+  ['+N', '도구 줄 끝: 화면이 좁아 접은 도구 수 (넓히면 보인다)'],
   ['오늘 / 7일', '헤더 오른쪽. 날짜별 합계, API 정가 환산이며 구독 요금제의 청구액이 아니다'],
   ['변경 파일', 'Edit/Write(Codex 는 apply_patch) 로 고친 파일과 편집 횟수. git diff 가 아니다'],
 ];
 
-// 도움말 줄 목록: 지금 화면의 키 → (표에 검색어가 걸려 있으면) 그 키 → (상세 패널이 열려 있으면) 상세 패널 키 → 다른 화면 한 줄씩 → 옵션 → 상태 기호·열.
+// 도움말 줄 목록: 지금 화면의 키 → (표에 검색어가 걸려 있으면) 그 키 → (상세 패널이 열려 있으면) 상세 패널 키 → 어디서나 쓰는 키 → 다른 화면 한 줄씩 → 옵션 → 상태 기호·열.
 // 넓으면(100칸 이상) 키는 왼쪽, 옵션·기호·열은 오른쪽 칸에 둔다.
 export function helpSections(view = {}, open = false) {
   const ctx = helpContext(view);
   const here = ctx === 'table' ? ['table', ...(view.filter ? ['filtered'] : []), ...(open ? ['detail'] : [])] : [ctx];
-  const keys = here.flatMap((n, i) => [...(i ? [['', '']] : []), [`${VIEWS[n].title}${i ? '' : '  (지금 화면)'}`, null], ...VIEWS[n].keys.map(([k, t]) => [k, t])]);
+  const keys = [...here.map((n) => VIEWS[n]), COMMON].flatMap((v, i) => [...(i ? [['', '']] : []), [`${v.title}${i ? '' : '  (지금 화면)'}`, null], ...v.keys.map(([k, t]) => [k, t])]);
   const others = Object.keys(VIEWS).filter((n) => !here.includes(n));
   const rest = [['', ''], ['다른 화면', null], ...others.map((n) => [VIEWS[n].title, keysLine(n), 'dim'])];
   const now = settingsLine(view.settings);
@@ -47,7 +51,7 @@ export function helpSections(view = {}, open = false) {
     ...(view.settings?.configPath ? [['설정 파일', view.settings.configPath, 'dim']] : []),
     ...(now ? [['지금', now]] : []),
   ];
-  return { keys: [...keys, ...rest], more: [...options, ['', ''], ...LEGEND] };
+  return { keys: [...keys, ...rest], more: [...options, ['', ''], ...LEGEND.map(([k, t]) => [legendMark(k), t])] };
 }
 
 // 키 칸 폭은 제목 줄 사이 묶음마다 그 묶음의 가장 긴 키에 맞춘다 (12~21칸).
@@ -83,6 +87,8 @@ export function help(W, H, view = {}, open = false) {
   const max = Math.max(0, ...cols.map((c) => c.length - rows));
   const scroll = Math.min(max, Math.max(0, view.helpScroll ?? 0));
   view.helpMax = max;
+  // PgUp·PgDn 한 번에 넘길 줄 수: 보이는 줄에서 한 줄을 겹쳐 남긴다.
+  view.helpPage = Math.max(1, rows - 1);
   view.helpScroll = scroll;
   if (wide) return box(title, W, H, windowOf(cols[0], rows, scroll), windowOf(cols[1], rows, scroll), Math.min(64, Math.floor((W - 7) * 0.5)), PALETTE.brand);
   return box(title, W, H, null, windowOf(cols[0], rows, scroll), 0, PALETTE.brand);
@@ -125,7 +131,7 @@ export function footer(view, W, matched, sel) {
   if (view.help) return hintBar([{ k: '↑↓', t: '스크롤' }, { k: '?', t: '도움 닫기', keep: true }, { k: 'Esc', t: '닫기' }, { k: 'q', t: '나가기', keep: true }], W, '⊘ 읽기전용');
   if (view.searching) {
     const input = NO_COLOR ? [{ t: '[/]' }] : [{ t: ' / ', fg: PALETTE.chipText, bg: PALETTE.brand, bold: true }];
-    return hintBar([{ segs: [...input, { t: ` ${view.filter ?? ''}`, fg: PALETTE.text, bold: true }, { t: '▏', fg: PALETTE.brand }, { t: `  ${matched}개   `, fg: PALETTE.muted }], keep: true }, { k: '⏎', t: '적용', keep: true }, { k: 'Esc', t: '지우기', keep: true }], W);
+    return hintBar([{ segs: [...input, { t: ` ${view.filter ?? ''}`, fg: PALETTE.text, bold: true }, { t: glyphs().cursor, fg: PALETTE.brand }, { t: `  ${matched}개   `, fg: PALETTE.muted }], keep: true }, { k: '⏎', t: '적용', keep: true }, { k: 'Esc', t: '지우기', keep: true }], W);
   }
   if (view.focus) {
     const keys =
@@ -149,6 +155,8 @@ export function footer(view, W, matched, sel) {
     { k: 'd', t: view.showDetail ? '상세 닫기' : '상세 열기' },
     { k: 'e', t: view.showEnded ? '종료 숨김' : '종료 포함' },
     { k: 'c', t: '비용 기준' },
+    // 고정은 폭이 모자라면 가장 먼저 빠진다.
+    ...(sel ? [{ k: 'p', t: view.pins?.includes(sel.id) ? '고정 해제' : '고정' }] : []),
     ...tail,
   ];
   return hintBar(items, W, '⊘ 읽기전용');

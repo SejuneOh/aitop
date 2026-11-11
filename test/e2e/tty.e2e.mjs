@@ -153,3 +153,57 @@ process.stdout.write = function (chunk, ...rest) {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// p: 고른 세션을 맨 위에 고정하고, 정렬(s)을 바꿔도 맨 위에 남으며, 다시 누르면 풀린다. 색 없이(NO_COLOR) 본다.
+test('p 로 세션을 맨 위에 고정·해제하고, s 로 정렬을 바꿔도 고정은 맨 위에 남는다', { skip: !hasScript && 'util-linux script 없음', timeout: 60_000 }, async () => {
+  const fx = makeSession();
+  // 세션 파일은 pid 마다 하나라서 둘째 세션은 다른 살아 있는 프로세스의 pid 를 쓴다.
+  const other = spawn('sleep', ['60'], { stdio: 'ignore' });
+  fx.session({ sessionId: 'e2epin00-1', pid: other.pid, name: '둘째 세션', status: 'idle', cwd: '/work/top' });
+  fx.transcript('e2epin00-1', [user('위'), assistant('p1', [{ type: 'text', text: '네' }], usage(50_000, 10))]);
+  const cmd = 'stty cols 140 rows 30; exec "$AITOP_NODE" "$AITOP_BIN"';
+  const child = spawn('script', ['-qfec', cmd, '/dev/null'], { env: { ...process.env, NO_COLOR: '1', AITOP_NODE: process.execPath, AITOP_BIN: BIN } });
+  let out = '';
+  child.stdout.setEncoding('utf8');
+  child.stdout.on('data', (d) => (out += d));
+  const screen = () => out.split('\x1b[H').at(-1).replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
+  const NAMES = ['둘째 세션', 'e2e 세션'];
+  const order = () => NAMES.map((n) => screen().split(/\r?\n/).findIndex((l) => l.includes(n)));
+  const waitFor = async (ok, what) => {
+    const end = Date.now() + WAIT_MS;
+    while (Date.now() < end) {
+      if (ok()) return;
+      await sleep(50);
+    }
+    throw new Error(`${what} 화면이 나오지 않음\n${screen()}`);
+  };
+  const press = async (key) => {
+    child.stdin.write(key);
+    await sleep(200);
+  };
+  try {
+    await waitFor(() => order().every((i) => i >= 0), '첫');
+    // 처음에 아래에 있는 세션으로 내려가 고정한다.
+    const [a, b] = order();
+    const lower = a > b ? NAMES[0] : NAMES[1];
+    const pinnedFirst = () => {
+      const [x, y] = order();
+      return lower === NAMES[0] ? x < y : y < x;
+    };
+    assert.ok(!pinnedFirst());
+    await press('j');
+    await press('p');
+    await waitFor(() => screen().includes(`★ ${lower}`), '고정 표시');
+    assert.ok(pinnedFirst(), '고정한 세션이 맨 위로');
+    assert.match(screen(), /\[p\] 고정 해제/, '색이 없어도 키 안내에 보인다');
+    await press('s');
+    await waitFor(() => /s:비용/.test(screen()), '비용순');
+    assert.ok(pinnedFirst(), '정렬을 바꿔도 맨 위');
+    await press('p');
+    await waitFor(() => !screen().includes('★'), '고정 해제');
+    await press('q');
+  } finally {
+    if (child.exitCode == null) child.kill('SIGKILL');
+    other.kill('SIGKILL');
+  }
+});

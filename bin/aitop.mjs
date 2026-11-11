@@ -2,9 +2,9 @@
 import { readFileSync } from 'node:fs';
 import { budgetDayOption, configJson, configText, resolveConfig } from '../src/config.mjs';
 import { notifyOptions } from '../src/notify.mjs';
-import { mask, stripControl } from '../src/text.mjs';
+import { mask, setAmbiguous, stripControl } from '../src/text.mjs';
 
-const KNOWN = new Set(['-h', '--help', '-v', '--version', '--once', '--all', '--json', '--doctor', '--bell', '--show-requests', '--print-config', '--no-bell', '--no-all', '--no-show-requests', '--debug', '--no-debug']);
+const KNOWN = new Set(['-h', '--help', '-v', '--version', '--once', '--all', '--json', '--doctor', '--bell', '--show-requests', '--print-config', '--no-bell', '--no-all', '--no-show-requests', '--debug', '--no-debug', '--color-blind', '--no-color-blind']);
 const THEMES = ['light', 'dark'];
 const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
@@ -43,14 +43,17 @@ const flag = (name) => {
 const notifyFlag = cli.notify ? true : notifyOptions(cliArgs, { notify: true }).notify ? undefined : false;
 // onWaiting 은 --on-waiting 이 뒤에 오면 그 명령, --no-on-waiting 이 뒤에 오면 null(끔), 둘 다 없으면 정하지 않은 것이다.
 const onWaitingFlag = cli.onWaiting ?? (notifyOptions(cliArgs, { onWaiting: 'x' }).onWaiting === null ? null : undefined);
-const config = resolveConfig({ flags: { theme: THEMES.includes(theme) ? theme : undefined, bell: flag('bell'), showRequests: flag('show-requests'), all: flag('all'), debug: flag('debug'), notify: notifyFlag, onWaiting: onWaitingFlag, budgetDay: budget.value } });
+const config = resolveConfig({ flags: { theme: THEMES.includes(theme) ? theme : undefined, colorBlind: flag('color-blind'), bell: flag('bell'), showRequests: flag('show-requests'), all: flag('all'), debug: flag('debug'), notify: notifyFlag, onWaiting: onWaitingFlag, budgetDay: budget.value } });
 const opt = Object.fromEntries(Object.entries(config.values).map(([k, v]) => [k, v.value]));
 // 알림은 설정 파일 값(onWaiting 은 권한 검사를 통과한 것만)을 깔고 명령줄 옵션이 덮는다.
 const fromFile = (k) => (config.values[k].source === 'file' ? config.values[k].value : undefined);
 const alerts = notifyOptions(cliArgs, { notify: fromFile('notify'), onWaiting: fromFile('onWaiting') });
 // 화면 모듈과 표식 모듈은 불러올 때 테마·아이콘을 고르므로 그 전에 넘긴다.
 if (opt.theme) process.env.AITOP_THEME = opt.theme;
+process.env.AITOP_COLOR_BLIND = opt.colorBlind ? '1' : '0';
 if (config.values.icons.source === 'file') process.env.AITOP_ICONS = opt.icons;
+// 폭이 모호한 기호를 2칸으로 셀지는 글자 폭 계산(text.mjs)이 쓴다. 화면 모듈은 그릴 때마다 이 값을 본다.
+setAmbiguous(opt.ambiguous);
 const { BRAND, userVarsSeq } = await import('../src/brand.mjs');
 const { keysText } = await import('../src/help.mjs');
 const { debug, initLog, logPath } = await import('../src/log.mjs');
@@ -82,16 +85,19 @@ const HELP = `${BRAND.logo} aitop - 터미널에서 Claude Code · Codex · Anti
   aitop --budget-day <달러>  하루 예산. 헤더에 오늘 $12.30/$50 처럼 보이고, 오늘 끝 예상 비용(오늘 + 최근 속도 × 자정까지, 늘 API 환산)이
                    80% 를 넘으면 '예상 $45', 100% 를 넘으면 '예상 $60!' 로 알린다 (AITOP_BUDGET_DAY, 설정 파일 budgetDay)
   aitop --theme light|dark  밝은 배경 / 어두운 배경 색 (없으면 COLORFGBG 로 고른다)
-  aitop --no-bell · --no-all · --no-show-requests · --no-notify · --no-on-waiting · --no-budget-day · --no-debug  설정 파일에서 켠 값을 이번 실행만 끈다
+  aitop --color-blind  적록 색약용 색. 응답 대기·돈·경고·diff 를 노랑·파랑 계열로 가른다 (AITOP_COLOR_BLIND=1, 설정 파일 colorBlind). --theme 과 함께 쓴다
+  aitop --no-bell · --no-all · --no-show-requests · --no-notify · --no-on-waiting · --no-budget-day · --no-debug · --no-color-blind  설정 파일에서 켠 값을 이번 실행만 끈다
   aitop --debug    디버그 로그를 남긴다 (AITOP_DEBUG=1, 설정 파일 debug). 기록 형식이 바뀌어 값이 빌 때 원인 확인용
                    ${logPath()} (1MB 넘으면 .1 로 하나만 남김, 오류 이름·파일 이름만 쓰고 비밀값은 가림)
   aitop --print-config  설정 값마다 값과 출처(flag/env/file/default), 설정 파일 위치를 보인다 (--json 과 함께 쓸 수 있다)
   aitop --version  설치된 버전을 보인다
 
   AITOP_ICONS=plain  창 제목의 Nerd Font 아이콘과 WezTerm 탭 값을 끈다 (ascii 면 로고도 ASCII)
+  AITOP_AMBIGUOUS=wide  ·, →, ─, ● 같은 폭이 모호한 기호를 2칸으로 그리는 터미널(동아시아 폭 설정)용. 표·상자 기호를 1칸 기호로 바꿔 줄이 밀리지 않게 한다 (설정 파일 ambiguous)
 
   설정 파일: ${config.path}
-    예) { "theme": "light", "icons": "plain", "bell": true, "notify": true, "onWaiting": "say 대기", "budgetDay": 50 }
+    예) { "theme": "light", "icons": "plain", "bell": true, "notify": true, "onWaiting": "say 대기", "budgetDay": 50, "ambiguous": "wide", "hideIdleTools": false }
+    hideIdleTools: 실행 중 세션이 없고 7일 동안 쓰지 않은 도구를 헤더 아래 도구 줄에서 숨긴다 (기본 true, false 면 늘 셋 다)
     onWaiting 은 파일 소유자가 나이고 그룹·다른 사용자가 쓸 수 없을 때(chmod 600)만 받는다.
     옵션 > 환경 변수 > 설정 파일 순서로 정한다. 잘못된 값은 무시하고 --doctor 에 알린다.
 
@@ -162,7 +168,7 @@ const { onKey, fixFocus } = await import('../src/keys.mjs');
 const showRequests = opt.showRequests;
 // settings: 도움말(?)에 보이는 지금 설정 값.
 const settings = { budgetDay: opt.budgetDay, notify: Boolean(alerts.notify), onWaiting: Boolean(alerts.onWaiting), debug: log.on, configPath: config.path };
-const view = { showRequests, budgetDay: opt.budgetDay, settings, data: null, selectedId: null, showDetail: 'auto', showEnded: opt.all, frame: 0, filter: '', searching: false, help: false, focus: null, filePath: null, diffScroll: 0, tab: 'now', costMode: 'api', sort: 'default', group: 'none' };
+const view = { showRequests, budgetDay: opt.budgetDay, hideIdleTools: opt.hideIdleTools, settings, data: null, selectedId: null, showDetail: 'auto', showEnded: opt.all, frame: 0, filter: '', searching: false, help: false, focus: null, filePath: null, diffScroll: 0, tab: 'now', costMode: 'api', sort: 'default', group: 'none', pins: [] };
 const once = args.has('--once') || args.has('--json') || !process.stdout.isTTY;
 // 실시간 화면에서 한 번 갱신할 때 읽는 기록 양과 시간. 큰 기록은 여러 번에 나눠 읽어서 키 입력이 막히지 않게 한다.
 const TICK_BUDGET = 24 * 1024 * 1024;

@@ -2,6 +2,8 @@
 // 응답 대기 세션은 사람이 할 일이므로 어떤 정렬·묶기에서도 맨 위에 둔다.
 // 묶을 때는 대기 세션을 프로젝트·도구 묶음에 섞지 않고 맨 위 '응답 대기' 묶음 하나로 모은다.
 // 대기 세션이 제 프로젝트 묶음 안에 흩어지면 맨 위라는 약속이 깨지고, 묶음 머리 위에 따로 두면 어느 묶음 소속인지 헷갈린다.
+// 고정(p)한 세션은 응답 대기 바로 아래에 고정한 순서대로 둔다. 정렬을 바꿔도 그 순서는 바뀌지 않고, 묶을 때는 '고정' 묶음 하나로 모은다.
+// 응답 대기를 고정보다 위에 두는 것은 사람이 할 일이 고정 목록에 가려지지 않게 하려는 것이다. 고정한 세션이 응답 대기가 되면 대기 쪽으로 올라간다.
 import { costOf } from './ui/draw.mjs';
 
 export const SORTS = ['default', 'cost', 'context', 'recent'];
@@ -9,6 +11,10 @@ export const GROUPS = ['none', 'project', 'tool'];
 export const SORT_LABEL = { default: '기본', cost: '비용', context: '컨텍스트', recent: '최근' };
 export const GROUP_LABEL = { none: '없음', project: '프로젝트', tool: '도구' };
 export const WAITING_GROUP = '응답 대기';
+export const PINNED_GROUP = '고정';
+
+// pins 에 id 가 있으면 빼고, 없으면 끝에 붙인다 (고정한 순서를 지킨다). 새 배열을 돌려준다.
+export const togglePin = (pins = [], id) => (pins.includes(id) ? pins.filter((x) => x !== id) : [...pins, id]);
 
 const next = (list, cur) => list[(Math.max(0, list.indexOf(cur)) + 1) % list.length];
 export const nextSort = (sort) => next(SORTS, sort ?? 'default');
@@ -33,25 +39,30 @@ const projectOf = (s) => s.project || String(s.cwd ?? '').split('/').filter(Bool
 const GROUP_KEY = { project: projectOf, tool: (s) => s.tool ?? '?' };
 
 // 돌려주는 sessions 는 화면에 그리는 순서 그대로다 (↑↓·n 도 이 순서를 따른다).
-// groups 는 묶을 때만 있다: { name, count, cost, unknown, waiting, sessions }. 묶음은 그 안의 첫 세션이 정렬에서 앞선 순으로 놓인다.
-export function arrange(sessions, { sort = 'default', group = 'none', costMode = 'api' } = {}) {
+// groups 는 묶을 때만 있다: { name, count, cost, unknown, waiting, pinned, sessions }. 묶음은 그 안의 첫 세션이 정렬에서 앞선 순으로 놓인다.
+// pins: 고정한 세션 id (고정한 순서). 화면에 없는 id 는 건너뛴다.
+export function arrange(sessions, { sort = 'default', group = 'none', costMode = 'api', pins = [] } = {}) {
   const cmp = compare(sort, costMode);
+  const rank = new Map((pins ?? []).map((id, i) => [id, i]));
   const waiting = sessions.filter((s) => s.status === 'waiting').sort(cmp);
-  const rest = sessions.filter((s) => s.status !== 'waiting').sort(cmp);
+  const pinned = sessions.filter((s) => s.status !== 'waiting' && rank.has(s.id)).sort((a, b) => rank.get(a.id) - rank.get(b.id));
+  const rest = sessions.filter((s) => s.status !== 'waiting' && !rank.has(s.id)).sort(cmp);
   const keyOf = GROUP_KEY[group];
-  if (!keyOf) return { sessions: [...waiting, ...rest], groups: null };
+  if (!keyOf) return { sessions: [...waiting, ...pinned, ...rest], groups: null };
   const byName = new Map();
   for (const s of rest) {
     const name = keyOf(s);
     if (!byName.has(name)) byName.set(name, []);
     byName.get(name).push(s);
   }
-  const groups = [...(waiting.length ? [[WAITING_GROUP, waiting, true]] : []), ...[...byName].map(([name, list]) => [name, list, false])].map(([name, list, isWaiting]) => ({
+  const head = [...(waiting.length ? [[WAITING_GROUP, waiting, 'waiting']] : []), ...(pinned.length ? [[PINNED_GROUP, pinned, 'pinned']] : [])];
+  const groups = [...head, ...[...byName].map(([name, list]) => [name, list, null])].map(([name, list, kind]) => ({
     name,
     count: list.length,
     cost: list.reduce((a, s) => a + (costOf(s, costMode) ?? 0), 0),
     unknown: list.some((s) => s.costUnknown),
-    waiting: isWaiting,
+    waiting: kind === 'waiting',
+    pinned: kind === 'pinned',
     sessions: list,
   }));
   return { sessions: groups.flatMap((g) => g.sessions), groups };

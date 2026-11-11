@@ -7,7 +7,7 @@ import { join, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { isAlive } from '../procs.mjs';
 import { ClaudeTracker } from './claude-tracker.mjs';
-import { emptyTokens, MEMBER_FADE_MS } from './common.mjs';
+import { emptyTokens, mergeActivity, MEMBER_FADE_MS } from './common.mjs';
 import { mergeFiles } from './files.mjs';
 import { debug, debugIo } from '../log.mjs';
 
@@ -75,7 +75,7 @@ function loadingPhase(t) {
 
 // 서브에이전트 전체(끝난 것 포함)의 토큰·비용 합계. 메인 세션 합계에 더해 화면에 보인다.
 function emptySub() {
-  return { count: 0, tokens: emptyTokens(), cost: 0, costNoCache: 0, costUnknown: false, files: [] };
+  return { count: 0, tokens: emptyTokens(), cost: 0, costNoCache: 0, costUnknown: false, files: [], activity: [] };
 }
 
 // 메인 tracker 와 서브에이전트 합계를 화면에 보일 세션 숫자로 합친다. 기록을 아직 읽지 않았으면(t 없음) 비용은 null.
@@ -92,6 +92,8 @@ function sessionTotals(t, sub) {
     context: { used, window: contextWindow(t?.model, used) },
     files: t ? mergeFiles([{ agent: '메인', files: t.files }, ...sub.files]) : [],
     turns: t?.turns ?? [],
+    // 시간별 토큰: 메인과 서브에이전트를 칸별로 더한다.
+    activity: mergeActivity([t?.activity, ...sub.activity]),
   };
 }
 
@@ -110,6 +112,7 @@ function readMembers(transcript, parent, budget) {
     sub.cost += t.cost;
     sub.costNoCache += t.costNoCache;
     sub.costUnknown ||= t.costUnknown;
+    sub.activity.push(t.activity);
     if (t.files.length) sub.files.push({ agent: meta.agentType ?? 'agent', files: t.files, startedAt: t.firstAt ?? undefined });
     const age = Date.now() - t.mtimeMs;
     const awaited = Boolean(meta.toolUseId && parent?.pending.has(meta.toolUseId));

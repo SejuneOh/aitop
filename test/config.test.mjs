@@ -27,7 +27,7 @@ test('파일이 없으면 기본값을 쓰고 문제로 보지 않는다', () =>
   const cfg = resolveConfig({ env: {}, file: readConfigFile('/nonexistent/aitop/config.json') });
   assert.equal(cfg.exists, false);
   assert.deepEqual(cfg.problems, []);
-  assert.deepEqual(pick(cfg), { theme: 'null@default', icons: 'full@default', bell: 'false@default', showRequests: 'false@default', all: 'false@default', notify: 'false@default', onWaiting: 'null@default', debug: 'false@default', budgetDay: 'null@default' });
+  assert.deepEqual(pick(cfg), { theme: 'null@default', icons: 'full@default', bell: 'false@default', showRequests: 'false@default', all: 'false@default', notify: 'false@default', onWaiting: 'null@default', debug: 'false@default', budgetDay: 'null@default', colorBlind: 'false@default', hideIdleTools: 'true@default', ambiguous: 'narrow@default' });
 });
 
 test('옵션 > 환경 변수 > 파일 > 기본값', () => {

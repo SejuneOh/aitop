@@ -56,6 +56,12 @@ export const KEYS = {
   onWaiting: { ok: (v) => typeof v === 'string' && v.trim() !== '', expect: '실행할 명령 문자열', def: null },
   debug: { ok: bool, expect: 'true 또는 false', def: false, env: ['AITOP_DEBUG', (v) => (v === '1' ? true : v === '0' ? false : undefined)], envProblem: true, envExpect: '1 또는 0' },
   budgetDay: { ok: (v) => typeof v === 'number' && Number.isFinite(v) && v > 0, expect: '0 보다 큰 수', def: null, env: ['AITOP_BUDGET_DAY', (v) => usd(v) ?? undefined], envProblem: true },
+  // colorBlind 는 적록 색약 팔레트(ui/theme.mjs)를 고른다. theme(밝기)과 따로 정한다.
+  colorBlind: { ok: bool, expect: 'true 또는 false', def: false, env: ['AITOP_COLOR_BLIND', (v) => (v === '1' ? true : v === '0' ? false : undefined)], envProblem: true, envExpect: '1 또는 0' },
+  // 실행 중 세션이 없고 7일 동안 쓰지 않은 도구를 도구 줄에서 숨긴다. false 면 늘 셋 다 보인다.
+  hideIdleTools: { ok: bool, expect: 'true 또는 false', def: true },
+  // 폭이 모호한 기호(·, →, ─, ● 등)를 2칸으로 그리는 터미널이면 wide. 표 칸이 밀리지 않게 1칸 기호로 바꾸고 폭을 2칸으로 센다.
+  ambiguous: { ok: oneOf('narrow', 'wide'), expect: 'narrow 또는 wide', def: 'narrow', env: ['AITOP_AMBIGUOUS', (v) => (v === 'narrow' || v === 'wide' ? v : undefined)], envProblem: true },
 };
 
 export function configPath(env = process.env, home = homedir()) {

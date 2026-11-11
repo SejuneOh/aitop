@@ -31,10 +31,12 @@ test('세션이 없으면 키 줄은 e, ?, q 만 보인다', () => {
   assert.match(foot, /종료 포함.*도움.*나가기/);
 });
 
-test('도구 줄은 기록 폴더가 없는 도구를 미설치로 보인다', () => {
-  const strip2 = strip(render(view(), 120, 24)[1]);
+test('도구 줄은 기록 폴더가 없는 도구를 미설치로 보인다 (오래 안 쓴 도구 숨기기를 끈 때)', () => {
+  const strip2 = strip(render(view({ hideIdleTools: false }), 120, 24)[1]);
   assert.match(strip2, /codex 미설치/);
   assert.doesNotMatch(strip2, /claude 미설치|gemini 미설치/);
+  // 기본은 7일 동안 쓰지 않은 도구(미설치 포함)를 숨기고 개수만 적는다.
+  assert.match(strip(render(view(), 120, 24)[1]), /^ +claude +숨김 codex gemini *$/);
 });
 
 test('검색 결과가 없을 때는 점검 줄 대신 검색 안내만 보인다', () => {

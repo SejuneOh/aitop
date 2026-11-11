@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { BAR_GLYPHS, header, weekBar } from '../src/ui/table.mjs';
+import { header, weekBar } from '../src/ui/table.mjs';
+import { glyphs as glyphSet } from '../src/ui/glyphs.mjs';
 import { PALETTE } from '../src/ui/theme.mjs';
 import { toJson } from '../src/json.mjs';
 import { width } from '../src/text.mjs';
@@ -10,7 +11,7 @@ const glyphs = (days, mode) => weekBar(days, mode).map((x) => x.t).join('');
 const D = (costs, f = 1) => costs.map((c, i) => ({ date: `2026-11-0${4 + i}`, cost: c, costNoCache: c * f, unknown: false }));
 
 test('막대는 7일 중 가장 큰 날을 █ 로 맞추고, 0 인 날은 흐린 ▁, 쓴 날은 ▂ 이상', () => {
-  assert.equal(BAR_GLYPHS, '▁▂▃▄▅▆▇█');
+  assert.equal(glyphSet().week, '▁▂▃▄▅▆▇█');
   assert.equal(glyphs(D([0, 0, 0, 0, 0, 0, 0])), '▁▁▁▁▁▁▁', '모두 0');
   assert.ok(weekBar(D([0, 0, 0, 0, 0, 0, 0])).every((x) => x.fg === PALETTE.faint));
   assert.equal(glyphs(D([0, 0, 0, 100, 0, 0, 0])), '▁▁▁█▁▁▁', '큰 날 하나');

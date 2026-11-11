@@ -55,10 +55,12 @@ aitop --json     세션 목록과 오늘·7일 사용량을 JSON 으로 한 번 
 aitop --version  설치된 버전
 aitop --doctor   도구별 연결 점검 (기록 폴더, 기록 수, 마지막 기록, 실행 수). --json 과 함께 가능
 aitop --theme light|dark  밝은 배경 / 어두운 배경 색. 없으면 AITOP_THEME 환경변수, 설정 파일의 theme, 그다음 COLORFGBG 로 고르고, 모르면 어두운 배경
+aitop --color-blind  적록 색약(1형·2형)용 색. --theme 과 따로 고르며 밝은·어두운 배경 모두 있다 (AITOP_COLOR_BLIND=1, 설정 파일 colorBlind). 아래 '색약 팔레트' 참고
 aitop --show-requests  응답 대기 요청 전체(명령·경로)를 상세 패널과 --json(waitDetail)에 보인다. AITOP_SHOW_REQUESTS=1 과 같다
 aitop --budget-day <달러>  하루 예산 (AITOP_BUDGET_DAY, 설정 파일 budgetDay). 아래 '하루 예산' 참고
-aitop --no-bell · --no-all · --no-show-requests · --no-notify · --no-on-waiting · --no-budget-day · --no-debug  설정 파일에서 켠 값을 이번 실행만 끈다
+aitop --no-bell · --no-all · --no-show-requests · --no-notify · --no-on-waiting · --no-budget-day · --no-debug · --no-color-blind  설정 파일에서 켠 값을 이번 실행만 끈다
 aitop --debug    디버그 로그 (AITOP_DEBUG=1, 설정 파일 debug). 아래 '디버그 로그' 참고
+AITOP_AMBIGUOUS=wide  폭이 모호한 기호를 2칸으로 그리는 터미널용 (설정 파일 ambiguous). 아래 '폭이 모호한 기호' 참고
 aitop --print-config   설정 값마다 값과 출처(flag/env/file/default), 설정 파일 위치를 보인다. --json 과 함께 가능
 ```
 
@@ -73,6 +75,7 @@ aitop --print-config   설정 값마다 값과 출처(flag/env/file/default), �
 | 키 | 값 | 같은 옵션·환경 변수 |
 |---|---|---|
 | `theme` | `light` · `dark` | `--theme`, `AITOP_THEME` |
+| `colorBlind` | true · false | `--color-blind` · `--no-color-blind`, `AITOP_COLOR_BLIND=1`·`0` |
 | `icons` | `plain` · `ascii` | `AITOP_ICONS` |
 | `bell` | true · false | `--bell` · `--no-bell` |
 | `showRequests` | true · false | `--show-requests` · `--no-show-requests`, `AITOP_SHOW_REQUESTS=1`·`0` |
@@ -81,6 +84,8 @@ aitop --print-config   설정 값마다 값과 출처(flag/env/file/default), �
 | `onWaiting` | 명령 문자열 | `--on-waiting` · `--no-on-waiting` |
 | `debug` | true · false | `--debug` · `--no-debug`, `AITOP_DEBUG=1`·`0` |
 | `budgetDay` | 0 보다 큰 수 (달러) | `--budget-day <usd>` · `--budget-day=<usd>` · `--no-budget-day`, `AITOP_BUDGET_DAY` |
+| `hideIdleTools` | true (기본) · false | 없음. 실행 중 세션이 없고 7일 동안 쓰지 않은 도구를 도구 줄에서 숨긴다 |
+| `ambiguous` | `narrow` (기본) · `wide` | `AITOP_AMBIGUOUS` |
 
 잘못된 JSON, 모르는 키, 잘못된 값은 그 키만 무시하고 `aitop --doctor` 에 알린다. `showRequests` 는 설정 파일로도 켤 수 있다 (내 파일이라 권한 검사는 하지 않는다). 켜면 위의 `--show-requests` 주의가 그대로 적용된다. `onWaiting` 은 파일 소유자가 나이고 그룹·다른 사용자가 쓸 수 없을 때(예: `chmod 600`)만 받는다.
 
@@ -95,6 +100,20 @@ CLI 기록 형식이 바뀌어 값이 비어 보이면 `aitop --debug` 로 실�
 `--json` 에는 `version` 과 같은 점검 결과 `tools` 가 들어 있다.
 
 색 없이도(NO_COLOR) 보이도록 비용 상위 두 세션에는 `▲`, 컨텍스트 85% 이상에는 `!` 가 붙는다.
+
+### 색약 팔레트
+
+`aitop --color-blind` (또는 `AITOP_COLOR_BLIND=1`, 설정 파일 `"colorBlind": true`) 는 적록 색약이 헷갈리는 색 쌍을 노랑 계열과 파랑 계열로 가른다. Okabe-Ito 색 계열을 바탕으로 했다.
+
+| 뜻 | 기본 (어두운 배경) | 색약 (어두운 · 밝은 배경) | 색 말고 구분하는 기호 |
+|---|---|---|---|
+| 응답 대기 | 호박색 | 노랑 `#f0e442` · `#6e5f00` | `◆`, 행 배경, 헤더 `◆ N 응답 대기` |
+| 돈 (비용) | 연두 | 옅은 파랑 `#d4dcff` · `#3a4fc0` | `$`, 비용 상위 `▲` |
+| 작업 중 · diff 더한 줄 | 초록 | 청록 `#3cc8a0` · `#00735a` | 스피너, STATUS 글, 줄 앞 `+` |
+| 경고 · diff 지운 줄 | 빨강 | 주홍 `#ff8060` · `#c03010` | `!`, 줄 앞 `-` |
+| 예산 주의 | 분홍 | 자주 `#e8a0c8` · `#9a3d76` | `예상 $45` (경고는 `예상 $60!`) |
+
+밝기(`--theme`)와는 따로 고르므로 `COLORFGBG` 자동 판별도 그대로 쓴다. 글자 대비 규칙(배경·선택 행·대기 행·띠 위 4.5:1 이상)은 기본 팔레트와 같다. 청황 색약(3형)용 팔레트는 아직 없다.
 
 실시간 화면은 창(탭) 제목을 `󰚩 (2◆ 1●) aitop` 처럼 아이콘과 응답 대기·확인 전 수로 바꾼다. `--bell` 을 주면 응답 대기가 새로 생길 때 벨을 한 번 울린다.
 
@@ -129,6 +148,14 @@ aitop --on-waiting 'my-hook.sh'    응답 대기가 새로 생길 때마다 /bin
 
 Nerd Font 를 쓰지 않는 터미널에서는 탭 제목 아이콘이 빈 네모로 보일 수 있다. 그때는 `export AITOP_ICONS=plain` 으로 끈다.
 
+### 폭이 모호한 기호 (`AITOP_AMBIGUOUS=wide`)
+
+`·` `→` `…` `─` `│` `●` `◆` `▃` 같은 글자는 유니코드에서 폭이 '모호(A)' 하다. 동아시아 폭 설정을 켠 터미널(iTerm2 의 'Ambiguous characters are double-width', Windows Terminal·mintty 의 CJK 폭, vim 의 `ambiwidth=double` 과 같은 설정)은 이 글자들을 2칸으로 그려서 표 칸과 상자 테두리가 밀린다. 그런 터미널이면 `export AITOP_AMBIGUOUS=wide` (또는 설정 파일 `"ambiguous": "wide"`) 로 켠다.
+
+- 칸 수가 정해진 자리의 기호는 1칸 ASCII 로 바꾼다: 상자 `+ - |`, 가로줄 `-`, 컨텍스트 막대 `#`, 7일·활동 막대 `_.:-=+*#`, 상태 기호 `!`(응답 대기) `*`(확인 전·실행 중) `o`(대기) `.`(종료), 선택 `>`, 고정 `*`(★), 팀원 가지 `|-` `` `- ``.
+- 글 속의 `·` `→` `…` 등은 그대로 두고 2칸으로 세어 줄 끝을 맞춘다.
+- 로고 `⣠⣴⣾` 와 스피너는 점자라 폭이 모호하지 않아 그대로다.
+
 WezTerm 은 aitop 이 내보내는 user var(`aitop`, `aitop_waiting`, `aitop_unseen`)로 탭을 꾸밀 수 있다. `wezterm.lua` 예:
 
 ```lua
@@ -153,6 +180,7 @@ end)
 | / | 세션 검색 (이름·폴더·모델). Enter 적용, Esc 지우기 |
 | ↑↓ / j k | 세션 선택 |
 | n | 다음 볼 세션으로 이동 (응답 대기 → 완료 · 확인 전) |
+| p | 고른 세션을 표 맨 위(응답 대기 바로 아래)에 고정, 다시 누르면 해제. 여러 개는 고정한 순서로 두고 정렬(`s`)이 바꾸지 않는다. 묶기(`g`)에서는 `고정` 묶음으로 모인다. 고정한 행은 SESSION 칸 앞에 `★` (좁은 화면에서도 이름보다 먼저 남는다). 종료 세션을 함께 볼 때(`e`) 고정한 종료 세션도 실행 중인 세션보다 위에 남는다. 이번 실행에만 기억한다 |
 | f / Tab | 변경 파일 목록으로. ←→ 지시 탭, ↑↓ 파일 고르기, Enter diff 보기 |
 | diff 에서 ↑↓ · space · [ ] | 스크롤 · 페이지 · 이전·다음 파일 |
 | d | 상세 열기·닫기 |
@@ -168,6 +196,7 @@ end)
 - 7일 막대: `7일 $644 ▅▁▃█▄▂▃` 는 오래된 날 → 오늘의 날짜별 비용을 7일 중 가장 큰 날 기준(█)으로 그린다. 0 인 날은 흐린 `▁`, 쓴 날은 `▂` 이상이라 색이 없어도 갈린다. 집계 중에는 숨기고, 폭이 모자라면 지출 속도 다음으로 뺀다. `--json` 에는 `usage.last7days.daily: [{ date, cost }]` (API 환산)로 나간다.
 - 지출 속도: `오늘 $194 ($31/h)` 의 괄호는 최근 1시간(5분 단위 근사) 비용이다. 0 이면 숨기고, 폭이 모자라면 가장 먼저 뺀다. `--json` 에는 `usage.lastHour` 로 나간다.
 - 하루 예산(`budgetDay`): 오늘 금액 옆에 `오늘 $12.30/$50` 처럼 보인다. 예상 비용 = 오늘 비용 + 최근 지출 속도 × 로컬 자정까지 남은 시간. 속도는 최근 1시간 중 자정 이후 몫만 시간당으로 늘린 값이고, 자정 뒤 15분이 안 됐거나 집계 중이면 예상 = 오늘 비용이다. 예상이 예산의 80% 이상이면 `· 예상 $45`, 100% 이상이면 경고 색과 `· 예상 $60!`. 예산은 비용 기준(`c`)과 상관없이 늘 API 환산으로 보며, 캐시 제외 화면에서는 `예산 $12.30/$50` 칸이 따로 붙는다. 폭이 모자라면 `/$50`, 오늘 금액 순으로 빼서 예상 경고를 시각 다음으로 오래 남긴다. 잘못된 `AITOP_BUDGET_DAY` 는 무시하고 `--doctor` 에 알린다. `--json` 에는 예산이 있을 때만 `usage.budget: { day, projected, unknown, level: ok·caution·warn }` 로 나간다 (화면과 같은 단계).
+- 도구 줄(헤더 아래 `▍claude 2 · 1.2M  codex  gemini`): 폭이 모자라면 간격, 토큰 수·`미설치`, 이름(`cla` `cdx` `gem`) 순으로 줄이고, 그래도 넘치면 세션이 없는 도구부터 빼고 끝에 `+N` 을 붙인다. 이름이 글자 중간에서 잘리지 않는다. 실행 중 세션이 없고 7일 동안 세션(기록 폴더의 가장 새 기록 포함)이 없는 도구는 숨기고 줄 끝에 `숨김 codex gemini` (자리가 모자라면 `숨김 2`, 아주 좁으면 뺌) 를 적는다. 기록 폴더가 없는(미설치) 도구도 함께 숨는다. 숨기면 남는 도구가 하나도 없을 때는 숨기지 않고 예전처럼 흐리게 다 보인다 (`미설치` 포함). 끝의 `+N` 은 화면이 좁아 접은 도구 수다. 실행 중 세션이나 프로세스가 있으면 늘 보인다. 설정 파일 `"hideIdleTools": false` 로 끈다.
 - 화면 높이가 30줄 이상이면 세션 표를 `세션 N` 상자로 감싼다. 비용 색은 화면에서 가장 큰 금액 두 개에만 칠한다.
 - 키 안내 줄은 폭이 모자라면 오른쪽부터 줄이고 `?`·`q` 는 늘 남긴다. `NO_COLOR` 이면 키가 `[q]` 처럼 괄호로 보이고, 포커스된 상자는 굵은 선(`┏━┃`)으로 그린다.
 - `● 완료 · 확인 전`: 작업 중이던 세션이 끝났는데 아직 선택해 보지 않은 세션. aitop 을 다시 켜면 초기화된다.
