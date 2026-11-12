@@ -43,10 +43,11 @@ In `--json`, `phase` stays the Korean status text in every language (as does `AI
 
 ### Daily report
 
-`aitop --report daily` prints tokens and cost (API list price, like the header) per day, newest first, with a total row, then exits. Columns are per tool by default or per model with `--by model`; `--days N` goes back up to 30 days, and `--json` gives the same numbers for scripts. The first run reads up to 30 days of logs, so it can take a while (progress shows on stderr); later runs use the cache.
+`aitop --report daily` prints tokens and cost (API list price, like the header) per day, newest first, with a total row, then exits. Columns are per tool by default, per model with `--by model`, or per project with `--by project` (the last folder name of the working directory: Claude log `cwd`, Codex `turn_context.cwd`, agy workspace; Claude Code worktrees under `<repo>/.claude/worktrees/` count as the repo; `(unknown)` when missing; extra columns beyond the terminal width are merged into `(others)`, `--json` lists all with a `paths` map); `--days N` goes back up to 30 days, and `--json` gives the same numbers for scripts. The first run reads up to 30 days of logs, so it can take a while (progress shows on stderr); later runs use the cache.
 
 ```
 aitop --report daily --by model --days 14
+aitop --report daily --by project --days 7
 ```
 
 ### tmux status line

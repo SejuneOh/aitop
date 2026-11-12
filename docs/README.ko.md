@@ -66,7 +66,7 @@ aitop --debug    디버그 로그 (AITOP_DEBUG=1, 설정 파일 debug). 아래 '
 AITOP_AMBIGUOUS=wide  폭이 모호한 기호를 2칸으로 그리는 터미널용 (설정 파일 ambiguous). 아래 '폭이 모호한 기호' 참고
 aitop --print-config   설정 값마다 값과 출처(flag/env/file/default), 설정 파일 위치를 보인다. --json 과 함께 가능
 aitop --line     tmux 상태줄용 한 줄 (예: $54.13/$50 wait 2 run 3 $3.1/h). 아래 'tmux 상태줄' 참고
-aitop --report daily [--by tool|model] [--days N] [--json]  최근 N일의 날짜별 토큰·비용 표. 아래 '기간 리포트' 참고
+aitop --report daily [--by tool|model|project] [--days N] [--json]  최근 N일의 날짜별 토큰·비용 표. 아래 '기간 리포트' 참고
 aitop --lang ko|en  화면·--help·--doctor·오류 문구의 언어 (AITOP_LANG, 설정 파일 lang). 아래 '언어' 참고
 ```
 
@@ -90,13 +90,14 @@ set -g status-interval 15
 
 `aitop --report daily` 는 최근 N일의 날짜별 토큰과 비용을 표로 내고 끝난다 (실시간 화면 없음).
 
-- `--by tool` (기본) 은 도구(claude · codex · agy)별 열, `--by model` 은 모델별 열이다. 열은 기간 비용이 큰 순서이고, 기간에 쓰지 않은 열은 뺀다.
+- `--by tool` (기본) 은 도구(claude · codex · agy)별 열, `--by model` 은 모델별 열, `--by project` 는 프로젝트별 열이다. 열은 기간 비용이 큰 순서이고, 기간에 쓰지 않은 열은 뺀다.
+- 프로젝트는 기록 파일마다 정한다: Claude 는 기록의 `cwd` (없으면 `projects/` 아래 폴더 이름), Codex 는 `turn_context.cwd`, agy 는 대화의 작업 폴더(`workspace_uris`, 서브에이전트는 부모 대화). Claude Code 작업 트리(`<저장소>/.claude/worktrees/<이름>`)는 저장소 하나로 합친다. 못 찾으면 `(모름)` 열이다. 이름은 작업 폴더의 마지막 이름이고, 겹치면 앞 폴더를 붙인다 (`dev/aitop`). 열이 터미널 폭을 넘으면 비용이 작은 쪽을 `(그 외)` 로 합친다. `--json` 은 다 내고, 이름별 경로를 `paths` 에 둔다.
 - `--days N` 은 기본·최대 30일이다. 30을 넘기면 30일로 줄이고 stderr 에 알린다.
 - 줄은 최근 날짜가 위(오늘부터 거꾸로)이고 맨 아래가 합계다. 합계는 위 날짜 줄을 더한 값이다. 비용은 헤더와 같은 API 정가 환산이다.
-- `--json` 은 같은 값을 영어 키와 숫자로만 낸다: `report`, `by`, `days`, `from`, `to`, `basis`, `partial`, `unpriced`, `columns`, `rows[]{date, tokens, cost, unpriced, items}`, `total{tokens, cost, unpriced, items}`. `items` 의 칸도 `{tokens, cost, unpriced}` 다.
+- `--json` 은 같은 값을 영어 키와 숫자로만 낸다: `report`, `by`, `days`, `from`, `to`, `basis`, `partial`, `unpriced`, `columns`, `paths` (`--by project` 때만), `rows[]{date, tokens, cost, unpriced, items}`, `total{tokens, cost, unpriced, items}`. `items` 의 칸도 `{tokens, cost, unpriced}` 다.
 - 가격표에 없는 모델이 낀 칸은 헤더처럼 비용 뒤에 `?` 를 붙인다 (예: `$12.30?`). `--json` 은 그 칸의 `unpriced` 가 `true` 다.
 - 장부는 날짜별·모델별 합계를 30일 남긴다 (캐시 형식 14). 평소 실행(화면 · `--json` · `--line`)은 지금처럼 최근 7일 안에 바뀐 기록만 읽고, `--report` 만 30일 안에 바뀐 기록까지 읽는다. 그래서 처음 `--report` 는 30일치 기록을 읽느라 수십 초 걸릴 수 있다. stderr 가 터미널이면 진행률을 보이고, 120초(`AITOP_REPORT_MS`)를 넘으면 읽은 만큼으로 표를 내며 덜 읽었다고 알린다 (`--json` 은 `partial: true`). 읽은 만큼은 캐시에 남아 다음 실행이 이어 읽는다.
-- 프로젝트별·월별 리포트는 아직 없다 (#164).
+- 월별 리포트는 아직 없다 (#164).
 
 ```
 $ aitop --report daily --days 3 --lang en
