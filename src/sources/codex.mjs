@@ -30,6 +30,20 @@ export function dayDirs(days = 7) {
   return dirs;
 }
 
+// 남아 있는 날짜 폴더 전부 (sessions/YYYY/MM/DD). 장부는 시작한 날과 상관없이 최근에 바뀐 기록을 모두 봐야 해서 이것을 쓴다.
+export function allDayDirs() {
+  const dirs = [];
+  const sub = (p) => {
+    try {
+      return readdirSync(p).filter((n) => /^\d+$/.test(n)).map((n) => join(p, n));
+    } catch {
+      return [];
+    }
+  };
+  for (const y of sub(ROOT)) for (const m of sub(y)) dirs.push(...sub(m));
+  return dirs;
+}
+
 // 날짜 폴더를 매초 다시 훑지 않도록 파일 이름 목록만 잠깐 재사용한다. 수정 시각은 매번 확인한다.
 const LIST_TTL_MS = 5000;
 let listed = { at: 0, paths: [] };

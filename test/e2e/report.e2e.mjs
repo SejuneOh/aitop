@@ -1,9 +1,9 @@
-// aitop --report daily 를 새 프로세스로 실행한다: 빈 캐시 폴더에서도 0 으로 끝나고, 표의 합계 줄이 --json 과 같으며,
+// aitop --report daily·monthly 를 새 프로세스로 실행한다: 빈 캐시 폴더에서도 0 으로 끝나고, 표의 합계 줄이 --json 과 같으며,
 // 언어(en·ko)를 따르고, 잘못된 옵션은 2 로 끝낸다.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readdirSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BIN } from './session.mjs';
@@ -77,4 +77,36 @@ test('--by project: 작업 폴더 이름 열, --json 은 이름별 경로를 둔
   assert.deepEqual(j.columns, ['-work-demo']);
   assert.deepEqual(j.paths, { '-work-demo': '-work-demo' });
   assert.equal(j.total.tokens, 1_360_000);
+});
+
+test('--report monthly: 빈 캐시에서 12달 표를 내고, 보관함(monthly.json)을 캐시 루트에 남기며, 다시 실행해도 같다', () => {
+  const cache = mkdtempSync(join(tmpdir(), 'aitop-report-monthly-'));
+  const r = run(['--report', 'monthly'], { XDG_CACHE_HOME: cache, ...EN });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stderr, '');
+  assert.match(r.stdout, /^Monthly usage, last 12 months/);
+  assert.equal(r.stdout.split('\n').filter((l) => /^\d{4}-\d\d(?: |$)/.test(l)).length, 12);
+  assert.match(r.stdout, /^\d{4}-\d\d \* /m);
+  const a = JSON.parse(readFileSync(join(cache, 'aitop', 'monthly.json'), 'utf8'));
+  assert.equal(a.v, 1);
+  assert.ok(a.backfilled);
+  assert.equal(run(['--report', 'monthly'], { XDG_CACHE_HOME: cache, ...EN }).stdout, r.stdout);
+  const j = JSON.parse(run(['--report', 'monthly', '--by', 'model', '--months', '3', '--json'], { XDG_CACHE_HOME: cache }).stdout);
+  assert.equal(j.report, 'monthly');
+  assert.equal(j.months, 3);
+  assert.equal(j.rows.length, 3);
+  assert.equal(j.rows[0].current, true);
+  assert.equal(j.total.tokens, 1_360_000, '날짜별 리포트의 합계와 같다');
+  assert.equal(j.total.tokens, j.rows.reduce((s, x) => s + x.tokens, 0));
+  const ko = run(['--report', 'monthly', '--months', '2'], { XDG_CACHE_HOME: cache, AITOP_LANG: 'ko' }).stdout;
+  assert.match(ko, /^달별 사용량 · 최근 2달/);
+  assert.match(ko, /^\* 이번 달/m);
+});
+
+test('--report monthly 옵션 오류: --days 와 함께 쓰면 2, --months 13 은 12로 줄인다고 알린다', () => {
+  assert.equal(run(['--report', 'monthly', '--days', '3']).status, 2);
+  const capped = run(['--report', 'monthly', '--months', '13', '--json'], EN);
+  assert.equal(capped.status, 0);
+  assert.equal(JSON.parse(capped.stdout).months, 12);
+  assert.match(capped.stderr, /limited to the 12 months/);
 });

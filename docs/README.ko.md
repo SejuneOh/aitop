@@ -67,6 +67,7 @@ AITOP_AMBIGUOUS=wide  폭이 모호한 기호를 2칸으로 그리는 터미널�
 aitop --print-config   설정 값마다 값과 출처(flag/env/file/default), 설정 파일 위치를 보인다. --json 과 함께 가능
 aitop --line     tmux 상태줄용 한 줄 (예: $54.13/$50 wait 2 run 3 $3.1/h). 아래 'tmux 상태줄' 참고
 aitop --report daily [--by tool|model|project] [--days N] [--json]  최근 N일의 날짜별 토큰·비용 표. 아래 '기간 리포트' 참고
+aitop --report monthly [--by tool|model|project] [--months N] [--json]  최근 N달(최대 12)의 달별 표. 아래 '기간 리포트' 참고
 aitop --lang ko|en  화면·--help·--doctor·오류 문구의 언어 (AITOP_LANG, 설정 파일 lang). 아래 '언어' 참고
 ```
 
@@ -96,8 +97,16 @@ set -g status-interval 15
 - 줄은 최근 날짜가 위(오늘부터 거꾸로)이고 맨 아래가 합계다. 합계는 위 날짜 줄을 더한 값이다. 비용은 헤더와 같은 API 정가 환산이다.
 - `--json` 은 같은 값을 영어 키와 숫자로만 낸다: `report`, `by`, `days`, `from`, `to`, `basis`, `partial`, `unpriced`, `columns`, `paths` (`--by project` 때만), `rows[]{date, tokens, cost, unpriced, items}`, `total{tokens, cost, unpriced, items}`. `items` 의 칸도 `{tokens, cost, unpriced}` 다.
 - 가격표에 없는 모델이 낀 칸은 헤더처럼 비용 뒤에 `?` 를 붙인다 (예: `$12.30?`). `--json` 은 그 칸의 `unpriced` 가 `true` 다.
-- 장부는 날짜별·모델별 합계를 30일 남긴다 (캐시 형식 14). 평소 실행(화면 · `--json` · `--line`)은 지금처럼 최근 7일 안에 바뀐 기록만 읽고, `--report` 만 30일 안에 바뀐 기록까지 읽는다. 그래서 처음 `--report` 는 30일치 기록을 읽느라 수십 초 걸릴 수 있다. stderr 가 터미널이면 진행률을 보이고, 120초(`AITOP_REPORT_MS`)를 넘으면 읽은 만큼으로 표를 내며 덜 읽었다고 알린다 (`--json` 은 `partial: true`). 읽은 만큼은 캐시에 남아 다음 실행이 이어 읽는다.
-- 월별 리포트는 아직 없다 (#164).
+- 장부는 날짜별·모델별 합계를 기록마다 캐시에 남긴다 (캐시 형식 14, 장부 kind 2). 평소 실행(화면 · `--json` · `--line`)은 지금처럼 최근 7일 안에 바뀐 기록만 읽고, `--report` 만 30일 안에 바뀐 기록까지 읽는다. 그래서 처음 `--report` 는 30일치 기록을 읽느라 수십 초 걸릴 수 있다. stderr 가 터미널이면 진행률을 보이고, 120초(`AITOP_REPORT_MS`)를 넘으면 읽은 만큼으로 표를 내며 덜 읽었다고 알린다 (`--json` 은 `partial: true`). 읽은 만큼은 캐시에 남아 다음 실행이 이어 읽는다.
+
+`aitop --report monthly` 는 같은 표를 달별로 낸다 (최근 달이 위, `--months N` 기본·최대 12).
+
+- 지난 날은 이틀쯤 뒤에 캐시 폴더의 `monthly.json` (버전 폴더 밖) 에 달별로 접어 12개월 남긴다. 그래서 캐시를 다시 세거나(형식·가격표 변경) Claude Code 가 오래된 기록을 지워도 달별 합계는 남는다. 접기는 평소 화면·`--once`·`--line`·`--report` 가 기록을 다 읽었을 때 하루 한 번 한다.
+- 한 날은 한 번만 센다: 보관함은 접은 마지막 날(`through`)까지, 그 뒤 날은 장부에서 센다. agy 기록을 읽지 못하면 그 기록이 쓰였을 수 있는 날 전날까지만 접고, 7일 넘게 밀리면 그 기록을 빼고 접어 그 날들의 달을 `~` 로 둔다.
+- 처음 실행은 12개월 전 달 1일부터 남은 기록을 한 번 다 읽어 보관함을 채운다 (진행률·120초 상한은 daily 와 같고, 상한에 걸리면 접지 않고 다음 실행이 이어 읽는다).
+- `*` 는 이번 달, `~` 는 일부 날만 센 달 (남은 Claude 기록 중 가장 오래된 날보다 앞 등), `기록 없음` 은 기록도 보관함도 없는 달이다 (0 이 아니라 모름).
+- 보관함은 모델별 토큰을 종류별(입력·출력·캐시 읽기·캐시 쓰기)로 남겨, 가격표가 바뀌면 지금 가격으로 다시 계산한다. `--by project` 도 보관한 달까지 나눈다.
+- `--json` 의 줄은 `month`, `current`, `status` (`complete` · `partial` · `missing`) 를 둔다. 깨진 `monthly.json` 은 `monthly.json.bad-<시각>` 으로 옮기고 새로 시작한다.
 
 ```
 $ aitop --report daily --days 3 --lang en
