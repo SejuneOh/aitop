@@ -61,12 +61,14 @@ const HELP_KO = `{logo} aitop - 터미널에서 Claude Code · Codex · Antigrav
   aitop            실시간 화면
   aitop --once     현재 상태를 한 번 출력하고 끝낸다
   aitop --all      종료된 세션(24시간 이내)도 함께 본다
-  aitop --line     오늘 비용·응답 대기 수·시간당 지출을 한 줄로 내고 끝낸다 (tmux 상태줄용, 예: $54.13/$50 wait 2 $3.1/h)
+  aitop --line     오늘 비용·응답 대기 수·작업 중 수·시간당 지출을 한 줄로 내고 끝낸다 (tmux 상태줄용, 예: $54.13/$50 wait 2 run 3 $3.1/h)
                    --line=tmux 는 tmux 색 서식(#[fg=...])을 넣는다. --line-width <N> 폭 상한(기본 40, 넘으면 뒤 항목부터 뺀다)
-                   장부 캐시만 읽는다. 캐시가 없어 1.5초 안에 못 읽으면 ... 을 낸다. 응답 대기 수는 Claude Code 세션만 센다
+                   캐시만 읽는다. 캐시가 없어 1.5초 안에 못 읽으면 ... 을 낸다. 작업 중 수와 Antigravity 의 대기 수는
+                   1분 안에 aitop 화면·--once·--json 이 남긴 요약이 있을 때만 보인다
   aitop --json     세션 목록과 사용량 합계를 JSON 으로 한 번 출력한다 (--all 과 함께 쓸 수 있다)
-  aitop --report daily [--by tool|model] [--days N] [--json]  최근 N일(기본·최대 30)의 날짜별 토큰·비용(API 정가 환산)을
-                   도구별 또는 모델별 표로 내고 끝낸다. 최근 날짜가 위, 맨 아래는 합계. 처음 실행은 30일치 기록을 읽느라 오래 걸릴 수 있다
+  aitop --report daily [--by tool|model|project] [--days N] [--json]  최근 N일(기본·최대 30)의 날짜별 토큰·비용(API 정가 환산)을
+                   도구별·모델별·프로젝트별 표로 내고 끝낸다. 최근 날짜가 위, 맨 아래는 합계. 처음 실행은 30일치 기록을 읽느라 오래 걸릴 수 있다
+                   프로젝트는 작업 폴더의 마지막 이름이고, 열이 터미널 폭을 넘으면 비용이 작은 쪽을 (그 외) 로 합친다
   aitop --doctor   Claude · Codex · Antigravity · Gemini 기록과 실행 중인 프로세스, 설정 파일을 점검한다 (--json 과 함께 쓸 수 있다)
   aitop --bell     응답 대기 세션이 새로 생기면 터미널 벨을 울린다
   aitop --notify   응답 대기 세션이 새로 생기면 데스크톱 알림을 띄운다 (notify-send · osascript, 없으면 건너뜀)
@@ -101,12 +103,14 @@ const HELP_EN = `{logo} aitop - watch Claude Code, Codex, Antigravity and Gemini
   aitop            live screen
   aitop --once     print the current state once and exit
   aitop --all      also show sessions that ended in the last 24 hours
-  aitop --line     print today's cost, waiting count and spend per hour on one line and exit (for tmux, e.g. $54.13/$50 wait 2 $3.1/h)
+  aitop --line     print today's cost, waiting count, running count and spend per hour on one line and exit (for tmux, e.g. $54.13/$50 wait 2 run 3 $3.1/h)
                    --line=tmux adds tmux colors (#[fg=...]). --line-width <N> sets the max width (default 40, drops items from the end)
-                   Reads only the cache. With no cache it prints ... after 1.5 seconds. The waiting count covers Claude Code sessions only
+                   Reads only the cache. With no cache it prints ... after 1.5 seconds. The running count and waiting Antigravity sessions
+                   show only when the live screen, --once or --json left a summary in the last minute
   aitop --json     print the session list and usage totals as JSON once (works with --all)
-  aitop --report daily [--by tool|model] [--days N] [--json]  print daily tokens and cost (API list price) for the last N days
-                   (default and max 30) by tool or by model, then exit. Newest day first, total at the bottom. The first run reads 30 days of logs and may take a while
+  aitop --report daily [--by tool|model|project] [--days N] [--json]  print daily tokens and cost (API list price) for the last N days
+                   (default and max 30) by tool, model or project, then exit. Newest day first, total at the bottom. The first run reads 30 days of logs and may take a while
+                   A project is the last folder name of the working directory. Columns beyond the terminal width are merged into (others)
   aitop --doctor   check Claude, Codex, Antigravity and Gemini logs, running processes and the config file (works with --json)
   aitop --bell     ring the terminal bell when a session starts waiting for you
   aitop --notify   show a desktop notification when a session starts waiting (notify-send or osascript, skipped if missing)
@@ -193,8 +197,8 @@ export const STRINGS = {
     'opt.lineWidthBad': '--line-width 값 {value} 이 잘못되었습니다 (0 보다 큰 정수)',
     'opt.reportMissing': '--report 값이 없습니다 (daily)',
     'opt.reportBad': '--report 값 {value} 이 잘못되었습니다 (daily)',
-    'opt.byMissing': '--by 값이 없습니다 (tool 또는 model)',
-    'opt.byBad': '--by 값 {value} 이 잘못되었습니다 (tool 또는 model)',
+    'opt.byMissing': '--by 값이 없습니다 (tool, model 또는 project)',
+    'opt.byBad': '--by 값 {value} 이 잘못되었습니다 (tool, model 또는 project)',
     'opt.daysMissing': '--days 값이 없습니다 (일 수)',
     'opt.daysBad': '--days 값 {value} 이 잘못되었습니다 (0 보다 큰 정수)',
     'opt.reportOnly': '--by, --days 는 --report 와 함께 쓴다',
@@ -203,6 +207,9 @@ export const STRINGS = {
     'report.title': '날짜별 사용량 · 최근 {n}일 ({from} ~ {to}) · {by} · API 정가 환산',
     'report.by.tool': '도구별',
     'report.by.model': '모델별',
+    'report.by.project': '프로젝트별',
+    'report.unknown': '(모름)',
+    'report.others': '(그 외)',
     'report.date': '날짜',
     'report.total': '합계',
     'report.empty': '이 기간에 기록된 사용량이 없습니다',
@@ -412,7 +419,7 @@ export const STRINGS = {
     'hopt.showRequests': '응답 대기 요청 전체를 상세·--json 에',
     'hopt.colorBlind': '적록 색약용 색 (대기·돈·경고를 노랑·파랑 계열로)',
     'hopt.debug': '디버그 로그를 남긴다',
-    'hopt.line': '오늘 비용·대기 수·시간당 지출 한 줄 (tmux 상태줄용)',
+    'hopt.line': '오늘 비용·대기·작업 중 수·시간당 지출 한 줄 (tmux 상태줄용)',
     'hopt.printConfig': '설정 값과 출처, 설정 파일 위치',
     'hopt.ambiguous': '·→─● 를 2칸으로 그리는 터미널용 (1칸 기호로)',
     'set.budget': '예산 {v}',
@@ -536,8 +543,8 @@ export const STRINGS = {
     'opt.lineWidthBad': 'bad --line-width value {value} (a whole number above 0)',
     'opt.reportMissing': '--report needs a value (daily)',
     'opt.reportBad': 'bad --report value {value} (daily)',
-    'opt.byMissing': '--by needs a value (tool or model)',
-    'opt.byBad': 'bad --by value {value} (tool or model)',
+    'opt.byMissing': '--by needs a value (tool, model or project)',
+    'opt.byBad': 'bad --by value {value} (tool, model or project)',
     'opt.daysMissing': '--days needs a value (number of days)',
     'opt.daysBad': 'bad --days value {value} (a whole number above 0)',
     'opt.reportOnly': '--by and --days only work with --report',
@@ -545,6 +552,9 @@ export const STRINGS = {
     'report.title': 'Daily usage, last {n} days ({from} to {to}), {by}, API list price',
     'report.by.tool': 'by tool',
     'report.by.model': 'by model',
+    'report.by.project': 'by project',
+    'report.unknown': '(unknown)',
+    'report.others': '(others)',
     'report.date': 'Date',
     'report.total': 'Total',
     'report.empty': 'No usage recorded in this period',

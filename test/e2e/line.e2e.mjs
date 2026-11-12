@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readdirSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BIN } from './session.mjs';
@@ -60,4 +60,24 @@ test('캐시가 없고 시간 상한을 넘으면 ... 을 내고 0 으로 끝난
   assert.equal(again.status, 0);
   assert.ok(Date.now() - t1 < 10_000);
   assert.match(again.stdout, /^(\.\.\.|\$[\d.]+ wait 1.*)\n$/);
+});
+
+test('--json 이 남긴 요약으로 --line 이 작업 중 수를 낸다. 요약이 오래되거나 깨지면 run 을 뺀다', () => {
+  const cache = mkdtempSync(join(tmpdir(), 'aitop-line-summary-'));
+  const env = { XDG_CACHE_HOME: cache };
+  // 작업 중 세션 하나를 더한다. pid 가 겹치지 않게 테스트 동안 살아 있는 부모 pid 를 쓴다.
+  fx.session({ sessionId: 'line0000-3', pid: process.ppid, status: 'busy' });
+  assert.doesNotMatch(run(['--line'], env).stdout, /run/, '요약이 없으면 run 을 뺀다');
+  assert.equal(run(['--json'], env).status, 0);
+  const file = join(cache, 'aitop', 'summary.json');
+  const s = JSON.parse(readFileSync(file, 'utf8'));
+  assert.equal(s.running, 1);
+  assert.match(run(['--line'], env).stdout, /^\$\d+\.\d\d wait 1 run 1 \$[\d.]+\/h\n$/);
+  writeFileSync(file, JSON.stringify({ ...s, at: Date.now() - 120_000 }));
+  assert.match(run(['--line'], env).stdout, /^\$\d+\.\d\d wait 1 \$[\d.]+\/h\n$/, '오래된 요약');
+  writeFileSync(file, '{');
+  const broken = run(['--line'], env);
+  assert.equal(broken.status, 0);
+  assert.equal(broken.stderr, '');
+  assert.match(broken.stdout, /^\$\d+\.\d\d wait 1 \$[\d.]+\/h\n$/, '깨진 요약');
 });

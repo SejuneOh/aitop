@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BUDGET_TOKEN, paletteName, pickColorBlind, pickTheme, PALETTES } from '../src/ui/theme.mjs';
@@ -164,7 +166,10 @@ test('비용 상위에는 ▲, 컨텍스트 85% 이상에는 ! 를 붙인다 (�
 });
 
 test('aitop --theme light 는 밝은 팔레트로 그리고, 모르는 값은 오류', () => {
-  const run = (...a) => spawnSync(process.execPath, [BIN, '--once', ...a], { env: { ...process.env, FORCE_COLOR: '1', NO_COLOR: '' }, encoding: 'utf8' });
+  // 이 PC 의 기록·설정을 읽지 않고 캐시(요약 파일 포함)도 임시 폴더에 쓰게 한다.
+  const root = mkdtempSync(join(tmpdir(), 'aitop-theme-'));
+  const iso = { CLAUDE_CONFIG_DIR: join(root, 'claude'), CODEX_HOME: join(root, 'codex'), AITOP_AGY_HOME: join(root, 'agy'), XDG_CACHE_HOME: join(root, 'cache'), XDG_CONFIG_HOME: join(root, 'config'), XDG_STATE_HOME: join(root, 'state') };
+  const run = (...a) => spawnSync(process.execPath, [BIN, '--once', ...a], { env: { ...process.env, ...iso, FORCE_COLOR: '1', NO_COLOR: '' }, encoding: 'utf8' });
   const light = run('--theme', 'light');
   assert.equal(light.status, 0);
   assert.match(light.stdout, /38;2;31;35;40m/, '밝은 테마 글자색 #1f2328');

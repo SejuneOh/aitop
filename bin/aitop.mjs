@@ -41,7 +41,7 @@ if (line.error) {
   process.stderr.write(`aitop: ${line.error}\n`);
   process.exit(2);
 }
-// --report daily, --by tool|model, --days <N> 은 reportOption 이 꺼낸다.
+// --report daily, --by tool|model|project, --days <N> 은 reportOption 이 꺼낸다.
 const report = reportOption(line.rest);
 if (report.error) {
   process.stderr.write(`aitop: ${report.error}\n`);
@@ -149,17 +149,21 @@ if (line.mode) {
 // --report: 날짜별 사용량 표(또는 --json)를 내고 끝낸다. 실시간 화면·세션 목록은 읽지 않고 장부만 읽는다.
 // 처음 실행은 30일치 기록을 읽으므로 stderr 가 터미널이면 진행률을 보이고, 시간 상한(AITOP_REPORT_MS, 기본 120초)을 넘으면 읽은 만큼 낸다.
 if (report.kind) {
-  const { buildReport, collectReport, formatReport, progressWriter, reportJson, MAX_DAYS } = await import('../src/report.mjs');
+  const { buildReport, collectReport, fitReport, formatReport, PIPE_COLUMNS, progressWriter, reportJson, MAX_DAYS } = await import('../src/report.mjs');
   const { flushCache } = await import('../src/cache.mjs');
   if (report.capped) process.stderr.write(`aitop: ${t('report.capped', { n: MAX_DAYS })}\n`);
   const progress = progressWriter();
   const maxMs = Number(process.env.AITOP_REPORT_MS) > 0 ? Number(process.env.AITOP_REPORT_MS) : undefined;
   const now = Date.now();
-  const got = await collectReport({ days: report.days, maxMs, now, onProgress: progress.update });
+  const got = await collectReport({ days: report.days, maxMs, now, by: report.by, onProgress: progress.update });
   progress.done();
   flushCache();
   if (got.partial && args.has('--json')) process.stderr.write(`aitop: ${t('report.partial')}\n`);
-  const r = buildReport(got.books, { by: report.by, days: report.days, now });
+  // --by project 표는 터미널 폭(터미널이 아니면 COLUMNS 를 export 한 경우에만 그 폭, 아니면 열 8개)에 맞춰 열을 줄이고 나머지를 하나로 합친다 (--json 은 다 낸다).
+  const fit = report.by === 'project' && !args.has('--json');
+  const cols = process.stdout.isTTY ? process.stdout.columns : Number(process.env.COLUMNS) || 0;
+  let r = buildReport(got.books, { by: report.by, days: report.days, now, maxColumns: fit && !cols ? PIPE_COLUMNS : Infinity });
+  if (fit && cols) r = fitReport(r, cols);
   const text = args.has('--json') ? JSON.stringify(reportJson(r, VERSION, { partial: got.partial }), null, 2) : formatReport(r, { partial: got.partial });
   process.stdout.on('error', (err) => process.exit(err.code === 'EPIPE' ? 0 : 1));
   await new Promise((resolve) => process.stdout.write(text + '\n', resolve));
@@ -195,6 +199,7 @@ const { arrange } = await import('../src/order.mjs');
 const { frameTimer } = await import('../src/frames.mjs');
 const { flushCache } = await import('../src/cache.mjs');
 const { toJson } = await import('../src/json.mjs');
+const { createSummaryWriter, summarize, writeSummary } = await import('../src/summary.mjs');
 const { createAttention, updateAttention, markSeen, nextAttention, windowTitle, createWaitWatch, takeNewlyWaiting, attentionCounts } = await import('../src/attention.mjs');
 const { createNotifier } = await import('../src/notify.mjs');
 const { onKey, fixFocus } = await import('../src/keys.mjs');
@@ -271,6 +276,8 @@ function select(id) {
 if (once) {
   refresh();
   flushCache();
+  // --line 이 작업 중 수를 낼 수 있게 요약을 남긴다 (summary.mjs).
+  writeSummary(summarize(view.data.sessions));
   const size = (v) => (Number(v) > 0 ? Math.floor(Number(v)) : 0);
   const W = process.stdout.columns || size(process.env.COLUMNS) || 140;
   const H = process.stdout.rows || size(process.env.LINES) || 40;
@@ -398,8 +405,11 @@ stdin.on('data', (key) => {
 });
 
 let lastFlush = 0;
+// --line 용 요약. 시작 때 기록을 다 읽기 전(ready 전)에는 수가 덜 잡혔을 수 있어 쓰지 않는다.
+const writeSummaryThrottled = createSummaryWriter();
 function tick() {
   const shown = refresh({ throttle: true });
+  if (loading.ready && view.data) writeSummaryThrottled(view.data.sessions);
   const more = lastMore;
   if (more ? Date.now() - lastFlush > LOADING_FLUSH_MS : Date.now() - lastFlush > 15_000) {
     flushCache();

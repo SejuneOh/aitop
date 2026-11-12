@@ -11,6 +11,7 @@ import { debug, debugIo } from './log.mjs';
 // 14: 장부의 하루 합계에 모델별 몫(models)을 더하고, 날짜를 10일이 아니라 30일 남긴다 (#128).
 const VERSION = 14;
 const ROOT = join(process.env.XDG_CACHE_HOME ?? join(homedir(), '.cache'), 'aitop');
+export const CACHE_ROOT = ROOT;
 const NAME = `v${VERSION}-${PRICE_TAG}`;
 const DIR = join(ROOT, NAME);
 export const CACHE_DIR = DIR;
@@ -24,7 +25,8 @@ function removeOldDirs() {
   cleaned = true;
   try {
     for (const d of readdirSync(ROOT)) {
-      if (d === NAME) continue;
+      // summary.json(--line 용 요약, summary.mjs)은 버전 폴더 밖에 두고 여기서 지우지 않는다. 남은 임시 파일은 일주일 뒤 지운다.
+      if (d === NAME || d === 'summary.json') continue;
       const p = join(ROOT, d);
       // 이 버전보다 낮은 형식(v2, v6-… 등)은 더 이상 어떤 버전도 쓰지 않으므로 바로 지운다.
       const ver = Number(/^v(\d+)(?:-|$)/.exec(d)?.[1]);
