@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { gauge, filledCells } from '../src/ui/draw.mjs';
 import { glyphs } from '../src/ui/glyphs.mjs';
 import { width } from '../src/text.mjs';
@@ -29,6 +29,6 @@ test('막대는 늘 같은 폭이고 채움과 빈칸 모두 ▃ (색으로 구�
 });
 
 test('NO_COLOR 에서는 빈칸을 ▁ 로 그려 모양으로 구분한다', () => {
-  const r = spawnSync(process.execPath, ['--input-type=module', '-e', "const { gauge } = await import(process.argv[1]); console.log(gauge(570, 1000, 11).map((x) => x.t).join(''));", join(fileURLToPath(new URL('.', import.meta.url)), '..', 'src', 'ui', 'draw.mjs')], { env: { ...process.env, NO_COLOR: '1' }, encoding: 'utf8' });
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', "const { gauge } = await import(process.argv[1]); console.log(gauge(570, 1000, 11).map((x) => x.t).join(''));", pathToFileURL(join(fileURLToPath(new URL('.', import.meta.url)), '..', 'src', 'ui', 'draw.mjs')).href], { env: { ...process.env, NO_COLOR: '1' }, encoding: 'utf8' });
   assert.equal(r.stdout.trim(), '▃▃▃▃▃▃▁▁▁▁▁  57%');
 });

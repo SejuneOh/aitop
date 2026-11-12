@@ -61,8 +61,11 @@ test('모르는 키와 잘못된 값은 그 키만 무시한다', () => {
   assert.ok(cfg.problems.some((p) => /모르는 키 "colour"/.test(p)));
   assert.ok(cfg.problems.some((p) => /theme 값 "blue"/.test(p)));
   const ok = resolve({ budgetDay: 12.5, notify: true, onWaiting: 'notify-send aitop' });
-  assert.deepEqual([ok.values.budgetDay.value, ok.values.notify.value, ok.values.onWaiting.value], [12.5, true, 'notify-send aitop']);
-  assert.deepEqual(ok.problems, []);
+  // Windows 는 파일 권한(mode)을 믿을 수 없어 설정 파일의 onWaiting 을 받지 않고 알린다 (#196).
+  const win = process.platform === 'win32';
+  assert.deepEqual([ok.values.budgetDay.value, ok.values.notify.value, ok.values.onWaiting.value], [12.5, true, win ? null : 'notify-send aitop']);
+  if (win) assert.equal(ok.problems.length, 1);
+  else assert.deepEqual(ok.problems, []);
 });
 
 test('onWaiting 은 내 파일이고 그룹·다른 사용자가 쓸 수 없을 때만 받는다', { skip: process.platform === 'win32' && 'Windows: uid·파일 권한(mode)이 없음 (#196)' }, () => {

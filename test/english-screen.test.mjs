@@ -18,6 +18,9 @@ import { notifyText, waitingEnv } from '../src/notify.mjs';
 import { toJson } from '../src/json.mjs';
 import { makeClaudeHome, assistant, user, usage } from './fixture.mjs';
 
+// Windows 는 경로를 \ 로 이어 붙이고 보인다. 기대값은 / 로 적었으므로 비교 전에 / 로 바꾼다 (Linux·macOS 는 그대로).
+const px = (p) => (process.platform === 'win32' ? String(p).replace(/\\/g, '/') : p);
+
 setLang('en');
 
 const BIN = fileURLToPath(new URL('../bin/aitop.mjs', import.meta.url));
@@ -121,7 +124,7 @@ test('영어 화면: 표·상세 스냅숏 (en)', (t) => {
   for (const W of [60, 100, 120, 150]) {
     for (const H of [16, 24]) {
       setNow(at);
-      got.detail[`${W}x${H}`] = detail(main, W, H, 0, { tab: 'now' }).map(strip).map((l) => l.trimEnd());
+      got.detail[`${W}x${H}`] = detail(main, W, H, 0, { tab: 'now' }).map(strip).map((l) => px(l).trimEnd());
     }
   }
   const file = new URL('./english-screen.snapshot.json', import.meta.url);

@@ -6,7 +6,10 @@
 //   *** Add File: src/new.mjs       (+ 줄이 본문)
 //   *** Delete File: src/old.mjs
 //   *** End Patch
-import { isAbsolute, join } from 'node:path';
+import { isAbsolute, join, normalize } from 'node:path';
+
+// Windows 는 패치의 절대 경로(C:/x/y)도 \ 로 맞춰 화면에서 섞이지 않게 한다. 그 밖의 OS 는 그대로 둔다.
+const WIN = process.platform === 'win32';
 
 // 글 안에서 패치 부분만 꺼낸다 (예전 shell 호출은 명령 인자 안에 들어 있다).
 // 시작·끝 표시는 줄 전체가 그 표시일 때만 본다. 본문 글에 '*** End Patch' 가 들어 있어도 끊기지 않게 한다.
@@ -22,7 +25,7 @@ export function extractPatch(text) {
 export function parsePatch(text, cwd) {
   const patch = extractPatch(text);
   if (!patch) return [];
-  const abs = (p) => (isAbsolute(p) || !cwd ? p : join(cwd, p));
+  const abs = (p) => (isAbsolute(p) || !cwd ? (WIN ? normalize(p) : p) : join(cwd, p));
   const out = [];
   let cur = null;
   let hunk = null;

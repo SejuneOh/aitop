@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import { render } from '../src/ui.mjs';
 import { width } from '../src/text.mjs';
 
+// Windows 는 경로를 \ 로 이어 붙이고 보인다. 기대값은 / 로 적었으므로 비교 전에 / 로 바꾼다 (Linux·macOS 는 그대로).
+const px = (p) => (process.platform === 'win32' ? String(p).replace(/\\/g, '/') : p);
+
 const strip = (x) => x.replace(/\x1b\[[0-9;]*m/g, '');
 const at = Date.parse('2026-10-30T05:00:00Z');
 const hunk = (agent, newStart, lines) => ({ at, agent, oldStart: newStart, oldLines: 1, newStart, newLines: lines.length, lines, cut: 0 });
@@ -21,7 +24,7 @@ test('고친 파일이 없으면 오른쪽 칸은 최근 활동만 보인다', (
 });
 
 test('고친 파일이 있으면 위쪽에 목록, 아래쪽에 최근 활동을 보이고 넘치면 외 N개', () => {
-  const lines = render(view(session(files)), 120, 22).map(strip);
+  const lines = render(view(session(files)), 120, 22).map(strip).map(px);
   const all = lines.join('\n');
   // 두 구획은 라벨 가로줄로 나뉘고, 변경 파일 가로줄 끝에 git diff 가 아님을 알리는 '편집 기록' 이 붙는다.
   assert.match(all, /── 변경 파일 ─+ 편집 기록 · Bash 제외 · 9개 · f ─/);
@@ -52,7 +55,7 @@ test('목록과 diff 는 어느 화면 크기에서도 패널을 넘지 않는�
 });
 
 test('목록에서 고른 파일은 표시되고, 아래쪽 파일을 고르면 그 파일이 보이게 내려간다', () => {
-  const lines = render(view(session(files), { focus: 'files', filePath: files[8].path }), 120, 30).map(strip);
+  const lines = render(view(session(files), { focus: 'files', filePath: files[8].path }), 120, 30).map(strip).map(px);
   // 목록에 들어가면 구획 왼쪽에 ▌, 고른 행에 ▸. 색이 없어도 글자로 구분된다.
   assert.ok(lines.some((l) => /▌▸ src\/deep\/folder\/file8\.mjs/.test(l)));
   assert.ok(lines.some((l) => /▌── 변경 파일 ─+ 편집 기록 · Bash 제외 · 9개 ─/.test(l)));
@@ -61,7 +64,7 @@ test('목록에서 고른 파일은 표시되고, 아래쪽 파일을 고르면 
 
 test('diff 는 오른쪽 칸 전체에 시각 · 누가 · 위치 머리와 함께 보인다', () => {
   const f = { ...files[1], hunks: [hunk('general-purpose', 40, ['-a', '+b']), hunk('메인', 5, [' ctx', '-old', '+new'])] };
-  const lines = render(view(session([files[0], f]), { focus: 'diff', filePath: f.path }), 120, 30).map(strip);
+  const lines = render(view(session([files[0], f]), { focus: 'diff', filePath: f.path }), 120, 30).map(strip).map(px);
   const all = lines.join('\n');
   assert.match(all, /── ‹ (src|…)\/deep\/folder\/file1\.mjs · 편집 ×2 · 쓴 줄 10 · 지운 줄 1 ─+ 2\/2 ─/);
   assert.match(all, /\d\d:\d\d:\d\d · general-purpose · @@ -40,1 \+40,2 @@/);
