@@ -9,6 +9,7 @@ import { AGY_ROOT } from './sources/antigravity.mjs';
 import { loadSqlite, openReadOnly } from './sqlite.mjs';
 import { fmtAgo, pad, stripControl } from './text.mjs';
 import { BRAND } from './brand.mjs';
+import { tildeIn } from './paths.mjs';
 import { findNotifier, isWsl } from './notify.mjs';
 import { getLang, t as tr } from './i18n.mjs';
 
@@ -20,7 +21,8 @@ const CLAUDE = process.env.CLAUDE_CONFIG_DIR ?? join(HOME, '.claude');
 const CODEX = join(process.env.CODEX_HOME ?? join(HOME, '.codex'), 'sessions');
 const GEMINI = join(process.env.GEMINI_HOME ?? join(HOME, '.gemini'), 'tmp');
 
-const tilde = (p) => (p.startsWith(HOME + '/') ? '~' + p.slice(HOME.length) : p);
+// Windows 는 \ 와 대소문자를 무시하고 줄인다 (paths.mjs).
+const tilde = (p) => tildeIn(p, HOME);
 const ls = (dir) => {
   try {
     return readdirSync(dir, { withFileTypes: true });

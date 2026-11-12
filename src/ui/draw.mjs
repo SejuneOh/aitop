@@ -1,6 +1,7 @@
 // 그리기 기본: 조각(segment) 줄 만들기·자르기·채우기, 상자, 가로줄, 게이지, 시각·금액 표기.
 import { pad, stripControl, truncate, width } from '../text.mjs';
 import { homedir } from 'node:os';
+import { tildeIn } from '../paths.mjs';
 import { NO_COLOR, PALETTE, PHASE_COLOR, RESET, style } from './theme.mjs';
 import { glyphs } from './glyphs.mjs';
 
@@ -85,7 +86,8 @@ export function money(usd, unknown = false) {
   return dollars(usd);
 }
 
-export const tilde = (p) => (p ?? '').replace(homedir(), '~');
+// 홈 폴더로 시작하는 경로만 줄인다. Windows 는 \ 와 대소문자를 무시한다 (paths.mjs).
+export const tilde = (p) => tildeIn(p, homedir());
 
 export const two = (n) => String(n).padStart(2, '0');
 

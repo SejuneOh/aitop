@@ -145,7 +145,11 @@ test('단계의 만든 시각은 앞부분만 있어도 읽는다', () => {
 test('시각과 작업 폴더를 읽는다', () => {
   assert.equal(parseTime('2026-11-06 02:19:18.516555503+00:00'), Date.UTC(2026, 10, 6, 2, 19, 18, 516));
   assert.equal(parseTime('0001-01-01 00:00:00+00:00'), null);
-  assert.equal(cwdOf('["file:///home/me/my%20work"]'), '/home/me/my work');
+  if (process.platform === 'win32') {
+    assert.equal(cwdOf('["file:///C:/Users/me/my%20work"]'), 'C:\\Users\\me\\my work');
+    // VS Code 꼴 (드라이브 문자 소문자, : 를 %3A 로)
+    assert.equal(cwdOf('["file:///c%3A/Users/me/repo"]'), 'C:\\Users\\me\\repo');
+  } else assert.equal(cwdOf('["file:///home/me/my%20work"]'), '/home/me/my work');
   assert.equal(cwdOf(''), null);
 });
 
@@ -168,7 +172,7 @@ test('agy 프로세스와 대화를 짝짓는다: 열린 파일, 서브에이전
   assert.deepEqual(loose.map((p) => p.pid), [3], '대화를 아직 열지 않은 프로세스');
 });
 
-test('기록 폴더를 /proc 링크와 같은 실제 절대 경로로 바꿔 짝짓는다: 끝의 /, 상대 경로, 심볼릭 링크', () => {
+test('기록 폴더를 /proc 링크와 같은 실제 절대 경로로 바꿔 짝짓는다: 끝의 /, 상대 경로, 심볼릭 링크', { skip: process.platform === 'win32' && 'Windows: 심볼릭 링크에 관리자 권한이 필요하고 /proc 짝짓기는 Linux 전용' }, () => {
   const base = realpathSync(mkdtempSync(join(tmpdir(), 'aitop-agy-root-')));
   const real = join(base, 'real');
   mkdirSync(join(real, 'presence'), { recursive: true });

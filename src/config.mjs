@@ -4,7 +4,8 @@
 // 화면 모듈은 불러올 때 테마·아이콘을 고르므로, 이 모듈은 다른 aitop 모듈을 불러오지 않는다.
 import { closeSync, constants, fstatSync, openSync, readSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { isAbsolute, join } from 'node:path';
+import { posix, win32 } from 'node:path';
+import { appDir } from './paths.mjs';
 import { stripControl } from './text.mjs';
 import { langValue, localeLang, t } from './i18n.mjs';
 
@@ -71,9 +72,9 @@ export const KEYS = {
   lang: { ok: oneOf('ko', 'en'), expect: ['ko', 'en'], def: localeLang, env: ['AITOP_LANG', langValue], envProblem: true },
 };
 
-export function configPath(env = process.env, home = homedir()) {
-  const xdg = env.XDG_CONFIG_HOME;
-  return join(xdg && isAbsolute(xdg) ? xdg : join(home, '.config'), 'aitop', 'config.json');
+// Windows 는 XDG_CONFIG_HOME 이 없으면 %APPDATA%\aitop\config.json.
+export function configPath(env = process.env, home = homedir(), platform = process.platform) {
+  return (platform === 'win32' ? win32 : posix).join(appDir('config', { env, home, platform }), 'config.json');
 }
 
 // 설정 파일은 작다. 이보다 크면 읽지 않는다.

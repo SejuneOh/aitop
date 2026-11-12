@@ -17,7 +17,9 @@
 
 ## Install
 
-Requires Node.js 22+ on Linux, macOS or WSL.
+Requires Node.js 22+ on Linux, macOS, WSL or Windows.
+
+Native Windows support is early (Windows Terminal recommended): Claude Code and Codex sessions, `--once`, `--json`, `--report` and `--doctor` work, but process detection, desktop notifications and `--on-waiting` are not there yet ([#195](https://github.com/SejuneOh/aitop/issues/195)-[#197](https://github.com/SejuneOh/aitop/issues/197)). Until then a Codex session counts as running while its log was written in the last 10 minutes, so it drops out during a long step that writes nothing for over 10 minutes, and a crashed session can stay up to 10 minutes. Cache, log and config live in `%LOCALAPPDATA%\aitop\cache`, `%LOCALAPPDATA%\aitop\state` and `%APPDATA%\aitop` unless `XDG_*` is set.
 
 ```bash
 npm install -g @sejuneoh/aitop
@@ -68,7 +70,7 @@ set -g status-interval 15
 
 Keys: `↑↓` select · `n` next session to check · `/` search · `s` sort · `g` group · `p` pin · `f` changed files · `?` help · `q` quit
 
-Settings can also go in `~/.config/aitop/config.json`. See `aitop --help` or the [detailed manual (Korean)](https://github.com/SejuneOh/aitop/blob/main/docs/README.ko.md).
+Settings can also go in `~/.config/aitop/config.json` (`%APPDATA%\aitop\config.json` on Windows). See `aitop --help` or the [detailed manual (Korean)](https://github.com/SejuneOh/aitop/blob/main/docs/README.ko.md).
 
 ## License
 

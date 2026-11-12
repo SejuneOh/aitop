@@ -5,6 +5,7 @@
 // 고정(p)한 세션은 응답 대기 바로 아래에 고정한 순서대로 둔다. 정렬을 바꿔도 그 순서는 바뀌지 않고, 묶을 때는 '고정' 묶음 하나로 모은다.
 // 응답 대기를 고정보다 위에 두는 것은 사람이 할 일이 고정 목록에 가려지지 않게 하려는 것이다. 고정한 세션이 응답 대기가 되면 대기 쪽으로 올라간다.
 import { costOf } from './ui/draw.mjs';
+import { lastName } from './paths.mjs';
 
 export const SORTS = ['default', 'cost', 'context', 'recent'];
 export const GROUPS = ['none', 'project', 'tool'];
@@ -41,7 +42,7 @@ export function compare(sort, costMode = 'api', ready = true) {
   return (a, b) => ended(a) - ended(b) || key(b, costMode) - key(a, costMode);
 }
 
-const projectOf = (s) => s.project || String(s.cwd ?? '').split('/').filter(Boolean).at(-1) || NO_FOLDER;
+const projectOf = (s) => s.project || lastName(s.cwd) || NO_FOLDER;
 const GROUP_KEY = { project: projectOf, tool: (s) => s.tool ?? '?' };
 
 // 돌려주는 sessions 는 화면에 그리는 순서 그대로다 (↑↓·n 도 이 순서를 따른다).

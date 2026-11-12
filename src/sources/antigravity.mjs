@@ -522,7 +522,9 @@ export function cwdOf(workspaceUris) {
   try {
     const first = JSON.parse(workspaceUris || '[]')[0];
     if (!first) return null;
-    return first.startsWith('file:') ? fileURLToPath(first) : first;
+    const p = first.startsWith('file:') ? fileURLToPath(first) : first;
+    // Windows 의 file:///c%3A/… 는 c:\… 가 되므로 드라이브 문자를 대문자로 맞춘다 (Claude·Codex 의 C:\ 와 같은 프로젝트로 묶이게).
+    return process.platform === 'win32' ? p.replace(/^[a-z](?=:)/, (d) => d.toUpperCase()) : p;
   } catch (e) {
     debug('agy', 'workspace_uris parse failed', e);
     return null;

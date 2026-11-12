@@ -3,6 +3,7 @@
 import { readdirSync, readFileSync, readlinkSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { platform } from 'node:os';
+import { exeName } from './paths.mjs';
 
 const OS = platform();
 const HAS_PROC = existsSync('/proc/self');
@@ -24,12 +25,15 @@ export function isAlive(pid) {
 
 // ps 는 인자를 공백으로만 이어 보여 준다. 앞 두 칸(실행 파일, node 스크립트)이 없는 절대 경로면
 // 실제로 있는 경로가 될 때까지 뒤 토큰을 이어 붙인다 (예: ~/Library/Application Support/…/codex.js).
+// 절대 경로: /… 또는 드라이브 문자(C:\…, C:/…).
+const isAbs = (p) => p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p);
+
 export function joinPaths(tokens, exists = existsSync) {
   const out = [];
   let i = 0;
   while (i < tokens.length) {
     let cur = tokens[i++];
-    if (out.length < 2 && cur.startsWith('/') && !exists(cur)) {
+    if (out.length < 2 && isAbs(cur) && !exists(cur)) {
       let j = i;
       let joined = cur;
       while (j < tokens.length && j - i < 8) {
@@ -133,7 +137,8 @@ export function findProcesses(match) {
   return found.map((p) => ({ ...p, cwd: cwdOf(p.pid) }));
 }
 
-const base = (p) => p.split('/').pop();
+// 실행 파일 이름 (paths.mjs exeName). Windows 에서만 \ 도 나누고 .exe·.cmd 등을 뗀다 (codex.cmd, agy.exe).
+const base = (p) => exeName(p);
 
 // `codex` 는 node 스크립트(…/bin/codex.js)이거나 네이티브 바이너리(codex-*)로 뜬다.
 export function isCodex(argv) {

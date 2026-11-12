@@ -29,7 +29,8 @@ const run = (xdg, args, extra) => execFileSync(process.execPath, [BIN, ...args],
 test('--print-config 는 키마다 값과 출처, 파일 위치를 보인다', () => {
   const { xdg, path } = configHome({ theme: 'light', icons: 'ascii', bell: true, all: true, budgetDay: 5, nope: 1 });
   const out = run(xdg, ['--print-config', '--all', '--theme', 'dark'], { AITOP_ICONS: 'plain' });
-  assert.match(out, new RegExp(`^설정 파일: ${path.replace(/[.]/g, '\\.')} \\(있음\\)`));
+  // Windows 경로의 \ 도 정규식에서 글자 그대로 보도록 모두 이스케이프한다.
+  assert.match(out, new RegExp(`^설정 파일: ${path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\(있음\\)`));
   assert.match(out, /^theme +"dark" +flag$/m);
   assert.match(out, /^icons +"plain" +env$/m);
   assert.match(out, /^bell +true +file$/m);
@@ -56,7 +57,7 @@ test('--no-bell · --no-all · --no-show-requests 는 파일과 환경 변수에
 test('설정 파일이 없어도 --print-config 는 위치와 기본값을 보인다', () => {
   const xdg = mkdtempSync(join(tmpdir(), 'aitop-xdg-'));
   const out = run(xdg, ['--print-config']);
-  assert.match(out, /^설정 파일: .*\/aitop\/config\.json \(없음\)/);
+  assert.match(out, /^설정 파일: .*[\\/]aitop[\\/]config\.json \(없음\)/);
   assert.match(out, /^theme +auto +default$/m);
 });
 
@@ -206,7 +207,8 @@ test('--print-config 는 notify·onWaiting 의 출처를 보인다', () => {
   const { xdg } = configHome({ notify: true, onWaiting: 'say hi' });
   const out = run(xdg, ['--print-config']);
   assert.match(out, /^notify +true +file$/m);
-  assert.match(out, /^onWaiting +"say hi" +file$/m);
+  // Windows 는 파일 권한을 확인하지 못해 설정 파일의 onWaiting 을 받지 않는다 (#196).
+  if (process.platform !== 'win32') assert.match(out, /^onWaiting +"say hi" +file$/m);
   const cli = run(xdg, ['--print-config', '--no-notify', '--on-waiting', 'echo cli']);
   assert.match(cli, /^notify +false +flag$/m);
   assert.match(cli, /^onWaiting +"echo cli" +flag$/m);

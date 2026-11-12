@@ -88,16 +88,19 @@ test('agy: workspace_uris, 서브에이전트는 부모 대화의 작업 폴더,
   const db = new (loadSqlite().DatabaseSync)(join(root, 'agy', 'conversation_summaries.db'));
   db.exec("create table conversation_summaries (conversation_id text primary key, parent_conversation_id text not null default '', workspace_uris text not null)");
   const ins = db.prepare('insert into conversation_summaries values (?, ?, ?)');
-  ins.run('g1', '', JSON.stringify(['file:///work/agy-app']));
+  // workspace_uris 는 그 OS 의 file: 주소다 (Windows 는 file:///C:/…).
+  const WIN = process.platform === 'win32';
+  const app = WIN ? 'C:\\work\\agy-app' : '/work/agy-app';
+  ins.run('g1', '', JSON.stringify([WIN ? 'file:///C:/work/agy-app' : 'file:///work/agy-app']));
   ins.run('g2', 'g1', '[]');
   ins.run('g3', '', '[]');
   db.close();
   const ws = agyWorkspaces();
-  assert.equal(ws.get('g1'), '/work/agy-app');
-  assert.equal(ws.get('g2'), '/work/agy-app');
+  assert.equal(ws.get('g1'), app);
+  assert.equal(ws.get('g2'), app);
   assert.equal(ws.get('g3'), null);
   const conv = (id) => ({ tool: 'agy', path: join(root, 'agy', 'conversations', `${id}.db`), days: {} });
-  assert.deepEqual(attachProjects([conv('g2'), conv('g3'), conv('nope')]).map((b) => b.project), ['/work/agy-app', null, null]);
+  assert.deepEqual(attachProjects([conv('g2'), conv('g3'), conv('nope')]).map((b) => b.project), [app, null, null]);
 });
 
 test('짧은 이름: 마지막 폴더 이름, 겹치면 앞 폴더를 붙인다', () => {

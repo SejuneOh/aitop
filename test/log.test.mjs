@@ -22,9 +22,9 @@ const clock = (t = Date.parse('2026-01-01T00:00:00Z')) => {
 };
 
 test('로그 위치: XDG_STATE_HOME, 없거나 상대 경로면 ~/.local/state', () => {
-  assert.equal(logPath({ XDG_STATE_HOME: '/x/state' }, '/home/u'), '/x/state/aitop/aitop.log');
-  assert.equal(logPath({}, '/home/u'), '/home/u/.local/state/aitop/aitop.log');
-  assert.equal(logPath({ XDG_STATE_HOME: 'rel' }, '/home/u'), '/home/u/.local/state/aitop/aitop.log');
+  assert.equal(logPath({ XDG_STATE_HOME: '/x/state' }, '/home/u', 'linux'), '/x/state/aitop/aitop.log');
+  assert.equal(logPath({}, '/home/u', 'linux'), '/home/u/.local/state/aitop/aitop.log');
+  assert.equal(logPath({ XDG_STATE_HOME: 'rel' }, '/home/u', 'linux'), '/home/u/.local/state/aitop/aitop.log');
 });
 
 test('꺼져 있으면 폴더도 파일도 만들지 않는다', () => {
@@ -36,7 +36,7 @@ test('꺼져 있으면 폴더도 파일도 만들지 않는다', () => {
   assert.equal(existsSync(dir), false);
 });
 
-test('켜면 0700 폴더에 0600 파일을 만들고 비밀값과 기록 내용은 쓰지 않는다', () => {
+test('켜면 0700 폴더에 0600 파일을 만들고 비밀값과 기록 내용은 쓰지 않는다', { skip: process.platform === 'win32' && 'Windows: POSIX 파일 권한(mode)이 없음' }, () => {
   const dir = join(tmp(), 'aitop');
   const path = join(dir, 'aitop.log');
   assert.equal(initLog({ enabled: true, path, version: '9.9.9' }).on, true);
@@ -122,7 +122,7 @@ test('다른 aitop 이 먼저 옮겼으면 그 새 파일을 덮지 않고 이�
   assert.match(readFileSync(path, 'utf8'), /mine 13/, 'ENOENT 여도 새로 열고 계속 쓴다');
 });
 
-test('기존 파일 권한이 넓어도 0600 으로 바꾼다', () => {
+test('기존 파일 권한이 넓어도 0600 으로 바꾼다', { skip: process.platform === 'win32' && 'Windows: POSIX 파일 권한(mode)이 없음' }, () => {
   const path = join(tmp(), 'aitop.log');
   writeFileSync(path, 'old\n', { mode: 0o644 });
   initLog({ enabled: true, path });
@@ -188,7 +188,7 @@ const run = (args, env = {}) => {
   return { ...r, log: join(state, 'aitop', 'aitop.log') };
 };
 
-test('aitop: 기본은 로그를 만들지 않고 --debug · AITOP_DEBUG=1 이면 만든다', () => {
+test('aitop: 기본은 로그를 만들지 않고 --debug · AITOP_DEBUG=1 이면 만든다', { skip: process.platform === 'win32' && 'Windows: POSIX 파일 권한(mode)이 없음' }, () => {
   assert.equal(existsSync(run(['--once']).log), false);
   const flagged = run(['--once', '--debug']);
   assert.equal(flagged.status, 0);

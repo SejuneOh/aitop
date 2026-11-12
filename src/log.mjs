@@ -4,7 +4,8 @@
 // 꺼져 있으면 파일을 만들지 않고 debug() 는 바로 돌아간다.
 import { closeSync, constants, fchmodSync, fstatSync, mkdirSync, openSync, renameSync, statSync, writeSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, dirname, isAbsolute, join } from 'node:path';
+import { basename, dirname, posix, win32 } from 'node:path';
+import { appDir } from './paths.mjs';
 import { mask, stripControl } from './text.mjs';
 
 // 이 크기를 넘으면 aitop.log.1 로 옮기고 새로 쓴다 (이전 것 하나만 남긴다).
@@ -14,9 +15,9 @@ export const MAX_BYTES = 1024 * 1024;
 export const REPEAT_MS = 60_000;
 const MAX_KEYS = 1000;
 
-export function logPath(env = process.env, home = homedir()) {
-  const xdg = env.XDG_STATE_HOME;
-  return join(xdg && isAbsolute(xdg) ? xdg : join(home, '.local', 'state'), 'aitop', 'aitop.log');
+// Windows 는 XDG_STATE_HOME 이 없으면 %LOCALAPPDATA%\aitop\state\aitop.log.
+export function logPath(env = process.env, home = homedir(), platform = process.platform) {
+  return (platform === 'win32' ? win32 : posix).join(appDir('state', { env, home, platform }), 'aitop.log');
 }
 
 let state = { on: false, path: null };
