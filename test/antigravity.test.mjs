@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, statSync, symlinkSync, realpathSync, rmSync, utimesSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readdirSync, statSync, symlinkSync, realpathSync, rmSync, utimesSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { tmpdir } from 'node:os';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -22,7 +22,7 @@ const { pbFields, readGeneration, readConversation, readStep, describeAgyTool, p
 const { createBudget } = await import('../src/tail.mjs');
 const { stepTime } = await import('../src/sources/antigravity.mjs');
 const { collectAgyLedger, _test: agyLedger } = await import('../src/sources/agy-ledger.mjs');
-const { collectLedger } = await import('../src/sources/claude-ledger.mjs');
+const { collectLedger, _test: ledgerTest } = await import('../src/sources/claude-ledger.mjs');
 const { dayKey, lastHourOf } = await import('../src/sources/common.mjs');
 const { flushCache } = await import('../src/cache.mjs');
 
@@ -570,4 +570,38 @@ test('장부: 2026-12-01 UTC 0시 양쪽의 agy 호출은 각자 그 시각의 �
   assert.equal(Math.round((r.week.cost - base.week.cost) * 1e4) / 1e4, 6.3);
   assert.equal(Math.round((r.week.costNoCache - base.week.costNoCache) * 1e4) / 1e4, 2 + 4);
   assert.equal(r.week.tokens - base.week.tokens, 4_000_000);
+});
+
+// #164: 캐시에서 불러온 agy 장부의 갱신이 실패하면(열지 못함, 읽는 중 바뀜) 마지막으로 다 읽은 날부터를 '빠졌을 수 있음' 으로 알린다.
+// 같은 파일이 그대로면 다시 열지 않고, 바뀌면 다시 시도한다. 그 범위 밖 날(그제까지)은 그대로 보관함에 접힌다.
+test('agy 기록 갱신이 영구히 실패해도: 실패 sig 는 다시 열지 않고, 실패 범위 밖의 날은 접는다', { skip: noSqlite }, () => {
+  makeConversation('stale-1', [{ model: 'gemini-3.5-flash-lite', input: 1000, step: 0 }]);
+  agyLedger.reset();
+  collectAgyLedger({ budget: createBudget() });
+  flushCache();
+  agyLedger.reset();
+  // 캐시에서 다 읽었다고 불러온 뒤, 기록을 sqlite 가 아닌 내용으로 바꿔 다음 갱신이 실패하게 한다.
+  const path = join(root, 'conversations', 'stale-1.db');
+  writeFileSync(path, 'not a database '.repeat(100));
+  const r = collectAgyLedger({ budget: createBudget() });
+  const i = r.paths.indexOf(path);
+  assert.equal(r.stale[i], dayKey(Date.now()), '마지막으로 다 읽은 날(오늘)부터 빠졌을 수 있다');
+  assert.equal(r.pending, 0, '처음 읽기는 끝난 기록이라 집계 중 진행률에는 들어가지 않는다');
+  // 파일이 그대로면 다시 열지 않는다.
+  const opened = agyLedger.opens();
+  collectAgyLedger({ budget: createBudget() });
+  collectAgyLedger({ budget: createBudget() });
+  assert.equal(agyLedger.opens(), opened);
+  // 실패 범위(오늘~)는 접는 범위(~그제) 밖이라 접기는 막히지 않는다.
+  const archive = join(root, 'cache', 'aitop', 'monthly.json');
+  rmSync(archive, { force: true });
+  ledgerTest.resetFold();
+  collectLedger({ budget: createBudget() });
+  assert.ok(existsSync(archive), '접는다');
+  // 파일이 바뀌면 다시 시도한다.
+  writeFileSync(path, 'still not a database '.repeat(100));
+  collectAgyLedger({ budget: createBudget() });
+  assert.equal(agyLedger.opens(), opened + 1);
+  rmSync(path);
+  agyLedger.reset();
 });

@@ -33,6 +33,7 @@ aitop --json     print a snapshot as JSON and exit
 aitop --doctor   check which tools and logs aitop can see
 aitop --line     print one short status line and exit (for tmux, e.g. $54.13/$50 wait 2 run 3 $3.1/h)
 aitop --report daily  daily cost table and exit
+aitop --report monthly  monthly cost table (last 12 months) and exit
 aitop --help     all options
 aitop --lang ko  Korean screen, help, doctor and error messages (also AITOP_LANG=ko or "lang": "ko" in the config file)
 ```
@@ -48,6 +49,12 @@ In `--json`, `phase` stays the Korean status text in every language (as does `AI
 ```
 aitop --report daily --by model --days 14
 aitop --report daily --by project --days 7
+```
+
+`aitop --report monthly [--by tool|model|project] [--months N] [--json]` prints the same per month, newest first, for up to 12 months. Past days are folded into `monthly.json` in the cache folder (`~/.cache/aitop`, outside the versioned cache) about two days later, so monthly totals survive cache rebuilds and Claude Code deleting old transcripts. The first run reads up to a year of remaining logs once. `*` marks this month, `~` a month only partly counted (for example before the oldest remaining Claude log), and `no data` a month with neither logs nor archive (unknown, not zero). The archive keeps token counts per type, so costs are recomputed when the price table changes. In `--json`, rows have `month`, `current` and `status` (`complete`, `partial` or `missing`).
+
+```
+aitop --report monthly --by model --months 6
 ```
 
 ### tmux status line

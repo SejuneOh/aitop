@@ -79,17 +79,46 @@ function priceOf(model) {
   return lookup(PRICES, model);
 }
 
+// 사용량 벡터: [입력(캐시 제외), 출력, 캐시 읽기, 캐시 쓰기 5분, 캐시 쓰기 1시간]. 월별 보관함(monthly.mjs)이
+// 이 벡터를 남겨 두었다가 가격표가 바뀌면 지금 가격으로 다시 계산한다.
+export const VEC = 5;
+export const zeroVec = () => [0, 0, 0, 0, 0];
+
+// Claude usage 한 건의 벡터.
+export function claudeVec(u) {
+  if (!u) return zeroVec();
+  const write1h = u.cache_creation?.ephemeral_1h_input_tokens ?? 0;
+  const write5m = u.cache_creation ? (u.cache_creation.ephemeral_5m_input_tokens ?? 0) : (u.cache_creation_input_tokens ?? 0);
+  return [u.input_tokens ?? 0, u.output_tokens ?? 0, u.cache_read_input_tokens ?? 0, write5m, write1h];
+}
+
+// Claude 벡터 하나의 비용 (m: fast 배수).
+function claudeVecCost(p, v, m) {
+  const input = p.input * m;
+  const base = v[0] * input + v[1] * p.output * m;
+  const cache = v[2] * (p.cacheRead ?? p.input * 0.1) * m + v[3] * input * 1.25 + v[4] * input * 2;
+  return { total: (base + cache) / 1e6, noCache: base / 1e6 };
+}
+
 // Claude 메시지 usage 한 건의 환산 비용. total 은 캐시 포함, noCache 는 입력·출력만. 가격표에 없는 모델이면 null.
 export function claudeCost(model, u) {
   const p = priceOf(model);
   if (!p || !u) return null;
-  const m = u.speed === 'fast' && p.fast ? p.fast : 1;
-  const input = p.input * m;
-  const write1h = u.cache_creation?.ephemeral_1h_input_tokens ?? 0;
-  const write5m = u.cache_creation ? (u.cache_creation.ephemeral_5m_input_tokens ?? 0) : (u.cache_creation_input_tokens ?? 0);
-  const base = (u.input_tokens ?? 0) * input + (u.output_tokens ?? 0) * p.output * m;
-  const cache = (u.cache_read_input_tokens ?? 0) * (p.cacheRead ?? p.input * 0.1) * m + write5m * input * 1.25 + write1h * input * 2;
-  return { total: (base + cache) / 1e6, noCache: base / 1e6 };
+  return claudeVecCost(p, claudeVec(u), u.speed === 'fast' && p.fast ? p.fast : 1);
+}
+
+// 보관된 벡터(v: 보통, f: fast 모드)를 지금 가격표로 환산한 비용(USD). 가격표에 없는 모델이면 null.
+// agy(Gemini)는 날짜별 가격이라 at(그 달 가운데) 시각의 가격을 쓴다.
+export function vecCost(tool, model, v, f, at = Date.now()) {
+  const u = v ?? zeroVec();
+  if (tool === 'claude') {
+    const p = priceOf(model);
+    if (!p) return null;
+    return claudeVecCost(p, u, 1).total + (f ? claudeVecCost(p, f, p.fast ?? 1).total : 0);
+  }
+  const p = tool === 'codex' ? openaiPrice(model) : tool === 'agy' ? geminiPrice(model, at) : null;
+  if (!p) return null;
+  return (u[0] * p.input + u[1] * p.output + u[2] * (p.cacheRead ?? 0)) / 1e6;
 }
 
 // Codex(OpenAI) API 정가 기준 환산 비용 (USD / 100만 토큰). Claude 와 같이 "API 로 썼다면" 기준이다.

@@ -41,7 +41,7 @@ if (line.error) {
   process.stderr.write(`aitop: ${line.error}\n`);
   process.exit(2);
 }
-// --report daily, --by tool|model|project, --days <N> 은 reportOption 이 꺼낸다.
+// --report daily|monthly, --by tool|model|project, --days <N>, --months <N> 은 reportOption 이 꺼낸다.
 const report = reportOption(line.rest);
 if (report.error) {
   process.stderr.write(`aitop: ${report.error}\n`);
@@ -147,22 +147,26 @@ if (line.mode) {
 }
 
 // --report: 날짜별 사용량 표(또는 --json)를 내고 끝낸다. 실시간 화면·세션 목록은 읽지 않고 장부만 읽는다.
-// 처음 실행은 30일치 기록을 읽으므로 stderr 가 터미널이면 진행률을 보이고, 시간 상한(AITOP_REPORT_MS, 기본 120초)을 넘으면 읽은 만큼 낸다.
+// --report monthly 는 월별 보관함(monthly.mjs)과 장부를 합친다.
+// 처음 실행은 30일치(monthly 는 1년치) 기록을 읽으므로 stderr 가 터미널이면 진행률을 보이고, 시간 상한(AITOP_REPORT_MS, 기본 120초)을 넘으면 읽은 만큼 낸다.
 if (report.kind) {
-  const { buildReport, collectReport, fitReport, formatReport, PIPE_COLUMNS, progressWriter, reportJson, MAX_DAYS } = await import('../src/report.mjs');
+  const { buildMonthly, buildReport, collectMonthly, collectReport, fitReport, formatReport, PIPE_COLUMNS, progressWriter, reportJson, MAX_DAYS, MAX_MONTHS } = await import('../src/report.mjs');
   const { flushCache } = await import('../src/cache.mjs');
-  if (report.capped) process.stderr.write(`aitop: ${t('report.capped', { n: MAX_DAYS })}\n`);
+  const monthly = report.kind === 'monthly';
+  if (report.capped) process.stderr.write(`aitop: ${monthly ? t('report.cappedMonths', { n: MAX_MONTHS }) : t('report.capped', { n: MAX_DAYS })}\n`);
   const progress = progressWriter();
   const maxMs = Number(process.env.AITOP_REPORT_MS) > 0 ? Number(process.env.AITOP_REPORT_MS) : undefined;
   const now = Date.now();
-  const got = await collectReport({ days: report.days, maxMs, now, by: report.by, onProgress: progress.update });
+  // monthly: 보관함(monthly.json)과 장부를 합친다. 처음이면 1년치 기록을 한 번 읽어 보관함을 채운다.
+  const got = monthly ? await collectMonthly({ maxMs, now, onProgress: progress.update }) : await collectReport({ days: report.days, maxMs, now, by: report.by, onProgress: progress.update });
   progress.done();
   flushCache();
   if (got.partial && args.has('--json')) process.stderr.write(`aitop: ${t('report.partial')}\n`);
   // --by project 표는 터미널 폭(터미널이 아니면 COLUMNS 를 export 한 경우에만 그 폭, 아니면 열 8개)에 맞춰 열을 줄이고 나머지를 하나로 합친다 (--json 은 다 낸다).
   const fit = report.by === 'project' && !args.has('--json');
   const cols = process.stdout.isTTY ? process.stdout.columns : Number(process.env.COLUMNS) || 0;
-  let r = buildReport(got.books, { by: report.by, days: report.days, now, maxColumns: fit && !cols ? PIPE_COLUMNS : Infinity });
+  const maxColumns = fit && !cols ? PIPE_COLUMNS : Infinity;
+  let r = monthly ? buildMonthly(got.books, got.archive, { by: report.by, months: report.months, now, viewLo: got.viewLo, liveLo: got.liveLo, partial: got.partial, maxColumns }) : buildReport(got.books, { by: report.by, days: report.days, now, maxColumns });
   if (fit && cols) r = fitReport(r, cols);
   const text = args.has('--json') ? JSON.stringify(reportJson(r, VERSION, { partial: got.partial }), null, 2) : formatReport(r, { partial: got.partial });
   process.stdout.on('error', (err) => process.exit(err.code === 'EPIPE' ? 0 : 1));

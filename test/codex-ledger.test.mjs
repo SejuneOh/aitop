@@ -82,15 +82,16 @@ test('자정을 넘긴 세션은 줄의 날짜별로 나눠 더한다', () => {
   near(r.week.cost, 30);
 });
 
+// #164: 날짜 폴더가 아니라 수정 시각으로 고르므로, 한 달 넘게 전에 시작해 오늘 이어 쓴 세션(j)도 오늘 늘어난 만큼 센다.
 test('7일 밖의 줄과 7일 넘게 바뀌지 않은 기록은 세지 않고, 오래전 시작해 오늘 이어 쓴 세션은 오늘 늘어난 만큼만 센다', () => {
   const t = Date.now() - 10 * 60_000;
   rollout('d', [ctx('gpt-5.1-codex'), count(Date.now() - 8 * DAY, { output: 1_000_000 }), count(t, { output: 1_500_000 })]);
   rollout('e', [ctx('gpt-5.1-codex'), count(Date.now() - 8 * DAY, { output: 9_000_000 })], { startedAgo: 6 * DAY, ageMs: 8 * DAY });
   rollout('f', [ctx('gpt-5.1-codex'), count(Date.now() - 8 * DAY, { output: 9_000_000 }), count(t, { output: 9_700_000 })], { startedAgo: 8 * DAY });
-  rollout('j', [ctx('gpt-5.1-codex'), count(t, { output: 5_000_000 })], { startedAgo: 31 * DAY });
+  rollout('j', [ctx('gpt-5.1-codex'), count(Date.now() - 31 * DAY, { output: 4_000_000 }), count(t, { output: 5_000_000 })], { startedAgo: 40 * DAY });
   const r = ledger();
-  assert.equal(r.week.tokens, 1_200_000);
-  assert.equal(r.today.tokens, 1_200_000);
+  assert.equal(r.week.tokens, 2_200_000);
+  assert.equal(r.today.tokens, 2_200_000);
 });
 
 test('가격표에 없는 모델은 토큰만 세고 ? 표시, 모델이 바뀌면 그 뒤 줄부터 새 가격', () => {
