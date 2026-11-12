@@ -9,6 +9,7 @@ import { debug, debugIo } from './log.mjs';
 
 // 캐시 형식이 바뀌면 VERSION 을, 가격표가 바뀌면 PRICE_TAG 가 폴더 이름을 바꿔서 예전 캐시를 버린다.
 // 14: 장부의 하루 합계에 모델별 몫(models)을 더하고, 날짜를 10일이 아니라 30일 남긴다 (#128).
+// 장부(ledger)만 형식이 바뀔 때는 VERSION 대신 장부의 kind 이름을 바꿔 장부만 다시 센다 (세션 화면 캐시는 그대로).
 const VERSION = 14;
 const ROOT = join(process.env.XDG_CACHE_HOME ?? join(homedir(), '.cache'), 'aitop');
 export const CACHE_ROOT = ROOT;
@@ -26,7 +27,8 @@ function removeOldDirs() {
   try {
     for (const d of readdirSync(ROOT)) {
       // summary.json(--line 용 요약, summary.mjs)은 버전 폴더 밖에 두고 여기서 지우지 않는다. 남은 임시 파일은 일주일 뒤 지운다.
-      if (d === NAME || d === 'summary.json') continue;
+      // monthly.json(월별 보관함, monthly.mjs)과 깨져서 옆으로 옮긴 monthly.json.bad-* 도 사용자 기록이라 지우지 않는다.
+      if (d === NAME || d === 'summary.json' || d === 'monthly.json' || d.startsWith('monthly.json.bad-')) continue;
       const p = join(ROOT, d);
       // 이 버전보다 낮은 형식(v2, v6-… 등)은 더 이상 어떤 버전도 쓰지 않으므로 바로 지운다.
       const ver = Number(/^v(\d+)(?:-|$)/.exec(d)?.[1]);

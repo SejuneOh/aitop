@@ -7,14 +7,14 @@ import { join } from 'node:path';
 import { JsonlTail } from '../tail.mjs';
 import { loadCache, markDirty } from '../cache.mjs';
 import { codexCost } from '../pricing.mjs';
-import { dayDirs } from './codex.mjs';
-import { dayKey, lastDays, addSlot, addModel, KEEP_DAYS } from './common.mjs';
+import { allDayDirs } from './codex.mjs';
+import { dayKey, addSlot, addModel, recentDays } from './common.mjs';
 import { debugIo } from '../log.mjs';
 
-const KIND = 'codex-ledger';
+// 2: 사용량 벡터, 날짜 400일 보관 (#164).
+const KIND = 'codex-ledger2';
 const DAYS = 7;
 const LIST_TTL_MS = 30_000;
-const SCAN_DAYS = 30;
 
 // total_token_usage 를 codexCost 가 받는 모양으로 바꾼다 (input 은 캐시 제외).
 export function tokensOf(t) {
@@ -62,9 +62,7 @@ export class CodexBook {
   }
 
   snapshot() {
-    const keep = new Set(lastDays(KEEP_DAYS));
-    const days = Object.fromEntries(Object.entries(this.days).filter(([k]) => keep.has(k)));
-    return { offset: this.tail.lineOffset, model: this.model, last: this.last, days, slots: this.slots };
+    return { offset: this.tail.lineOffset, model: this.model, last: this.last, days: recentDays(this.days), slots: this.slots };
   }
 
   apply(x) {
@@ -85,7 +83,7 @@ export class CodexBook {
     day.tokens += tokens;
     day.cost += cost?.total ?? 0;
     day.costNoCache += cost?.noCache ?? 0;
-    addModel(day, this.model, tokens, cost?.total ?? 0, !cost);
+    addModel(day, this.model, tokens, cost?.total ?? 0, !cost, [d.input, d.output, d.cacheRead, 0, 0]);
     if (!cost) day.unknown = true;
     addSlot(this.slots, at, cost?.total ?? 0, cost?.noCache ?? 0, !cost);
   }
@@ -93,13 +91,13 @@ export class CodexBook {
 
 let listed = { at: 0, files: [], days: 0 };
 
-// 며칠 전에 시작했거나 다시 이어 쓴 세션도 시작한 날짜 폴더에 쓰므로, 30일치 폴더에서 7일 안에 바뀐 기록을 고른다.
-// 7일보다 오래된 줄은 날짜 키로 걸러진다. 리포트처럼 days 를 늘리면 폴더도 그만큼 더 거슬러 본다 (30일 리포트면 53일치).
+// 며칠 전에 시작했거나 다시 이어 쓴 세션도 시작한 날짜 폴더에 쓰므로, 모든 날짜 폴더에서 days 일 안에 바뀐 기록을 고른다.
+// 오래전에 시작해 최근까지 이어 쓴 세션도 빠지지 않아야 월별 보관함에 빠짐없이 접힌다 (목록은 30초 동안 다시 쓴다).
 function recentFiles(days = DAYS) {
   if (listed.days === days && Date.now() - listed.at < LIST_TTL_MS) return listed.files;
   const cutoff = Date.now() - days * 86400_000;
   const files = [];
-  for (const dir of dayDirs(SCAN_DAYS + days - DAYS)) {
+  for (const dir of allDayDirs()) {
     let names = [];
     try {
       names = readdirSync(dir);

@@ -7,17 +7,20 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { JsonlTail } from '../tail.mjs';
 import { loadCache, markDirty } from '../cache.mjs';
-import { claudeCost } from '../pricing.mjs';
-import { dayKey, lastDays, addSlot, addModel, lastHourOf, recentTodayOf, KEEP_DAYS } from './common.mjs';
+import { claudeCost, claudeVec } from '../pricing.mjs';
+import { dayKey, lastDays, addSlot, addModel, lastHourOf, recentTodayOf, recentDays, KEEP_DAYS } from './common.mjs';
 import { collectAgyLedger } from './agy-ledger.mjs';
 import { collectCodexLedger } from './codex-ledger.mjs';
 import { debugIo } from '../log.mjs';
+import { foldArchive, foldHi } from '../monthly.mjs';
+import { attachProjects } from './projects.mjs';
 
 export { dayKey };
 
 const HOME = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude');
 const PROJECTS = join(HOME, 'projects');
-const KIND = 'ledger';
+// 2: 모델 몫에 사용량 벡터(u, f), 날짜 400일 보관 (#164). 이름을 바꾸면 장부만 다시 센다.
+const KIND = 'ledger2';
 const DAYS = 7;
 const LIST_TTL_MS = 30_000;
 const RECENT_IDS = 64;
@@ -55,9 +58,7 @@ export class UsageTracker {
   }
 
   snapshot() {
-    const keep = new Set(lastDays(KEEP_DAYS));
-    const days = Object.fromEntries(Object.entries(this.days).filter(([k]) => keep.has(k)));
-    return { offset: this.tail.lineOffset, days, slots: this.slots, recent: [...this.recent] };
+    return { offset: this.tail.lineOffset, days: recentDays(this.days), slots: this.slots, recent: [...this.recent] };
   }
 
   // 같은 message.id 가 여러 줄로 반복되므로 직전 값과의 차이만, 그 줄의 날짜와 5분 칸에 더한다.
@@ -77,7 +78,9 @@ export class UsageTracker {
     const dTokens = tokensOf(u) - tokensOf(prev?.u);
     day.tokens += dTokens;
     day.cost += dCost;
-    addModel(day, m.model, dTokens, dCost, !cost && tokensOf(u) > 0);
+    const vec = claudeVec(u);
+    const was = claudeVec(prev?.u);
+    addModel(day, m.model, dTokens, dCost, !cost && tokensOf(u) > 0, vec.map((x, i) => x - was[i]), u.speed === 'fast');
     day.costNoCache = (day.costNoCache ?? 0) + (cost?.noCache ?? 0) - (prev?.costNoCache ?? 0);
     if (unknown) day.unknown = true;
     addSlot(this.slots, at, dCost, dNoCache, unknown);
@@ -153,7 +156,7 @@ function gather({ budget, now, days = DAYS }) {
   for (const [tool, o] of others) {
     pending += o.pending;
     size += o.size;
-    books.push(...o.days.map((d, i) => ({ tool, path: o.paths[i], days: d })));
+    books.push(...o.days.map((d, i) => ({ tool, path: o.paths[i], days: d, ...(o.stale?.[i] ? { staleFrom: o.stale[i] } : {}) })));
     slots.push(...o.slots);
   }
   return { books, slots, pending, size };
@@ -162,14 +165,61 @@ function gather({ budget, now, days = DAYS }) {
 // 기간 리포트용: 최근 days 일(최대 KEEP_DAYS) 안에 바뀐 기록의 날짜별·모델별 장부.
 // 평소 화면(collectLedger)은 7일 안에 바뀐 기록만 보므로, 이 함수를 부를 때만 더 오래된 기록을 읽는다.
 export function collectDaily({ budget, now = Date.now(), days = KEEP_DAYS } = {}) {
-  const { books, pending, size } = gather({ budget, now, days: Math.max(DAYS, Math.min(KEEP_DAYS, days)) });
+  return collectSpan({ budget, now, days: Math.min(KEEP_DAYS, days) });
+}
+
+// 최근 days 일(상한 없음) 안에 바뀐 기록의 장부. 월별 리포트가 보관함을 처음 채울 때 1년치까지 넓혀 읽는다.
+export function collectSpan({ budget, now = Date.now(), days = KEEP_DAYS } = {}) {
+  const { books, pending, size } = gather({ budget, now, days: Math.max(DAYS, days) });
   return { books, pending, size };
 }
 
+// 남은 Claude 기록 중 가장 오래된 수정 시각(ms, 없으면 null). Claude Code 는 수정 시각이 오래된 기록부터 지우므로,
+// 이 시각이 든 날까지는 지워진 기록이 있었을 수 있다 (월별 리포트가 '일부' 를 가를 때 쓴다).
+export function oldestClaudeMtime() {
+  let oldest = null;
+  const see = (p) => {
+    try {
+      const m = statSync(p).mtimeMs;
+      if (oldest == null || m < oldest) oldest = m;
+    } catch {}
+  };
+  let dirs = [];
+  try {
+    dirs = readdirSync(PROJECTS);
+  } catch {}
+  for (const dir of dirs) {
+    let names = [];
+    try {
+      names = readdirSync(join(PROJECTS, dir));
+    } catch {
+      continue;
+    }
+    for (const n of names) if (n.endsWith('.jsonl')) see(join(PROJECTS, dir, n));
+  }
+  return oldest;
+}
+
+// 평소 화면이 하루 한 번 지난 날을 월별 보관함(monthly.mjs)에 접는다. 7일 안에 바뀐 기록을 다 읽었을 때만
+// (한도 소진 없음, 남은 바이트 없음. 갱신이 실패한 agy 기록이 있으면 monthly.mjs foldArchive 가 그 날들을 미룬다):
+// 어떤 날 D 에 쓴 기록은 D 이후에 바뀌었으니, 7일 창 안의 날(lo~그제)은 이 장부에 빠짐없이 들어 있다.
+// 이미 접었으면 보관함 파일만 읽고 끝난다. 실패(다른 aitop 이 먼저 씀 등)면 10분 뒤 다시 해 본다.
+let folded = { hi: null, retry: 0 };
+const FOLD_RETRY_MS = 10 * 60_000;
+function foldLedger(books, now) {
+  const hi = foldHi(now);
+  if (folded.hi === hi || now < folded.retry) return;
+  const r = foldArchive(books, { lo: lastDays(DAYS, now).at(-1), hi, now, attach: attachProjects });
+  if (r === 'busy' || r === 'error') folded = { hi: null, retry: now + FOLD_RETRY_MS };
+  else folded = { hi, retry: 0 };
+}
+
 // 오늘·최근 7일·최근 1시간 합계 (Claude + agy + Codex). 아직 다 읽지 못했으면 loading 에 진행률(0~1).
-export function collectLedger({ budget, now = Date.now() } = {}) {
+// fold: 지난 날을 월별 보관함에 접을지 (평소 켠다).
+export function collectLedger({ budget, now = Date.now(), fold = true } = {}) {
   const g = gather({ budget, now });
   const { pending, size } = g;
+  if (fold && !budget?.exhausted && !pending) foldLedger(g.books, now);
   const books = g.books.map((b) => b.days);
   const slots = g.slots;
   const sum = (keys) => {
@@ -200,4 +250,4 @@ export function collectLedger({ budget, now = Date.now() } = {}) {
   };
 }
 
-export const _test = { lastDays };
+export const _test = { lastDays, resetFold: () => (folded = { hi: null, retry: 0 }) };

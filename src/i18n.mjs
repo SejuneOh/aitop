@@ -69,6 +69,8 @@ const HELP_KO = `{logo} aitop - 터미널에서 Claude Code · Codex · Antigrav
   aitop --report daily [--by tool|model|project] [--days N] [--json]  최근 N일(기본·최대 30)의 날짜별 토큰·비용(API 정가 환산)을
                    도구별·모델별·프로젝트별 표로 내고 끝낸다. 최근 날짜가 위, 맨 아래는 합계. 처음 실행은 30일치 기록을 읽느라 오래 걸릴 수 있다
                    프로젝트는 작업 폴더의 마지막 이름이고, 열이 터미널 폭을 넘으면 비용이 작은 쪽을 (그 외) 로 합친다
+  aitop --report monthly [--by tool|model|project] [--months N] [--json]  최근 N달(기본·최대 12)의 달별 표. 지난 날은 캐시 폴더의
+                   monthly.json 에 달별로 남겨 기록이 지워져도 남는다. 처음 실행은 1년치 기록을 한 번 읽는다. * 이번 달, ~ 일부만 센 달
   aitop --doctor   Claude · Codex · Antigravity · Gemini 기록과 실행 중인 프로세스, 설정 파일을 점검한다 (--json 과 함께 쓸 수 있다)
   aitop --bell     응답 대기 세션이 새로 생기면 터미널 벨을 울린다
   aitop --notify   응답 대기 세션이 새로 생기면 데스크톱 알림을 띄운다 (notify-send · osascript, 없으면 건너뜀)
@@ -111,6 +113,9 @@ const HELP_EN = `{logo} aitop - watch Claude Code, Codex, Antigravity and Gemini
   aitop --report daily [--by tool|model|project] [--days N] [--json]  print daily tokens and cost (API list price) for the last N days
                    (default and max 30) by tool, model or project, then exit. Newest day first, total at the bottom. The first run reads 30 days of logs and may take a while
                    A project is the last folder name of the working directory. Columns beyond the terminal width are merged into (others)
+  aitop --report monthly [--by tool|model|project] [--months N] [--json]  the same per month for the last N months (default and max 12).
+                   Past days are kept per month in monthly.json in the cache folder, so they survive log cleanup. The first run reads up to a year of logs once.
+                   * marks this month, ~ a month only partly counted
   aitop --doctor   check Claude, Codex, Antigravity and Gemini logs, running processes and the config file (works with --json)
   aitop --bell     ring the terminal bell when a session starts waiting for you
   aitop --notify   show a desktop notification when a session starts waiting (notify-send or osascript, skipped if missing)
@@ -195,13 +200,17 @@ export const STRINGS = {
     'opt.lineBad': '--line 값 {value} 이 잘못되었습니다 (plain 또는 tmux)',
     'opt.lineWidthMissing': '--line-width 값이 없습니다 (글자 수)',
     'opt.lineWidthBad': '--line-width 값 {value} 이 잘못되었습니다 (0 보다 큰 정수)',
-    'opt.reportMissing': '--report 값이 없습니다 (daily)',
-    'opt.reportBad': '--report 값 {value} 이 잘못되었습니다 (daily)',
+    'opt.reportMissing': '--report 값이 없습니다 (daily 또는 monthly)',
+    'opt.reportBad': '--report 값 {value} 이 잘못되었습니다 (daily 또는 monthly)',
     'opt.byMissing': '--by 값이 없습니다 (tool, model 또는 project)',
     'opt.byBad': '--by 값 {value} 이 잘못되었습니다 (tool, model 또는 project)',
     'opt.daysMissing': '--days 값이 없습니다 (일 수)',
     'opt.daysBad': '--days 값 {value} 이 잘못되었습니다 (0 보다 큰 정수)',
-    'opt.reportOnly': '--by, --days 는 --report 와 함께 쓴다',
+    'opt.monthsMissing': '--months 값이 없습니다 (달 수)',
+    'opt.monthsBad': '--months 값 {value} 이 잘못되었습니다 (0 보다 큰 정수)',
+    'opt.daysDaily': '--days 는 --report daily 와 함께 쓴다 (monthly 는 --months)',
+    'opt.monthsMonthly': '--months 는 --report monthly 와 함께 쓴다 (daily 는 --days)',
+    'opt.reportOnly': '--by, --days, --months 는 --report 와 함께 쓴다',
 
     // 기간 리포트 (--report daily). 도구·모델 이름은 번역하지 않는다.
     'report.title': '날짜별 사용량 · 최근 {n}일 ({from} ~ {to}) · {by} · API 정가 환산',
@@ -217,6 +226,13 @@ export const STRINGS = {
     'report.partial': '시간 상한 안에 기록을 다 읽지 못해 일부만 셌습니다. 다시 실행하면 이어 읽습니다',
     'report.progress': '사용량 장부 읽는 중 {pct}% ({s}초)',
     'report.capped': '--days 는 장부가 남기는 {n}일까지만 볼 수 있어 {n}일로 줄입니다',
+    'report.cappedMonths': '--months 는 보관함이 남기는 {n}달까지만 볼 수 있어 {n}달로 줄입니다',
+    'report.titleMonthly': '달별 사용량 · 최근 {n}달 ({from} ~ {to}) · {by} · API 정가 환산',
+    'report.month': '달',
+    'report.missing': '기록 없음',
+    'report.noteCurrent': '* 이번 달 (아직 진행 중)',
+    'report.notePartial': '~ 일부 날만 셌습니다 (그 전 기록이 지워졌거나 보관함이 비어 있던 때)',
+    'report.noteMissing': '기록 없음: 남은 기록도 보관함도 없는 달입니다 (0 이 아니라 모름)',
 
     'cfg.notFile': '설정 파일이 일반 파일이 아니라 읽지 않습니다',
     'cfg.tooBig': '설정 파일이 {kb}KB 를 넘어 읽지 않습니다',
@@ -541,13 +557,17 @@ export const STRINGS = {
     'opt.lineBad': 'bad --line value {value} (plain or tmux)',
     'opt.lineWidthMissing': '--line-width needs a value (characters)',
     'opt.lineWidthBad': 'bad --line-width value {value} (a whole number above 0)',
-    'opt.reportMissing': '--report needs a value (daily)',
-    'opt.reportBad': 'bad --report value {value} (daily)',
+    'opt.reportMissing': '--report needs a value (daily or monthly)',
+    'opt.reportBad': 'bad --report value {value} (daily or monthly)',
     'opt.byMissing': '--by needs a value (tool, model or project)',
     'opt.byBad': 'bad --by value {value} (tool, model or project)',
     'opt.daysMissing': '--days needs a value (number of days)',
     'opt.daysBad': 'bad --days value {value} (a whole number above 0)',
-    'opt.reportOnly': '--by and --days only work with --report',
+    'opt.monthsMissing': '--months needs a value (number of months)',
+    'opt.monthsBad': 'bad --months value {value} (a whole number above 0)',
+    'opt.daysDaily': '--days only works with --report daily (use --months for monthly)',
+    'opt.monthsMonthly': '--months only works with --report monthly (use --days for daily)',
+    'opt.reportOnly': '--by, --days and --months only work with --report',
 
     'report.title': 'Daily usage, last {n} days ({from} to {to}), {by}, API list price',
     'report.by.tool': 'by tool',
@@ -562,6 +582,13 @@ export const STRINGS = {
     'report.partial': 'Could not read all logs within the time limit, so this is partial. Run again to continue',
     'report.progress': 'Reading usage logs {pct}% ({s}s)',
     'report.capped': '--days is limited to the {n} days the ledger keeps, using {n}',
+    'report.cappedMonths': '--months is limited to the {n} months the archive keeps, using {n}',
+    'report.titleMonthly': 'Monthly usage, last {n} months ({from} to {to}), {by}, API list price',
+    'report.month': 'Month',
+    'report.missing': 'no data',
+    'report.noteCurrent': '* this month (still in progress)',
+    'report.notePartial': '~ only some days were counted (older logs were deleted or the archive was empty then)',
+    'report.noteMissing': 'no data: neither logs nor the archive cover this month (unknown, not zero)',
 
     'cfg.notFile': 'config file is not a regular file, not reading it',
     'cfg.tooBig': 'config file is over {kb}KB, not reading it',

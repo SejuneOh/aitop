@@ -27,17 +27,32 @@ export function lastDays(n, now = Date.now()) {
   return keys;
 }
 
-// 장부가 날짜별로 남기는 일수. 기간 리포트(--report)가 볼 수 있는 가장 긴 기간이기도 하다.
-// 평소 실행은 최근 7일 안에 바뀐 기록만 읽지만, 그 기록 안의 30일치 날짜 합계는 캐시에 남겨 리포트가 다시 읽지 않게 한다.
+// 날짜별 리포트(--report daily)가 볼 수 있는 가장 긴 기간. 리포트는 30일 안에 바뀐 기록을 읽는다.
+// 평소 실행은 최근 7일 안에 바뀐 기록만 읽지만, 그 기록 안의 날짜 합계는 캐시에 남겨(STORE_DAYS) 리포트가 다시 읽지 않게 한다.
 export const KEEP_DAYS = 30;
 
-// 하루 합계(day)에 모델별 몫 { tokens, cost } 를 더한다. 모델 이름을 모르면 'unknown' 으로 센다.
+// 캐시에 날짜별 합계를 남기는 일수. 월별 보관함(monthly.mjs)이 12개월치를 처음 채울 때 다시 읽지 않게 1년 넘게 남긴다.
+// 기록 하나에는 그 기록이 쓰인 날만 있어 길게 남겨도 캐시가 거의 커지지 않는다.
+export const STORE_DAYS = 400;
+
+// 날짜별 합계 중 최근 n 일(키 비교) 것만 남긴 복사본.
+export function recentDays(days, n = STORE_DAYS, now = Date.now()) {
+  const from = dayKey(now - (n - 1) * 86400_000);
+  return Object.fromEntries(Object.entries(days).filter(([k]) => k >= from));
+}
+
+// 하루 합계(day)에 모델별 몫 { tokens, cost, u } 를 더한다. 모델 이름을 모르면 'unknown' 으로 센다.
 // unknown: 가격표에 없는 모델이라 비용을 0 으로 셌을 때. 그 모델 몫에 unknown 을 남겨 리포트가 ? 를 붙인다.
-export function addModel(day, model, tokens, cost, unknown = false) {
+// vec: 사용량 벡터(pricing.mjs VEC). fast 면 f 에 따로 더한다 (Claude fast 모드는 단가가 다르다).
+export function addModel(day, model, tokens, cost, unknown = false, vec = null, fast = false) {
   const m = ((day.models ??= {})[String(model || 'unknown')] ??= { tokens: 0, cost: 0 });
   m.tokens += tokens;
   m.cost += cost;
   if (unknown) m.unknown = true;
+  if (vec) {
+    const to = fast ? (m.f ??= [0, 0, 0, 0, 0]) : (m.u ??= [0, 0, 0, 0, 0]);
+    for (let i = 0; i < to.length; i++) to[i] += vec[i] ?? 0;
+  }
 }
 
 // 지출 속도용 짧은 구간 장부. 비용을 5분 칸(키 = 칸 시작 시각 ms)에 모으고, 그 장부에서 가장 새 칸부터
