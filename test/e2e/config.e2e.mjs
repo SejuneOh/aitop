@@ -29,7 +29,8 @@ const run = (xdg, args, extra) => execFileSync(process.execPath, [BIN, ...args],
 test('--print-config 는 키마다 값과 출처, 파일 위치를 보인다', () => {
   const { xdg, path } = configHome({ theme: 'light', icons: 'ascii', bell: true, all: true, budgetDay: 5, nope: 1 });
   const out = run(xdg, ['--print-config', '--all', '--theme', 'dark'], { AITOP_ICONS: 'plain' });
-  assert.match(out, new RegExp(`^설정 파일: ${path.replace(/[.]/g, '\\.')} \\(있음\\)`));
+  // Windows 경로의 \ 도 정규식에서 글자 그대로 보도록 모두 이스케이프한다.
+  assert.match(out, new RegExp(`^설정 파일: ${path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\(있음\\)`));
   assert.match(out, /^theme +"dark" +flag$/m);
   assert.match(out, /^icons +"plain" +env$/m);
   assert.match(out, /^bell +true +file$/m);

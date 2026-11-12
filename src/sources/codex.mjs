@@ -4,18 +4,23 @@ import { join, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { JsonlTail } from '../tail.mjs';
 import { loadCache, markDirty } from '../cache.mjs';
-import { findProcesses, isCodex, openFiles, processStart } from '../procs.mjs';
+import { canListProcesses, findProcesses, isCodex, openFiles, processStart } from '../procs.mjs';
 import { addActivity, emptyTokens, parseTs, pushEvent, describeTool, isNoisePrompt } from './common.mjs';
 import { addChange, mergeFiles } from './files.mjs';
 import { codexCost } from '../pricing.mjs';
 import { parsePatch, extractPatch, patchSucceeded } from './patch.mjs';
 import { debug, debugIo } from '../log.mjs';
+import { lastName } from '../paths.mjs';
 
 // 지시 탭에 쓰는 지시 목록은 최근 것만 남긴다.
 const MAX_TURNS = 50;
 
 const ROOT = join(process.env.CODEX_HOME ?? join(homedir(), '.codex'), 'sessions');
 const RECENT_MS = 24 * 3600 * 1000;
+// 프로세스 목록을 못 얻는 OS(지금은 Windows)에서는 이 시간 안에 바뀐 기록을 실행 중으로 본다.
+// codex 는 답할 때마다 기록에 쓰므로, 답을 읽고 다음 지시를 쓰는 동안(대개 몇 분)은 남고 닫은 세션은 곧 빠진다.
+// Claude 팀원의 MEMBER_STALE_MS(15분)보다 짧게 둔다. 실제 프로세스가 없으니 끝난 세션이 오래 남는 쪽이 더 헷갈린다.
+export const NO_PROC_LIVE_MS = 10 * 60_000;
 
 const states = new Map();
 
@@ -280,11 +285,14 @@ function applyLine(st, x) {
 
 export const _test = { newState, applyLine, phaseOf, snapshot };
 
-export function collectCodex({ showEnded, budget, filesOf = openFiles, startOf = processStart }) {
-  const procs = findProcesses(isCodex);
-  if (!procs.length && !showEnded) return [];
+export function collectCodex({ showEnded, budget, filesOf = openFiles, startOf = processStart, canList = canListProcesses }) {
+  // 프로세스를 못 세면 숨기지 않고 최근에 바뀐 기록으로 판정한다 (pid 는 null).
+  const blind = !canList();
+  const procs = blind ? [] : findProcesses(isCodex);
+  if (!procs.length && !showEnded && !blind) return [];
 
-  const files = recentFiles();
+  const fresh = (f) => Date.now() - f.mtime <= NO_PROC_LIVE_MS;
+  const files = blind && !showEnded ? recentFiles().filter(fresh) : recentFiles();
   const read = (path) => {
     let st = states.get(path);
     if (!st) states.set(path, (st = newState(path)));
@@ -336,6 +344,8 @@ export function collectCodex({ showEnded, budget, filesOf = openFiles, startOf =
     }
   }
 
+  if (blind) for (const f of files) if (fresh(f)) liveByPath.set(f.path, null);
+
   const seen = new Set(files.map((f) => f.path));
   for (const path of states.keys()) if (!seen.has(path)) states.delete(path);
 
@@ -353,9 +363,9 @@ export function collectCodex({ showEnded, budget, filesOf = openFiles, startOf =
       id: st.id,
       pid: pid ?? null,
       kind: 'interactive',
-      name: basename(st.cwd ?? '') || 'codex',
+      name: lastName(st.cwd) || 'codex',
       cwd: st.cwd,
-      project: basename(st.cwd ?? ''),
+      project: lastName(st.cwd),
       branch: st.branch,
       model: st.model,
       live,
@@ -381,7 +391,7 @@ export function collectCodex({ showEnded, budget, filesOf = openFiles, startOf =
   // 아직 세션 파일을 만들지 않은(첫 입력 전) codex 프로세스도 보여 준다.
   for (const [cwd, pids] of slots) {
     for (const pid of pids) {
-      out.push({ tool: 'codex', id: `pid-${pid}`, pid, kind: 'interactive', name: basename(cwd ?? '') || 'codex', cwd, project: basename(cwd ?? ''), live: true, status: 'idle', phase: { kind: 'idle', msg: 'firstInput' }, cost: null, now: '', updatedAt: Date.now(), tokens: emptyTokens(), context: { used: 0, window: 0 }, events: [], members: [] });
+      out.push({ tool: 'codex', id: `pid-${pid}`, pid, kind: 'interactive', name: lastName(cwd) || 'codex', cwd, project: lastName(cwd), live: true, status: 'idle', phase: { kind: 'idle', msg: 'firstInput' }, cost: null, now: '', updatedAt: Date.now(), tokens: emptyTokens(), context: { used: 0, window: 0 }, events: [], members: [] });
     }
   }
   return out;

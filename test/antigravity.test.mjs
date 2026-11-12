@@ -168,7 +168,7 @@ test('agy 프로세스와 대화를 짝짓는다: 열린 파일, 서브에이전
   assert.deepEqual(loose.map((p) => p.pid), [3], '대화를 아직 열지 않은 프로세스');
 });
 
-test('기록 폴더를 /proc 링크와 같은 실제 절대 경로로 바꿔 짝짓는다: 끝의 /, 상대 경로, 심볼릭 링크', () => {
+test('기록 폴더를 /proc 링크와 같은 실제 절대 경로로 바꿔 짝짓는다: 끝의 /, 상대 경로, 심볼릭 링크', { skip: process.platform === 'win32' && 'Windows: 심볼릭 링크에 관리자 권한이 필요하고 /proc 짝짓기는 Linux 전용' }, () => {
   const base = realpathSync(mkdtempSync(join(tmpdir(), 'aitop-agy-root-')));
   const real = join(base, 'real');
   mkdirSync(join(real, 'presence'), { recursive: true });

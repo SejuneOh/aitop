@@ -18,7 +18,8 @@
   },
   "os": [
     "linux",
-    "darwin"
+    "darwin",
+    "win32"
   ],
   "homepage": "https://github.com/SejuneOh/aitop#readme",
   "bugs": "https://github.com/SejuneOh/aitop/issues",
@@ -32,7 +33,7 @@
   },
   "scripts": {
     "start": "node bin/aitop.mjs",
-    "test": "AITOP_LANG=ko node --test test/*.test.mjs",
-    "test:e2e": "AITOP_LANG=ko node --test test/e2e/*.e2e.mjs"
+    "test": "node --import ./test/lang-ko.mjs --test test/*.test.mjs",
+    "test:e2e": "node --import ./test/lang-ko.mjs --test test/e2e/*.e2e.mjs"
   }
 }

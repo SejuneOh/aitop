@@ -3,6 +3,7 @@
 import { readFileSync, writeFileSync, mkdirSync, renameSync, statSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import { appDir } from './paths.mjs';
 import { createHash } from 'node:crypto';
 import { PRICE_TAG } from './pricing.mjs';
 import { debug, debugIo } from './log.mjs';
@@ -11,7 +12,8 @@ import { debug, debugIo } from './log.mjs';
 // 14: 장부의 하루 합계에 모델별 몫(models)을 더하고, 날짜를 10일이 아니라 30일 남긴다 (#128).
 // 장부(ledger)만 형식이 바뀔 때는 VERSION 대신 장부의 kind 이름을 바꿔 장부만 다시 센다 (세션 화면 캐시는 그대로).
 const VERSION = 14;
-const ROOT = join(process.env.XDG_CACHE_HOME ?? join(homedir(), '.cache'), 'aitop');
+// Windows 는 XDG_CACHE_HOME 이 없으면 %LOCALAPPDATA%\aitop\cache (paths.mjs).
+const ROOT = appDir('cache', { home: homedir() });
 export const CACHE_ROOT = ROOT;
 const NAME = `v${VERSION}-${PRICE_TAG}`;
 const DIR = join(ROOT, NAME);
