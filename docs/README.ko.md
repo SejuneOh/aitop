@@ -2,6 +2,8 @@
 
 터미널에서 지금 돌고 있는 AI 코딩 세션(Claude Code · Codex CLI · Antigravity CLI · Gemini CLI)과 진행 내용, 토큰을 실시간으로 보는 읽기 전용 모니터.
 
+![Claude Code · Codex · Antigravity 세션을 보여 주는 aitop (가짜 데이터)](https://raw.githubusercontent.com/SejuneOh/aitop/main/docs/demo.gif)
+
 - 포트를 열지 않고, 네트워크 요청을 하지 않는다. 각 CLI 가 내 PC 에 남기는 세션 파일만 읽는다.
 - 세션 파일은 읽기 전용으로만 연다. 디스크에 쓰는 곳은 읽은 위치·합계를 기억하는 `~/.cache/aitop` 뿐이다 (지워도 된다). `--debug` 를 켰을 때만 디버그 로그를 따로 쓴다.
 - 화면에 표시되는 텍스트 중 API 키·토큰처럼 보이는 값은 `••••` 로 가린다.

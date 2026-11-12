@@ -5,6 +5,8 @@
 
 **`top` for your AI coding agents.** A read-only terminal monitor that shows every Claude Code, Codex CLI and Antigravity CLI session on your machine in one live screen: what each one is doing, which ones are waiting for you, and how many tokens they used.
 
+![aitop showing Claude Code, Codex and Antigravity sessions (demo data)](https://raw.githubusercontent.com/SejuneOh/aitop/main/docs/demo.gif)
+
 - **Live status** of every session and its subagents: thinking, running a tool, waiting for you, idle
 - **Waiting alerts**: blocked sessions jump to the top, with optional bell, desktop notification or hook command
 - **Tokens and cost** per session and for today / last 7 days, at public API list prices
