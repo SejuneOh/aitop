@@ -134,7 +134,7 @@ const books = new Map();
 // 대화마다 날짜별 합계(days)와 5분 칸(slots), 처음 읽기가 덜 끝난 기록의 크기(pending)·전체 크기(size).
 // node:sqlite 를 못 쓰는 Node 에서는 비어 있다 (agy 는 프로세스만 보인다).
 export function collectAgyLedger({ budget, days = DAYS } = {}) {
-  const out = { days: [], slots: [], pending: 0, size: 0 };
+  const out = { days: [], slots: [], paths: [], pending: 0, size: 0 };
   if (!loadSqlite() || !existsSync(join(AGY_ROOT, 'conversations'))) return out;
   const files = recentFiles(days);
   const keep = new Set(files);
@@ -147,6 +147,7 @@ export function collectAgyLedger({ budget, days = DAYS } = {}) {
     out.size += size;
     if (!b.complete) out.pending += size;
     out.days.push(b.days);
+    out.paths.push(p);
     out.slots.push(b.slots);
   }
   return out;

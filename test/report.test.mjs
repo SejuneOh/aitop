@@ -155,7 +155,8 @@ test('옵션: 두 모양, 기본값, 30일 상한, 잘못된 값, --report 없�
   assert.equal(c.capped, true);
   assert.ok(reportOption(['--report', 'weekly']).error);
   assert.ok(reportOption(['--report']).error);
-  assert.ok(reportOption(['--report', 'daily', '--by', 'project']).error);
+  assert.ok(reportOption(['--report', 'daily', '--by', 'repo']).error);
+  assert.equal(reportOption(['--report', 'daily', '--by', 'project']).by, 'project');
   assert.ok(reportOption(['--report', 'daily', '--days', '0']).error);
   assert.ok(reportOption(['--by', 'model']).error);
   assert.equal(reportOption(['--once']).kind, null);

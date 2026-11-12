@@ -123,7 +123,7 @@ const books = new Map();
 // 기록마다 날짜별 합계(days)와 5분 칸(slots), 아직 읽지 않은 크기(pending)·전체 크기(size).
 // days: 최근 며칠 안에 바뀐 기록을 볼지 (평소 7일, 리포트는 더 길게).
 export function collectCodexLedger({ budget, days = DAYS } = {}) {
-  const out = { days: [], slots: [], pending: 0, size: 0 };
+  const out = { days: [], slots: [], paths: [], pending: 0, size: 0 };
   const files = recentFiles(days);
   const keep = new Set(files);
   for (const p of books.keys()) if (!keep.has(p)) books.delete(p);
@@ -134,6 +134,7 @@ export function collectCodexLedger({ budget, days = DAYS } = {}) {
     out.pending += b.pending;
     out.size += b.tail.size;
     out.days.push(b.days);
+    out.paths.push(p);
     out.slots.push(b.slots);
   }
   return out;

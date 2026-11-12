@@ -66,3 +66,15 @@ test('잘못된 옵션은 2 로 끝내고, 30일을 넘는 --days 는 30일로 �
   assert.equal(JSON.parse(capped.stdout).days, 30);
   assert.match(capped.stderr, /limited to the 30 days/);
 });
+
+test('--by project: 작업 폴더 이름 열, --json 은 이름별 경로를 둔다', () => {
+  const ko = run(['--report', 'daily', '--by', 'project', '--days', '7'], { AITOP_LANG: 'ko' });
+  assert.equal(ko.status, 0, ko.stderr);
+  assert.match(ko.stdout, /^날짜별 사용량 · 최근 7일 .* 프로젝트별/);
+  assert.match(ko.stdout, /^날짜 +-work-demo +합계$/m);
+  const j = JSON.parse(run(['--report', 'daily', '--by', 'project', '--days', '7', '--json']).stdout);
+  assert.equal(j.by, 'project');
+  assert.deepEqual(j.columns, ['-work-demo']);
+  assert.deepEqual(j.paths, { '-work-demo': '-work-demo' });
+  assert.equal(j.total.tokens, 1_360_000);
+});

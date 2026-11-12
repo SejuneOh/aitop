@@ -147,12 +147,13 @@ function gather({ budget, now, days = DAYS }) {
     ['agy', collectAgyLedger({ budget, now, days })],
     ['codex', collectCodexLedger({ budget, days })],
   ];
-  const books = [...trackers.values()].map((t) => ({ tool: 'claude', days: t.days }));
+  // path: 리포트 --by project 가 기록 파일에서 프로젝트를 찾을 때 쓴다 (projects.mjs).
+  const books = [...trackers.entries()].map(([path, t]) => ({ tool: 'claude', path, days: t.days }));
   const slots = [...trackers.values()].map((t) => t.slots);
   for (const [tool, o] of others) {
     pending += o.pending;
     size += o.size;
-    books.push(...o.days.map((d) => ({ tool, days: d })));
+    books.push(...o.days.map((d, i) => ({ tool, path: o.paths[i], days: d })));
     slots.push(...o.slots);
   }
   return { books, slots, pending, size };
