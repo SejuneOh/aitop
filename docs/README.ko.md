@@ -63,20 +63,21 @@ aitop --no-bell · --no-all · --no-show-requests · --no-notify · --no-on-wait
 aitop --debug    디버그 로그 (AITOP_DEBUG=1, 설정 파일 debug). 아래 '디버그 로그' 참고
 AITOP_AMBIGUOUS=wide  폭이 모호한 기호를 2칸으로 그리는 터미널용 (설정 파일 ambiguous). 아래 '폭이 모호한 기호' 참고
 aitop --print-config   설정 값마다 값과 출처(flag/env/file/default), 설정 파일 위치를 보인다. --json 과 함께 가능
-aitop --line     tmux 상태줄용 한 줄 (예: $54.13/$50 wait 2 $3.1/h). 아래 'tmux 상태줄' 참고
+aitop --line     tmux 상태줄용 한 줄 (예: $54.13/$50 wait 2 run 3 $3.1/h). 아래 'tmux 상태줄' 참고
 aitop --report daily [--by tool|model] [--days N] [--json]  최근 N일의 날짜별 토큰·비용 표. 아래 '기간 리포트' 참고
 aitop --lang ko|en  화면·--help·--doctor·오류 문구의 언어 (AITOP_LANG, 설정 파일 lang). 아래 '언어' 참고
 ```
 
 ### tmux 상태줄 (`--line`)
 
-`aitop --line` 은 한 줄을 내고 끝난다. 항목은 오늘 비용(헤더와 같은 API 환산, 하루 예산이 있으면 `/$50`), 응답 대기 세션 수(`wait 2`), 최근 1시간 지출(`$3.1/h`) 순이다.
+`aitop --line` 은 한 줄을 내고 끝난다. 항목은 오늘 비용(헤더와 같은 API 환산, 하루 예산이 있으면 `/$50`), 응답 대기 세션 수(`wait 2`), 작업 중 세션 수(`run 3`), 최근 1시간 지출(`$3.1/h`) 순이다.
 
 - 0 인 항목은 뺀다. `--line-width N` (기본 40) 을 넘으면 뒤 항목부터 뺀다.
 - 글자는 ASCII 만 쓴다 (이모지·폭이 모호한 기호는 tmux 에서 칸이 어긋난다). 표기는 짧은 영어 약어로 고정하고 번역하지 않는다.
 - 기본은 색 없는 글. `--line=tmux` 는 항목마다 `#[fg=colourN]...#[default]` 를 씌운다 (대기는 주황, 돈은 연두, `--color-blind` 면 노랑·파랑). ANSI 코드는 넣지 않고, `NO_COLOR` 가 있으면 tmux 서식도 넣지 않는다.
 - 장부 캐시와 그 뒤에 붙은 줄만 읽고 세션 화면용 기록 전체·프로세스 목록은 읽지 않는다. 캐시가 없어(처음 실행) 1.5초 안에 다 읽지 못하면 `...` 을 내고 0 으로 끝난다. 읽은 만큼은 aitop 캐시에 남아 다음 실행이 이어 읽는다.
-- 응답 대기 수는 지금은 Claude Code 세션(`~/.claude/sessions` 와 pid)만 센다. Antigravity·Gemini 의 대기는 프로세스 목록이 있어야 해서 빠진다.
+- 응답 대기 수 중 Claude Code 몫은 세션 파일(`~/.claude/sessions` 와 pid)로 매번 지금 값을 센다.
+- 작업 중 수와 Antigravity 의 대기 수는 실시간 화면·`--once`·`--json` 이 캐시에 남기는 작은 요약(`summary.json`)에서 읽는다. 화면은 수가 바뀌면 5초 안에, 그대로여도 20초마다 다시 쓴다. 60초보다 오래된 요약은 쓰지 않고 `run` 을 뺀다 (틀린 수를 보이지 않게).
 
 ```tmux
 set -g status-right '#(aitop --line=tmux)'

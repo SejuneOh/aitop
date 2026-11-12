@@ -195,6 +195,7 @@ const { arrange } = await import('../src/order.mjs');
 const { frameTimer } = await import('../src/frames.mjs');
 const { flushCache } = await import('../src/cache.mjs');
 const { toJson } = await import('../src/json.mjs');
+const { createSummaryWriter, summarize, writeSummary } = await import('../src/summary.mjs');
 const { createAttention, updateAttention, markSeen, nextAttention, windowTitle, createWaitWatch, takeNewlyWaiting, attentionCounts } = await import('../src/attention.mjs');
 const { createNotifier } = await import('../src/notify.mjs');
 const { onKey, fixFocus } = await import('../src/keys.mjs');
@@ -271,6 +272,8 @@ function select(id) {
 if (once) {
   refresh();
   flushCache();
+  // --line 이 작업 중 수를 낼 수 있게 요약을 남긴다 (summary.mjs).
+  writeSummary(summarize(view.data.sessions));
   const size = (v) => (Number(v) > 0 ? Math.floor(Number(v)) : 0);
   const W = process.stdout.columns || size(process.env.COLUMNS) || 140;
   const H = process.stdout.rows || size(process.env.LINES) || 40;
@@ -398,8 +401,11 @@ stdin.on('data', (key) => {
 });
 
 let lastFlush = 0;
+// --line 용 요약. 시작 때 기록을 다 읽기 전(ready 전)에는 수가 덜 잡혔을 수 있어 쓰지 않는다.
+const writeSummaryThrottled = createSummaryWriter();
 function tick() {
   const shown = refresh({ throttle: true });
+  if (loading.ready && view.data) writeSummaryThrottled(view.data.sessions);
   const more = lastMore;
   if (more ? Date.now() - lastFlush > LOADING_FLUSH_MS : Date.now() - lastFlush > 15_000) {
     flushCache();

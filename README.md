@@ -29,7 +29,7 @@ aitop            live screen
 aitop --all      include sessions that ended in the last 24 hours
 aitop --json     print a snapshot as JSON and exit
 aitop --doctor   check which tools and logs aitop can see
-aitop --line     print one short status line and exit (for tmux, e.g. $54.13/$50 wait 2 $3.1/h)
+aitop --line     print one short status line and exit (for tmux, e.g. $54.13/$50 wait 2 run 3 $3.1/h)
 aitop --report daily  daily cost table and exit
 aitop --help     all options
 aitop --lang ko  Korean screen, help, doctor and error messages (also AITOP_LANG=ko or "lang": "ko" in the config file)
@@ -49,7 +49,7 @@ aitop --report daily --by model --days 14
 
 ### tmux status line
 
-`aitop --line` prints today's cost (API list price, `/$<budget>` when a daily budget is set), the number of Claude Code sessions waiting for you, and spend over the last hour. Items that are 0 are left out, and `--line-width N` (default 40) drops items from the end. It reads only aitop's cache, so it is fast once `aitop` has run before; with no cache yet it prints `...` after about 1.5 seconds. `--line=tmux` adds tmux colors, `NO_COLOR` turns them off.
+`aitop --line` prints today's cost (API list price, `/$<budget>` when a daily budget is set), the number of sessions waiting for you (`wait 2`, Claude Code counted live), the number of sessions running (`run 3`), and spend over the last hour. Items that are 0 are left out, and `--line-width N` (default 40) drops items from the end. It reads only aitop's cache, so it is fast once `aitop` has run before; with no cache yet it prints `...` after about 1.5 seconds. The running count (and waiting Antigravity sessions) come from a small summary that the live screen, `--once` and `--json` write to the cache; when no summary is newer than 60 seconds, `run` is left out rather than shown wrong. `--line=tmux` adds tmux colors, `NO_COLOR` turns them off.
 
 ```tmux
 set -g status-right '#(aitop --line=tmux)'
