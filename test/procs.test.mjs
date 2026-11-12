@@ -37,7 +37,7 @@ test('lsof -Fn 출력에서 작업 폴더를 꺼낸다', () => {
   assert.equal(parseLsofCwd(''), null);
 });
 
-test('isAlive 는 신호 없이 프로세스가 있는지만 본다', () => {
+test('isAlive 는 신호 없이 프로세스가 있는지만 본다', { skip: process.platform === 'win32' && 'Windows: pid 1(init)이 없음' }, () => {
   assert.equal(isAlive(process.pid), true);
   assert.equal(isAlive(1), true, '다른 사용자 프로세스(EPERM)도 살아 있다');
   assert.equal(isAlive(2 ** 22 + 12345), false);

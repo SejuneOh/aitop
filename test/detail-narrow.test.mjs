@@ -8,10 +8,13 @@ import { fill, setNow } from '../src/ui/draw.mjs';
 import { detail, rightColumn } from '../src/ui/detail.mjs';
 import { render } from '../src/ui.mjs';
 
+// Windows 는 경로를 \ 로 이어 붙이고 보인다. 기대값은 / 로 적었으므로 비교 전에 / 로 바꾼다 (Linux·macOS 는 그대로).
+const px = (p) => (process.platform === 'win32' ? String(p).replace(/\\/g, '/') : p);
+
 const strip = (x) => x.replace(/\x1b\[[0-9;]*m/g, '');
 const draw = (W, H, view = { tab: 'now' }) => {
   setNow(at);
-  return detail(session(), W, H, 0, view).map(strip);
+  return detail(session(), W, H, 0, view).map(strip).map(px);
 };
 const VIEWS = [{ tab: 'now' }, { tab: 'all', costMode: 'net' }, { tab: 'now', focus: 'files', filePath: `${ROOT}/src/ui/draw.mjs` }, { tab: 'now', focus: 'diff', filePath: `${ROOT}/src/ui/draw.mjs` }];
 
@@ -108,7 +111,7 @@ test('색이 없어도 좁은 화면 요약이 읽힌다', () => {
     const { render } = await import(${JSON.stringify(new URL('../src/ui.mjs', import.meta.url).href)});
     const view = { data: { sessions: [session()], usage: null, errors: [], at }, selectedId: 'fix', showDetail: true, frame: 0, tab: 'now', focus: 'files', filePath: ROOT + '/src/ui/draw.mjs' };
     process.stdout.write(render(view, 80, 30).join('\\n'));`;
-  const out = execFileSync(process.execPath, ['--input-type=module', '-e', script], { env: { ...process.env, NO_COLOR: '1' }, encoding: 'utf8' });
+  const out = px(execFileSync(process.execPath, ['--input-type=module', '-e', script], { env: { ...process.env, NO_COLOR: '1' }, encoding: 'utf8' }));
   assert.doesNotMatch(out, /\x1b\[/);
   assert.match(out, /^┃   571k \+서브2 \(입력 90\.3k·출력 18\.4k·캐시 463k\) · \$0\.17 · ctx 5%/m);
   assert.match(out, /^┃ ▌▸ src\/ui\/draw\.mjs/m);

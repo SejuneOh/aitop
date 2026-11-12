@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, existsSync, writeFileSync, utimesSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { makeClaudeHome } from './fixture.mjs';
 
 const fx = makeClaudeHome();
@@ -32,7 +32,7 @@ test('--json 비용은 소수 넷째 자리까지 반올림한다', () => {
 });
 
 test('이 버전보다 낮은 캐시 폴더는 바로 지우고, 같은 형식의 최근 폴더는 남긴다', () => {
-  const V = Number(/^v(\d+)-/.exec(CACHE_DIR.split('/').pop())[1]);
+  const V = Number(/^v(\d+)-/.exec(basename(CACHE_DIR))[1]);
   for (const d of ['v2', `v${V - 1}-ff9e7b58`, `v${V}-other`, `v${V}-stale`, `v${V + 5}-future`]) mkdirSync(join(cacheRoot, d), { recursive: true });
   const old = Date.now() / 1000 - 8 * 86400;
   utimesSync(join(cacheRoot, `v${V}-stale`), old, old);
@@ -42,7 +42,7 @@ test('이 버전보다 낮은 캐시 폴더는 바로 지우고, 같은 형식�
   flushCache();
   const left = readdirSync(cacheRoot).sort();
   assert.ok(existsSync(CACHE_DIR));
-  assert.deepEqual(left.filter((d) => d !== CACHE_DIR.split('/').pop()), [`v${V + 5}-future`, `v${V}-other`].sort());
+  assert.deepEqual(left.filter((d) => d !== basename(CACHE_DIR)), [`v${V + 5}-future`, `v${V}-other`].sort());
 });
 
 test('상세 패널 컨텍스트 줄은 왼쪽 칸 폭 안에 % 까지 들어간다', async () => {

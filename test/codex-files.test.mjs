@@ -4,6 +4,9 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { makeClaudeHome } from './fixture.mjs';
 
+// Windows 는 경로를 \ 로 이어 붙이고 보인다. 기대값은 / 로 적었으므로 비교 전에 / 로 바꾼다 (Linux·macOS 는 그대로).
+const px = (p) => (process.platform === 'win32' ? String(p).replace(/\\/g, '/') : p);
+
 const fx = makeClaudeHome();
 const { parsePatch, patchSucceeded } = await import('../src/sources/patch.mjs');
 const { _test } = await import('../src/sources/codex.mjs');
@@ -32,7 +35,7 @@ const PATCH = [
 
 test('apply_patch 본문을 파일별 변경으로 바꾼다 (상대 경로는 cwd 기준)', () => {
   const r = parsePatch(PATCH, '/w');
-  assert.deepEqual(r.map((c) => [c.type ?? 'update', c.filePath]), [['update', '/w/src/a.mjs'], ['update', '/w/src/new-name.mjs'], ['create', '/abs/new.txt'], ['delete', '/w/src/gone.mjs']]);
+  assert.deepEqual(r.map((c) => [c.type ?? 'update', px(c.filePath)]), [['update', '/w/src/a.mjs'], ['update', '/w/src/new-name.mjs'], ['create', '/abs/new.txt'], ['delete', '/w/src/gone.mjs']]);
   assert.deepEqual(r[0].structuredPatch[0], { unnumbered: true, context: 'function foo', oldStart: 0, oldLines: 2, newStart: 0, newLines: 3, lines: [' keep', '-old', '+new', '+more'] });
   assert.equal(r[2].content, 'hello\nworld');
   assert.deepEqual(parsePatch('그냥 글', '/w'), []);
@@ -40,7 +43,7 @@ test('apply_patch 본문을 파일별 변경으로 바꾼다 (상대 경로는 c
 
 test('본문에 *** End Patch 글자가 있어도 뒤 파일까지 읽는다', () => {
   const p = ['*** Begin Patch', '*** Add File: a.mjs', '+const s = "*** End Patch";', '*** Update File: b.mjs', '@@', '-1', '+2', '*** End Patch'].join('\n');
-  assert.deepEqual(parsePatch(p, '/w').map((c) => c.filePath), ['/w/a.mjs', '/w/b.mjs']);
+  assert.deepEqual(parsePatch(p, '/w').map((c) => px(c.filePath)), ['/w/a.mjs', '/w/b.mjs']);
 });
 
 test('CRLF 패치와 앞 공백 없는 빈 문맥 줄', () => {
@@ -72,11 +75,11 @@ const result = (s, id, code) => ({ type: 'response_item', timestamp: ts(s), payl
 
 test('Codex 세션은 성공한 패치만 변경 파일에 넣고 지시 목록을 만든다', () => {
   const st = session([meta, prompt(1, '고쳐줘'), call(2, 'p1', PATCH), result(3, 'p1', 0), prompt(4, '하나 더'), call(5, 'p2', '*** Begin Patch\n*** Update File: src/z.mjs\n@@\n-a\n+b\n*** End Patch'), result(6, 'p2', 1)]);
-  assert.deepEqual(st.files.map((f) => f.path).sort(), ['/abs/new.txt', '/w/src/a.mjs', '/w/src/gone.mjs', '/w/src/new-name.mjs']);
-  const a = st.files.find((f) => f.path === '/w/src/a.mjs');
+  assert.deepEqual(st.files.map((f) => px(f.path)).sort(), ['/abs/new.txt', '/w/src/a.mjs', '/w/src/gone.mjs', '/w/src/new-name.mjs']);
+  const a = st.files.find((f) => px(f.path) === '/w/src/a.mjs');
   assert.deepEqual([a.edits, a.add, a.del], [1, 2, 1]);
-  assert.equal(st.files.find((f) => f.path === '/abs/new.txt').created, true);
-  assert.equal(st.files.find((f) => f.path === '/w/src/gone.mjs').deleted, true);
+  assert.equal(st.files.find((f) => px(f.path) === '/abs/new.txt').created, true);
+  assert.equal(st.files.find((f) => px(f.path) === '/w/src/gone.mjs').deleted, true);
   assert.deepEqual(st.turns.map((t) => [t.n, t.text]), [[1, '고쳐줘'], [2, '하나 더']]);
   assert.deepEqual(st.patches, {});
 });
@@ -99,14 +102,15 @@ test('apply_patch 가 아닌 shell 명령의 글은 패치로 보지 않는다',
 test('예전 shell 형식의 apply_patch 도 해석한다', () => {
   const args = JSON.stringify({ command: ['apply_patch', '*** Begin Patch\n*** Update File: b.mjs\n@@\n-1\n+2\n*** End Patch'] });
   const st = session([meta, { type: 'response_item', timestamp: ts(1), payload: { type: 'function_call', name: 'shell', call_id: 's1', arguments: args } }, { type: 'response_item', timestamp: ts(2), payload: { type: 'function_call_output', call_id: 's1', output: JSON.stringify({ output: 'Success.', metadata: { exit_code: 0 } }) } }]);
-  assert.deepEqual(st.files.map((f) => [f.path, f.add, f.del]), [['/w/b.mjs', 1, 1]]);
+  assert.deepEqual(st.files.map((f) => [px(f.path), f.add, f.del]), [['/w/b.mjs', 1, 1]]);
 });
 
 test('줄 번호 없는 diff 는 @@ 문맥만 보이고 번호 칸을 비운다. 삭제한 파일은 그렇다고 보인다', () => {
   const st = session([meta, prompt(1, '고쳐줘'), call(2, 'p1', PATCH), result(3, 'p1', 0)]);
   const files = mergeFiles([{ agent: '메인', files: st.files }]);
   const s = { tool: 'codex', id: 'c1', name: 'w', cwd: '/w', status: 'idle', live: true, phase: { kind: 'idle' }, updatedAt: Date.now(), tokens: { total: 10 }, context: {}, members: [], events: [], files, turns: st.turns };
-  const draw = (filePath) => render({ data: { sessions: [s], usage: null, errors: [], at: Date.now() }, selectedId: 'c1', showDetail: true, frame: 0, focus: 'diff', filePath, tab: 'all' }, 140, 30).map((l) => l.replace(/\x1b\[[0-9;]*m/g, '')).join('\n');
+  // 파일 키는 이 OS 의 경로 모양이다 (Windows 는 \w\src\a.mjs).
+  const draw = (filePath) => render({ data: { sessions: [s], usage: null, errors: [], at: Date.now() }, selectedId: 'c1', showDetail: true, frame: 0, focus: 'diff', filePath: st.files.find((f) => px(f.path) === filePath)?.path ?? filePath, tab: 'all' }, 140, 30).map((l) => l.replace(/\x1b\[[0-9;]*m/g, '')).join('\n');
   const a = draw('/w/src/a.mjs');
   assert.match(a, /메인 · @@ function foo/);
   assert.doesNotMatch(a, /@@ -0/);

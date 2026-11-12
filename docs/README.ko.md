@@ -31,7 +31,7 @@ npm config delete //npm.pkg.github.com/:_authToken
 
 | 브랜치 | 하는 일 |
 |---|---|
-| 기능 브랜치 → `dev` | PR 마다 CI(단위 테스트 → e2e → 실행 확인 → `npm pack` 설치 확인, Node 22/22.13/22.15/24, macOS 22) 실행. 병합 후 로컬에서 `npm install -g .` 로 확인. `dev` 에 들어오면 `release-pr` 워크플로가 `dev` → `main` release PR 을 만들거나 제목·본문(포함된 PR, 닫는 이슈)을 갱신한다 |
+| 기능 브랜치 → `dev` | PR 마다 CI(단위 테스트 → e2e → 실행 확인 → `npm pack` 설치 확인, Node 22/22.13/22.15/24, macOS 22, Windows 22/24 의 설치·실행 확인) 실행. 병합 후 로컬에서 `npm install -g .` 로 확인. `dev` 에 들어오면 `release-pr` 워크플로가 `dev` → `main` release PR 을 만들거나 제목·본문(포함된 PR, 닫는 이슈)을 갱신한다 |
 | `dev` → `main` | 단위 테스트와 e2e 를 통과하고 `package.json` 의 `version` 이 아직 배포되지 않은 값이면 npmjs.com 에 공개로 배포하고(provenance 포함, 저장소 시크릿 `NPM_TOKEN` 필요), `v<버전>` 릴리스가 없으면 태그·릴리스 생성 (배포 뒤 릴리스 생성만 실패했으면 재실행하면 배포는 건너뛰고 릴리스만 만든다) |
 
 테스트
@@ -39,6 +39,7 @@ npm config delete //npm.pkg.github.com/:_authToken
 ```
 npm test            # 단위 테스트 (test/*.test.mjs)
 npm run test:e2e    # e2e: 실제 bin 실행(--json/--once/--help), 가상 터미널에서 키 입력·종료 확인 (Linux, util-linux script 필요)
+AITOP_BIN=bin/aitop.mjs node test/smoke.mjs  # 임시 기록으로 --version·--doctor·--once·--json·--report 확인 (CI 의 Windows 작업이 설치본으로 돌린다)
 ```
 
 버전 올리기는 `dev` 에서 `npm version patch|minor|major --no-git-tag-version` 후 커밋한다. 버전을 올리지 않은 `main` 병합은 테스트만 돌고 배포하지 않는다.
@@ -123,7 +124,7 @@ Total       1.69B $677  26.1M $4.45  1.71B $681
 
 ### 설정 파일
 
-`$XDG_CONFIG_HOME/aitop/config.json` (없으면 `~/.config/aitop/config.json`). 옵션 > 환경 변수 > 설정 파일 > 기본값 순서로 정한다.
+`$XDG_CONFIG_HOME/aitop/config.json` (없으면 `~/.config/aitop/config.json`, Windows 는 `%APPDATA%\aitop\config.json`). 옵션 > 환경 변수 > 설정 파일 > 기본값 순서로 정한다.
 
 ```json
 { "theme": "light", "icons": "plain", "bell": true, "showRequests": false, "all": false }
@@ -284,13 +285,14 @@ end)
 | 도구 | 실행 중 판단 | 진행 내용·토큰 |
 |---|---|---|
 | Claude Code | `~/.claude/sessions/<pid>.json` + pid 가 살아 있는지 | `~/.claude/projects/*/<sessionId>.jsonl`, `…/subagents/agent-*.jsonl` |
-| Codex CLI | `codex` 프로세스와 작업 폴더 (Linux `/proc`, macOS `ps`·`lsof`) | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` |
+| Codex CLI | `codex` 프로세스와 작업 폴더 (Linux `/proc`, macOS `ps`·`lsof`). Windows 는 10분 안에 바뀐 기록 | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` |
 | Antigravity CLI (`agy`) | `agy` 프로세스가 열어 둔 `presence/<id>.lock` (Linux `/proc/<pid>/fd`). macOS 는 작업 폴더로 짝짓는다 | `~/.gemini/antigravity-cli/conversation_summaries.db`(제목·상태·서브에이전트), `conversations/<id>.db` 의 `gen_metadata`(모델·토큰)·`steps`(지시·답변·도구 호출) |
 | Gemini CLI | `gemini` 프로세스 | 아직 미지원 |
 
 ## 알려진 한계
 
-- Linux·WSL·macOS 만 지원한다. Windows(PowerShell)는 설치되지 않는다. macOS 는 `ps`·`lsof` 를 2초에 한 번 부른다.
+- Linux·WSL·macOS 를 지원하고, macOS 는 `ps`·`lsof` 를 2초에 한 번 부른다.
+- Windows 네이티브는 1단계다 (Windows Terminal 권장). 설치와 실시간 화면·`--once`·`--json`·`--report`·`--doctor` 에서 Claude Code·Codex 세션이 보인다. 프로세스 감지(#195), `onWaiting` 설정 파일 권한 확인(#196), 알림·`--on-waiting`(#197)은 아직이다. 프로세스를 못 세므로 Codex 는 10분 안에 기록이 바뀐 세션만 실행 중으로 본다 (pid 없음). 그래서 10분 넘게 기록을 쓰지 않는 긴 작업 중에는 목록에서 빠지고, 비정상 종료된 세션은 최대 10분 남을 수 있다. 캐시·로그·설정은 `XDG_*` 가 없으면 `%LOCALAPPDATA%\aitop\cache`, `%LOCALAPPDATA%\aitop\state`, `%APPDATA%\aitop` 에 둔다.
 - 배경색 자동 판별은 `COLORFGBG` 에 기대는데 Windows Terminal 은 이 값을 넣지 않는다. 밝은 배경의 Windows Terminal 에서는 `aitop --theme light` 로 실행한다.
 - 세션 파일 형식은 각 CLI 의 내부 형식이라, CLI 업데이트로 바뀌면 `src/sources/` 의 해당 파일을 고쳐야 한다.
 - 컨텍스트 창 크기는 기록에 없어서 모델별 표(`src/pricing.mjs`)로 정한다. 표에 없는 모델은 200k 를 넘으면 1M 으로 가정한다.

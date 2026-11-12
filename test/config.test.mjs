@@ -18,9 +18,9 @@ const resolve = (body, { flags, env = {}, mode, uid } = {}) => resolveConfig({ f
 const pick = (cfg) => Object.fromEntries(Object.entries(cfg.values).map(([k, v]) => [k, `${v.value}@${v.source}`]));
 
 test('파일 위치: XDG_CONFIG_HOME, 없거나 상대 경로면 ~/.config', () => {
-  assert.equal(configPath({ XDG_CONFIG_HOME: '/x/cfg' }, '/home/u'), '/x/cfg/aitop/config.json');
-  assert.equal(configPath({}, '/home/u'), '/home/u/.config/aitop/config.json');
-  assert.equal(configPath({ XDG_CONFIG_HOME: 'rel' }, '/home/u'), '/home/u/.config/aitop/config.json');
+  assert.equal(configPath({ XDG_CONFIG_HOME: '/x/cfg' }, '/home/u', 'linux'), '/x/cfg/aitop/config.json');
+  assert.equal(configPath({}, '/home/u', 'linux'), '/home/u/.config/aitop/config.json');
+  assert.equal(configPath({ XDG_CONFIG_HOME: 'rel' }, '/home/u', 'linux'), '/home/u/.config/aitop/config.json');
 });
 
 test('파일이 없으면 기본값을 쓰고 문제로 보지 않는다', () => {
@@ -61,11 +61,14 @@ test('모르는 키와 잘못된 값은 그 키만 무시한다', () => {
   assert.ok(cfg.problems.some((p) => /모르는 키 "colour"/.test(p)));
   assert.ok(cfg.problems.some((p) => /theme 값 "blue"/.test(p)));
   const ok = resolve({ budgetDay: 12.5, notify: true, onWaiting: 'notify-send aitop' });
-  assert.deepEqual([ok.values.budgetDay.value, ok.values.notify.value, ok.values.onWaiting.value], [12.5, true, 'notify-send aitop']);
-  assert.deepEqual(ok.problems, []);
+  // Windows 는 파일 권한(mode)을 믿을 수 없어 설정 파일의 onWaiting 을 받지 않고 알린다 (#196).
+  const win = process.platform === 'win32';
+  assert.deepEqual([ok.values.budgetDay.value, ok.values.notify.value, ok.values.onWaiting.value], [12.5, true, win ? null : 'notify-send aitop']);
+  if (win) assert.equal(ok.problems.length, 1);
+  else assert.deepEqual(ok.problems, []);
 });
 
-test('onWaiting 은 내 파일이고 그룹·다른 사용자가 쓸 수 없을 때만 받는다', () => {
+test('onWaiting 은 내 파일이고 그룹·다른 사용자가 쓸 수 없을 때만 받는다', { skip: process.platform === 'win32' && 'Windows: uid·파일 권한(mode)이 없음 (#196)' }, () => {
   const body = { onWaiting: 'say hi', bell: true };
   const mine = process.getuid();
   assert.equal(resolve(body, { mode: 0o600, uid: mine }).values.onWaiting.value, 'say hi');
@@ -92,7 +95,7 @@ test('configText 는 키마다 값과 출처, 파일 위치를 보인다', () =>
   assert.match(text, /^! 모르는 키 "foo"/m);
 });
 
-test('FIFO·큰 파일은 열지 않고, JSON 오류 문구에서 제어문자를 지운다', () => {
+test('FIFO·큰 파일은 열지 않고, JSON 오류 문구에서 제어문자를 지운다', { skip: process.platform === 'win32' && 'Windows: mkfifo 가 없음' }, () => {
   const dir = mkdtempSync(join(tmpdir(), 'aitop-config-'));
   const fifo = join(dir, 'config.json');
   execFileSync('mkfifo', [fifo]);

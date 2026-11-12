@@ -26,7 +26,8 @@ test('--once 는 세션 표와 변경 파일·최근 활동 구획을 한 번 �
   const out = run('--once').replace(/\x1b\[[0-9;]*m/g, '');
   assert.match(out, /e2e 세션/);
   assert.match(out, /── 변경 파일 /);
-  assert.match(out, /src\/app\.mjs/);
+  // Windows 는 src\app.mjs 로 보인다.
+  assert.match(out, /src[\\/]app\.mjs/);
   assert.match(out, /── 최근 활동 /);
   assert.match(out, /footer 정리해줘/);
 });

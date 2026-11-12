@@ -68,7 +68,7 @@ test('환경변수에 세션 정보를 넣고, 대기 사유는 짧게·가려�
   assert.ok(waitingEnv(s('x', 'waiting', { phase: { kind: 'waiting', args: { what: 'a'.repeat(500) } } })).AITOP_WAITING_FOR.length <= 120);
 });
 
-test('--on-waiting 은 세션 값을 명령에 끼워 넣지 않는다 ($(touch …) 가 실행되지 않는다)', async () => {
+test('--on-waiting 은 세션 값을 명령에 끼워 넣지 않는다 ($(touch …) 가 실행되지 않는다)', { skip: process.platform === 'win32' && 'Windows: /bin/sh·실행 권한 스크립트가 필요 (알림·--on-waiting 은 #196·#197)' }, async () => {
   const dir = tmp();
   const marker = join(dir, 'pwned');
   const out = join(dir, 'env.txt');
@@ -84,7 +84,7 @@ test('--on-waiting 은 세션 값을 명령에 끼워 넣지 않는다 ($(touch 
   rmSync(dir, { recursive: true, force: true });
 });
 
-test('시간을 넘긴 명령은 자식까지 끝낸다', async () => {
+test('시간을 넘긴 명령은 자식까지 끝낸다', { skip: process.platform === 'win32' && 'Windows: /bin/sh·실행 권한 스크립트가 필요 (알림·--on-waiting 은 #196·#197)' }, async () => {
   const dir = tmp();
   const late = join(dir, 'late');
   const r = createRunner({ timeoutMs: 300 });
@@ -99,7 +99,7 @@ test('시간을 넘긴 명령은 자식까지 끝낸다', async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-test('한 번에 하나만 실행하고, 실행 중 들어온 일은 가장 최근 것 하나만 이어서 실행한다', async () => {
+test('한 번에 하나만 실행하고, 실행 중 들어온 일은 가장 최근 것 하나만 이어서 실행한다', { skip: process.platform === 'win32' && 'Windows: /bin/sh·실행 권한 스크립트가 필요 (알림·--on-waiting 은 #196·#197)' }, async () => {
   const dir = tmp();
   const log = join(dir, 'log');
   const r = createRunner({ timeoutMs: 5000 });
@@ -113,7 +113,7 @@ test('한 번에 하나만 실행하고, 실행 중 들어온 일은 가장 최�
   rmSync(dir, { recursive: true, force: true });
 });
 
-test('알림 도구는 PATH 에서 찾고, 없으면 null (WSL 에서도 다른 것으로 대신하지 않는다)', () => {
+test('알림 도구는 PATH 에서 찾고, 없으면 null (WSL 에서도 다른 것으로 대신하지 않는다)', { skip: process.platform === 'win32' && 'Windows: /bin/sh·실행 권한 스크립트가 필요 (알림·--on-waiting 은 #196·#197)' }, () => {
   const dir = tmp();
   const empty = tmp();
   for (const name of ['notify-send', 'osascript', 'powershell.exe']) {
@@ -143,7 +143,7 @@ test('알림 제목·본문은 인자로만 넘기고 스크립트 문자열에 
   assert.deepEqual(mk.slice(-2), ['a&lt;b&gt;', '&lt;b&gt;x&lt;/b&gt; &amp; y']);
 });
 
-test('--notify 는 가짜 notify-send 를 인자로 부른다', async () => {
+test('--notify 는 가짜 notify-send 를 인자로 부른다', { skip: process.platform === 'win32' && 'Windows: /bin/sh·실행 권한 스크립트가 필요 (알림·--on-waiting 은 #196·#197)' }, async () => {
   const dir = tmp();
   const out = join(dir, 'args');
   writeFileSync(join(dir, 'notify-send'), `#!/bin/sh\nprintf '%s\\n' "$@" > ${out}\n`);
@@ -158,7 +158,7 @@ test('--notify 는 가짜 notify-send 를 인자로 부른다', async () => {
 });
 
 // macOS 경로: PATH 맨 앞에 둔 가짜 osascript 가 AppleScript 와 제목·본문을 인자로 받는지 본다. TTY 없이 돌고 macOS CI 에서도 돈다.
-test('--notify 는 macOS 에서 PATH 앞의 가짜 osascript 를 인자로 부른다', async () => {
+test('--notify 는 macOS 에서 PATH 앞의 가짜 osascript 를 인자로 부른다', { skip: process.platform === 'win32' && 'Windows: /bin/sh·실행 권한 스크립트가 필요 (알림·--on-waiting 은 #196·#197)' }, async () => {
   const dir = tmp();
   const out = join(dir, 'args');
   writeFileSync(join(dir, 'osascript'), `#!/bin/sh\nprintf '%s\\n' "$@" > ${out}\n`);
@@ -208,7 +208,7 @@ const alive = (pid) => {
   }
 };
 
-test('aitop 이 끝나면(process.exit) 실행 중인 명령과 그 자식도 끝난다', async () => {
+test('aitop 이 끝나면(process.exit) 실행 중인 명령과 그 자식도 끝난다', { skip: process.platform === 'win32' && 'Windows: /bin/sh 와 POSIX 신호·프로세스 그룹이 필요' }, async () => {
   const dir = tmp();
   const pidFile = join(dir, 'pid');
   const mod = new URL('../src/notify.mjs', import.meta.url).href;
@@ -224,7 +224,7 @@ setTimeout(() => process.exit(0), 300);`;
   rmSync(dir, { recursive: true, force: true });
 });
 
-test('killAll 은 실행 중인 명령을 그룹째 끝내고 대기열을 비운다', async () => {
+test('killAll 은 실행 중인 명령을 그룹째 끝내고 대기열을 비운다', { skip: process.platform === 'win32' && 'Windows: /bin/sh 와 POSIX 신호·프로세스 그룹이 필요' }, async () => {
   const dir = tmp();
   const pidFile = join(dir, 'pid');
   const n = createNotifier({ onWaiting: `echo $$ > ${pidFile}; sleep 37 & wait`, env: { PATH: process.env.PATH } });
