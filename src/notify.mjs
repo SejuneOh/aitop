@@ -1,4 +1,4 @@
-// 응답 대기 알림: --notify (데스크톱 알림), --on-waiting <명령> (사용자 명령 실행).
+// 알림: --notify[=종류] (데스크톱 알림), --on-waiting <명령> (사용자 명령 실행). 종류는 waiting(기본)·done·context.
 // 세션 정보는 명령 문자열에 넣지 않는다. 알림 도구에는 인자로, 사용자 명령에는 AITOP_* 환경변수로만 넘긴다.
 import { spawn } from 'node:child_process';
 import { accessSync, constants, readFileSync } from 'node:fs';
@@ -13,8 +13,25 @@ const LABEL_MAX = 120;
 // argv 에서 --notify, --no-notify, --on-waiting <cmd>, --on-waiting=<cmd>, --no-on-waiting 을 꺼내고 나머지는 rest 로 돌려준다.
 // 값을 따로 받는 다른 옵션(valueOpts)의 값은 건드리지 않고 그대로 넘긴다 (그 옵션의 해석과 같게 - 로 시작하지 않는 다음 인자).
 export const VALUE_OPTS = ['--theme'];
+// 알림 종류. --notify 만 주면 예전처럼 waiting 만 알린다 (#204).
+export const EVENT_KINDS = ['waiting', 'done', 'context'];
+export const DEFAULT_EVENTS = ['waiting'];
+
+// 'waiting,done' 같은 글이나 배열을 종류 목록으로. 모르는 종류나 빈 목록이면 null.
+export function parseEvents(v) {
+  const list = Array.isArray(v) ? v : typeof v === 'string' ? v.split(',') : null;
+  if (!list) return null;
+  const out = [...new Set(list.map((x) => (typeof x === 'string' ? x.trim() : x)).filter((x) => x !== ''))];
+  return out.length && out.every((x) => EVENT_KINDS.includes(x)) ? out : null;
+}
+
+// events: 알릴 종류 (데스크톱 알림과 --on-waiting 명령에 함께 쓴다). eventsSet: 명령줄 --notify=<종류> 로 정했는지.
+// config.notify 는 true/false 또는 종류 배열(켜고 종류를 정함)이다.
 export function notifyOptions(argv, config = {}, valueOpts = VALUE_OPTS) {
-  let notify = config.notify === true;
+  const cfgEvents = Array.isArray(config.notify) ? parseEvents(config.notify) : null;
+  let notify = config.notify === true || cfgEvents != null;
+  let events = cfgEvents ?? DEFAULT_EVENTS;
+  let eventsSet = false;
   let onWaiting = typeof config.onWaiting === 'string' && config.onWaiting.trim() ? config.onWaiting : null;
   let error = null;
   const rest = [];
@@ -27,6 +44,16 @@ export function notifyOptions(argv, config = {}, valueOpts = VALUE_OPTS) {
     }
     if (a === '--notify') {
       notify = true;
+      continue;
+    }
+    if (a.startsWith('--notify=')) {
+      const v = parseEvents(a.slice('--notify='.length));
+      if (!v) error = t('opt.notifyBad', { value: a.slice('--notify='.length), kinds: EVENT_KINDS.join(',') });
+      else {
+        notify = true;
+        events = v;
+        eventsSet = true;
+      }
       continue;
     }
     if (a === '--no-notify') {
@@ -47,7 +74,7 @@ export function notifyOptions(argv, config = {}, valueOpts = VALUE_OPTS) {
     else if (m[1] == null && v.startsWith('-')) error = t('opt.onWaitingDash', { value: v });
     else onWaiting = v;
   }
-  return { notify, onWaiting, rest, error };
+  return { notify, events, eventsSet, onWaiting, rest, error };
 }
 
 function executable(path) {
@@ -125,8 +152,15 @@ export function waitingEnv(s) {
 }
 
 // 알림 제목·본문은 화면 언어를 따른다 (AITOP_WAITING_FOR 와 달리 사람이 읽는 글이라).
-export function notifyText(sessions, lang = getLang()) {
+// kind 가 done·context 면 그 종류의 문구를 쓴다. context 본문에는 사용률(%)을 붙인다.
+export function notifyText(sessions, lang = getLang(), kind = 'waiting') {
   const o = { lang };
+  if (kind !== 'waiting') {
+    if (sessions.length !== 1) return { title: t(`notify.${kind}.title`, null, o), body: t(`notify.${kind}.many`, { n: sessions.length }, o) };
+    const s = sessions[0];
+    const pct = s.context?.window > 0 ? ` · ${Math.round(((s.context.used ?? 0) / s.context.window) * 100)}%` : '';
+    return { title: t(`notify.${kind}.one`, { tool: s.tool ?? '?' }, o), body: stripControl(`${s.project ?? s.id ?? ''}${kind === 'context' ? pct : ''}`) };
+  }
   if (sessions.length === 1) {
     const s = sessions[0];
     const label = waitingLabel(s, lang);
@@ -234,7 +268,8 @@ export function createRunner({ timeoutMs = HOOK_TIMEOUT_MS, spawnFn = spawn } = 
   };
 }
 
-// --notify, --on-waiting 을 묶은 알리미. 새로 응답 대기가 된 세션 목록을 받는다.
+// --notify, --on-waiting 을 묶은 알리미. 알릴 세션 목록과 종류(waiting·done·context)를 받는다.
+// --on-waiting 명령에는 AITOP_EVENT 로 종류를 넘긴다 (예전 명령은 waiting 만 받으므로 그대로 동작한다).
 export function createNotifier({ notify = false, onWaiting = null, notifier = notify ? findNotifier() : null, env = process.env, timeoutMs = HOOK_TIMEOUT_MS, spawnFn = spawn } = {}) {
   const hook = onWaiting ? createRunner({ timeoutMs, spawnFn }) : null;
   const desk = notify && notifier ? createRunner({ timeoutMs, spawnFn }) : null;
@@ -245,14 +280,14 @@ export function createNotifier({ notify = false, onWaiting = null, notifier = no
       hook?.killAll();
       desk?.killAll();
     },
-    fire(fresh) {
+    fire(fresh, kind = 'waiting') {
       if (!fresh.length) return;
       if (desk) {
-        const { title, body } = notifyText(fresh);
+        const { title, body } = notifyText(fresh, getLang(), kind);
         const [file, args] = notifierCommand(notifier, title, body);
         desk.run({ file, args, env });
       }
-      if (hook) for (const s of fresh) hook.run({ file: '/bin/sh', args: ['-c', onWaiting], env: { ...env, ...waitingEnv(s) } });
+      if (hook) for (const s of fresh) hook.run({ file: '/bin/sh', args: ['-c', onWaiting], env: { ...env, ...waitingEnv(s), AITOP_EVENT: kind } });
     },
   };
 }

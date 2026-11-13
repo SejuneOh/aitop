@@ -68,3 +68,69 @@ export function takeNewlyWaiting(watch, sessions) {
   watch.ready = true;
   return ready ? fresh : [];
 }
+
+// 끝남(done)·context 경고 감시 (#204). 켠 종류만 bin 이 골라 알린다.
+// done: 한 작업(턴)의 작업 중(busy·shell) 시간 합이 doneMs 이상이고, 대기(idle)가 settleMs 동안 이어지면 한 번 알린다.
+//   도구 호출 사이의 잠깐 대기는 settleMs 안에 다시 작업 중이 되므로 같은 작업으로 이어 센다 (그 틈도 작업 시간에 넣는다).
+//   응답 대기(waiting)는 따로 알리므로 끝남으로 치지 않는다. 같은 작업은 이어지지만 기다린 시간은 작업 시간에 넣지 않는다.
+//   상태를 추측한 세션(statusGuessed), 끝난 세션, 하위 에이전트 줄은 알리지 않는다.
+// context: 사용률이 ctxHigh 이상이 되면 한 번 알리고, ctxRearm 아래로 내려가면(압축 등) 다시 알릴 수 있게 한다.
+//   기록을 다 읽기 전(s.loading)의 세션은 기준선만 잡고, 다 읽은 첫 갱신에 이미 높으면 알리지 않는다.
+export const DONE_MS = 3 * 60_000;
+export const SETTLE_MS = 5_000;
+export const CTX_HIGH = 0.9;
+export const CTX_REARM = 0.85;
+
+export function createEventWatch({ doneMs = DONE_MS, settleMs = SETTLE_MS, ctxHigh = CTX_HIGH, ctxRearm = CTX_REARM } = {}) {
+  return { doneMs, settleMs, ctxHigh, ctxRearm, per: new Map() };
+}
+
+const isBusy = (s) => s.status === 'busy' || s.status === 'shell';
+const isSub = (s) => Boolean(s.parentId || s.parent || s.kind === 'subagent');
+const ctxRatio = (s) => (s.context?.window > 0 ? (s.context.used ?? 0) / s.context.window : null);
+
+// ready 가 false 면(처음 읽는 중) 상태만 기록하고 알리지 않는다. 돌려주는 값: [{ kind: 'done'|'context', session }]
+export function takeEvents(watch, sessions, { now = Date.now(), ready = true } = {}) {
+  const out = [];
+  const ids = new Set();
+  for (const s of sessions) {
+    if (!s.live || s.status === 'ended' || isSub(s)) continue;
+    ids.add(s.id);
+    let st = watch.per.get(s.id);
+    if (!st) watch.per.set(s.id, (st = { run: false, busyMs: 0, busyAt: null, idleSince: null, ctxArmed: true, first: true }));
+    const reset = () => Object.assign(st, { run: false, busyMs: 0, busyAt: null, idleSince: null });
+
+    // done
+    if (s.statusGuessed) reset();
+    else if (isBusy(s)) {
+      st.run = true;
+      st.busyAt ??= now;
+      st.idleSince = null;
+    } else if (s.status === 'idle' && st.run) {
+      st.idleSince ??= now;
+      if (now - st.idleSince >= watch.settleMs) {
+        const worked = st.busyMs + (st.busyAt != null ? st.idleSince - st.busyAt : 0);
+        if (ready && worked >= watch.doneMs) out.push({ kind: 'done', session: s });
+        reset();
+      }
+    } else if (s.status === 'waiting' && st.run) {
+      // 응답 대기 동안은 작업 시간을 멈춘다.
+      if (st.busyAt != null) st.busyMs += (st.idleSince ?? now) - st.busyAt;
+      st.busyAt = st.idleSince = null;
+    } else reset();
+
+    // context: 처음 다 읽은 세션이나 준비 전에는 이미 높은 값을 알리지 않는다.
+    const r = ctxRatio(s);
+    if (r != null) {
+      if (r < watch.ctxRearm) st.ctxArmed = true;
+      else if (r >= watch.ctxHigh && st.ctxArmed) {
+        st.ctxArmed = false;
+        if (ready && !st.first && !s.loading) out.push({ kind: 'context', session: s });
+      }
+    }
+    if (!s.loading) st.first = false;
+  }
+  // 끝났거나 목록에서 빠진 세션은 잊는다 (다시 나타나면 처음부터 센다).
+  for (const id of watch.per.keys()) if (!ids.has(id)) watch.per.delete(id);
+  return out;
+}

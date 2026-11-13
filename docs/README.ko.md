@@ -66,7 +66,7 @@ aitop --no-bell · --no-all · --no-show-requests · --no-notify · --no-on-wait
 aitop --debug    디버그 로그 (AITOP_DEBUG=1, 설정 파일 debug). 아래 '디버그 로그' 참고
 AITOP_AMBIGUOUS=wide  폭이 모호한 기호를 2칸으로 그리는 터미널용 (설정 파일 ambiguous). 아래 '폭이 모호한 기호' 참고
 aitop --print-config   설정 값마다 값과 출처(flag/env/file/default), 설정 파일 위치를 보인다. --json 과 함께 가능
-aitop --line     tmux 상태줄용 한 줄 (예: $54.13/$50 wait 2 run 3 $3.1/h). 아래 'tmux 상태줄' 참고
+aitop --line     tmux 상태줄용 한 줄 (예: $54.13 wait 2 fix-login 3m run 3 $3.1/h). 아래 'tmux 상태줄' 참고
 aitop --report daily [--by tool|model|project] [--days N] [--json]  최근 N일의 날짜별 토큰·비용 표. 아래 '기간 리포트' 참고
 aitop --report monthly [--by tool|model|project] [--months N] [--json]  최근 N달(최대 12)의 달별 표. 아래 '기간 리포트' 참고
 aitop --lang ko|en  화면·--help·--doctor·오류 문구의 언어 (AITOP_LANG, 설정 파일 lang). 아래 '언어' 참고
@@ -74,14 +74,17 @@ aitop --lang ko|en  화면·--help·--doctor·오류 문구의 언어 (AITOP_LAN
 
 ### tmux 상태줄 (`--line`)
 
-`aitop --line` 은 한 줄을 내고 끝난다. 항목은 오늘 비용(헤더와 같은 API 환산, 하루 예산이 있으면 `/$50`), 응답 대기 세션 수(`wait 2`), 작업 중 세션 수(`run 3`), 최근 1시간 지출(`$3.1/h`) 순이다.
+`aitop --line` 은 한 줄을 내고 끝난다. 항목은 오늘 비용(헤더와 같은 API 환산, 하루 예산이 있으면 `/$50`), 응답 대기(가장 오래 기다린 세션 이름과 대기 시간. 하나면 `wait fix-login 3m`, 둘 이상이면 `wait 2 fix-login 3m`), 작업 중 세션 수(`run 3`), 최근 1시간 지출(`$3.1/h`) 순이다.
 
-- 0 인 항목은 뺀다. `--line-width N` (기본 40) 을 넘으면 뒤 항목부터 뺀다.
-- 글자는 ASCII 만 쓴다 (이모지·폭이 모호한 기호는 tmux 에서 칸이 어긋난다). 표기는 짧은 영어 약어로 고정하고 번역하지 않는다.
+- 0 인 항목은 뺀다. `--line-width N` (기본 40) 을 넘으면 뒤 항목부터 뺀다. 대기 항목은 이름과 시간을 먼저 빼고 수(`wait 2`)를 남긴다. 하루 예산과 대기 이름이 함께 있으면 기본 폭 40 에서 `$/h` 가 빠지기 쉬우니, 보고 싶으면 `--line-width` 를 늘린다.
+- 세션 이름은 화면 SESSION 칸과 같은 이름을 12칸으로 자른다 (자른 자리는 `~`). Claude Code 세션이 자동 이름이면 작업 폴더 이름을 쓴다.
+- 글자는 ASCII 만 쓴다 (이모지·폭이 모호한 기호는 tmux 에서 칸이 어긋난다). 세션 이름의 한글·한자·가나만 남기고 제어 문자·이모지 등은 지운다. 표기는 짧은 영어 약어로 고정하고 번역하지 않는다.
 - 기본은 색 없는 글. `--line=tmux` 는 항목마다 `#[fg=colourN]...#[default]` 를 씌운다 (대기는 주황, 돈은 연두, `--color-blind` 면 노랑·파랑). ANSI 코드는 넣지 않고, `NO_COLOR` 가 있으면 tmux 서식도 넣지 않는다.
+- 세션 이름이 들어가므로 tmux 에는 반드시 `--line=tmux` 를 쓴다. 이 모드는 이름 속 `#` 을 `##` 로 바꾸지만, 일반 출력을 그대로 넣으면 이름 속 `#{...}`·`#(...)` 를 tmux 가 해석할 수 있다.
+- zsh 프롬프트(`PROMPT_SUBST`)에 넣으면 이름 속 `%` 를 zsh 가 해석할 수 있다. `%` 를 `%%` 로 바꿔 넣거나(예: `${$(aitop --line)//\%/%%}`) tmux 에서만 쓴다.
 - 장부 캐시와 그 뒤에 붙은 줄만 읽고 세션 화면용 기록 전체·프로세스 목록은 읽지 않는다. 캐시가 없어(처음 실행) 1.5초 안에 다 읽지 못하면 `...` 을 내고 0 으로 끝난다. 읽은 만큼은 aitop 캐시에 남아 다음 실행이 이어 읽는다.
-- 응답 대기 수 중 Claude Code 몫은 세션 파일(`~/.claude/sessions` 와 pid)로 매번 지금 값을 센다.
-- 작업 중 수와 Antigravity 의 대기 수는 실시간 화면·`--once`·`--json` 이 캐시에 남기는 작은 요약(`summary.json`)에서 읽는다. 화면은 수가 바뀌면 5초 안에, 그대로여도 20초마다 다시 쓴다. 60초보다 오래된 요약은 쓰지 않고 `run` 을 뺀다 (틀린 수를 보이지 않게).
+- 응답 대기 수 중 Claude Code 몫은 세션 파일(`~/.claude/sessions` 와 pid)로 매번 지금 값을 센다. 대기 시간도 세션 파일의 상태 시각으로 센다.
+- 작업 중 수와 Antigravity 의 대기 수·이름(오래 기다린 순서로 둘)은 실시간 화면·`--once`·`--json` 이 캐시에 남기는 작은 요약(`summary.json`)에서 읽는다. 화면은 수가 바뀌면 5초 안에, 그대로여도 20초마다 다시 쓴다. 60초보다 오래된 요약은 쓰지 않고 `run` 과 Antigravity 대기 수·이름을 뺀다 (틀린 수를 보이지 않게).
 
 ```tmux
 set -g status-right '#(aitop --line=tmux)'
@@ -138,7 +141,8 @@ Total       1.69B $677  26.1M $4.45  1.71B $681
 | `bell` | true · false | `--bell` · `--no-bell` |
 | `showRequests` | true · false | `--show-requests` · `--no-show-requests`, `AITOP_SHOW_REQUESTS=1`·`0` |
 | `all` | true · false | `--all` · `--no-all` |
-| `notify` | true · false | `--notify` · `--no-notify` |
+| `notify` | true · false · 종류 배열 (`["waiting", "done", "context"]`) | `--notify` · `--notify=<종류>` · `--no-notify` |
+| `doneMinutes` | 0 보다 큰 수 (분, 기본 3) | 없음. `done` 알림을 띄우려면 작업 중이 이만큼 이어져야 한다 |
 | `onWaiting` | 명령 문자열 | `--on-waiting` · `--no-on-waiting` |
 | `debug` | true · false | `--debug` · `--no-debug`, `AITOP_DEBUG=1`·`0` |
 | `budgetDay` | 0 보다 큰 수 (달러) | `--budget-day <usd>` · `--budget-day=<usd>` · `--no-budget-day`, `AITOP_BUDGET_DAY` |
@@ -191,12 +195,22 @@ CLI 기록 형식이 바뀌어 값이 비어 보이면 `aitop --debug` 로 실�
 ```
 aitop --notify                     데스크톱 알림. Linux 는 notify-send, macOS 는 osascript. 없으면 조용히 건너뛴다 (--doctor 에 보임)
 aitop --on-waiting 'my-hook.sh'    응답 대기가 새로 생길 때마다 /bin/sh -c 로 명령 실행 (--on-waiting=<명령> 도 됨)
+aitop --notify=waiting,done,context  알릴 종류를 고른다. --notify 만 주면 설정 파일 notify 배열의 종류, 없으면 waiting 만
 ```
+
+| 종류 | 언제 |
+|---|---|
+| `waiting` (기본) | 세션이 새로 응답(허락) 대기가 될 때 |
+| `done` | 한 작업에서 작업 중이던 시간의 합(응답 대기 시간은 뺀다)이 3분(설정 파일 `doneMinutes`) 이상인 세션이 다음 지시 대기가 되고, 그 대기가 5초 이어질 때 한 번. 도구 호출 사이의 잠깐 대기, 응답 대기, 끝난 세션, 하위 에이전트, 상태를 기록 시각으로 추측한 세션은 알리지 않는다 |
+| `context` | 컨텍스트 사용률이 90% 를 넘을 때 한 번. 85% 아래로 내려가면(압축 등) 다시 알린다. aitop 을 켰을 때나 새 세션의 기록을 처음 다 읽었을 때 이미 넘어 있으면 알리지 않는다 |
+
+종류는 데스크톱 알림과 `--on-waiting` 명령에 함께 쓴다. 이름은 예전 그대로 `--on-waiting` 이고, 어떤 일인지는 `AITOP_EVENT` 로 가른다 (예: `[ "$AITOP_EVENT" = done ] && say 끝`). 종류는 명령줄 `--notify=<종류>` > 설정 파일 `notify` 배열 > `waiting` 순서로 정한다. 그래서 종류를 따로 정하지 않으면 예전처럼 응답 대기에만 실행된다. `--no-notify` 는 데스크톱 알림만 끄고, `--on-waiting` 명령은 그 종류를 그대로 따른다. 벨(`--bell`)은 늘 응답 대기만 울린다.
 
 `--on-waiting` 명령은 **aitop 을 실행한 사용자 권한 그대로** 돈다. 세션 정보는 명령 문자열에 끼워 넣지 않고 환경변수로만 넘긴다 (명령 안에서 쓸 때는 `"$AITOP_PROJECT"` 처럼 따옴표로 감싼다).
 
 | 환경변수 | 값 |
 |---|---|
+| `AITOP_EVENT` | `waiting` · `done` · `context` |
 | `AITOP_TOOL` | claude · codex · agy 등 |
 | `AITOP_PROJECT` | 프로젝트 이름 |
 | `AITOP_SESSION_ID` | 세션 id |

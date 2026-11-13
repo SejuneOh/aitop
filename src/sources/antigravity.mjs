@@ -749,6 +749,8 @@ export function collectAgy({ showEnded, budget }) {
       now: g.lastTool ?? g.events.at(-1)?.text ?? '',
       startedAt: null,
       updatedAt: r.updatedAt ?? Date.now(),
+      // 대기 시작 시각 (--line 요약용). 기록에 시각이 없으면 지금 시각으로 메우지 않고 null.
+      waitSince: wait ? (r.updatedAt ?? null) : null,
       tokens,
       context: { used: g.prompt, window: contextWindow(g.model, g.prompt) },
       events: g.events,

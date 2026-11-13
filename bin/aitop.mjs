@@ -68,7 +68,8 @@ const flag = (name) => {
   return on < 0 && off < 0 ? undefined : on > off;
 };
 // notify 는 --notify 가 뒤에 오면 true, --no-notify 가 뒤에 오면 false, 둘 다 없으면 정하지 않은 것이다.
-const notifyFlag = cli.notify ? true : notifyOptions(cliArgs, { notify: true }).notify ? undefined : false;
+// --notify=<종류> 로 종류를 정했으면 그 배열을 값으로 둔다 (--print-config 에 보이게).
+const notifyFlag = cli.notify ? (cli.eventsSet ? cli.events : true) : notifyOptions(cliArgs, { notify: true }).notify ? undefined : false;
 // onWaiting 은 --on-waiting 이 뒤에 오면 그 명령, --no-on-waiting 이 뒤에 오면 null(끔), 둘 다 없으면 정하지 않은 것이다.
 const onWaitingFlag = cli.onWaiting ?? (notifyOptions(cliArgs, { onWaiting: 'x' }).onWaiting === null ? null : undefined);
 const config = resolveConfig({ flags: { theme: THEMES.includes(theme) ? theme : undefined, colorBlind: flag('color-blind'), bell: flag('bell'), showRequests: flag('show-requests'), all: flag('all'), debug: flag('debug'), notify: notifyFlag, onWaiting: onWaitingFlag, budgetDay: budget.value, lang: langOpt.value }, file: cfgFile });
@@ -204,7 +205,7 @@ const { frameTimer } = await import('../src/frames.mjs');
 const { flushCache } = await import('../src/cache.mjs');
 const { toJson } = await import('../src/json.mjs');
 const { createSummaryWriter, summarize, writeSummary } = await import('../src/summary.mjs');
-const { createAttention, updateAttention, markSeen, nextAttention, windowTitle, createWaitWatch, takeNewlyWaiting, attentionCounts } = await import('../src/attention.mjs');
+const { createAttention, updateAttention, markSeen, nextAttention, windowTitle, createWaitWatch, takeNewlyWaiting, attentionCounts, createEventWatch, takeEvents } = await import('../src/attention.mjs');
 const { createNotifier } = await import('../src/notify.mjs');
 const { onKey, fixFocus } = await import('../src/keys.mjs');
 const { admit, createLoading, latchReady } = await import('../src/loading.mjs');
@@ -212,7 +213,7 @@ const { admit, createLoading, latchReady } = await import('../src/loading.mjs');
 // 요청 전체 보기는 기본으로 꺼 둔다. 켜지 않으면 상세 패널에도 --json 에도 나가지 않는다.
 const showRequests = opt.showRequests;
 // settings: 도움말(?)에 보이는 지금 설정 값.
-const settings = { budgetDay: opt.budgetDay, notify: Boolean(alerts.notify), onWaiting: Boolean(alerts.onWaiting), debug: log.on, configPath: config.path };
+const settings = { budgetDay: opt.budgetDay, notify: Boolean(alerts.notify), events: alerts.events, onWaiting: Boolean(alerts.onWaiting), debug: log.on, configPath: config.path };
 const view = { showRequests, budgetDay: opt.budgetDay, hideIdleTools: opt.hideIdleTools, settings, data: null, selectedId: null, showDetail: 'auto', showEnded: opt.all, frame: 0, filter: '', searching: false, help: false, focus: null, filePath: null, diffScroll: 0, tab: 'now', costMode: 'api', sort: 'default', group: 'none', pins: [] };
 const once = args.has('--once') || args.has('--json') || !process.stdout.isTTY;
 // ready: 시작할 때 세션 기록을 다 읽었는지 (loading.mjs). 그 전에는 비용·컨텍스트 정렬과 ▲ 를 고정한다. 한 번에 다 읽는 --once·--json 은 처음부터 준비 완료다.
@@ -233,6 +234,9 @@ let tools = null;
 const bell = opt.bell;
 const waitWatch = createWaitWatch();
 const notifier = !once && (alerts.notify || alerts.onWaiting) ? createNotifier(alerts) : null;
+// 끝남(done)·context 경고는 켠 경우에만 센다 (#204). 벨은 늘 응답 대기만 울린다.
+const eventKinds = alerts.events.filter((k) => k !== 'waiting');
+const eventWatch = notifier && eventKinds.length ? createEventWatch({ doneMs: opt.doneMinutes * 60_000 }) : null;
 
 // throttle: 주기 갱신(tick)에서만 참이다. 로딩 중에는 loading.mjs 의 admit 이 허락할 때만 화면 데이터를 바꾼다.
 // 알림(벨·--notify·--on-waiting)은 화면에 올리지 않은 갱신에서도 그대로 돈다. 돌려주는 값은 화면 데이터를 바꿨는지.
@@ -253,7 +257,11 @@ function refresh({ throttle = false } = {}) {
   if (!once && (bell || notifier)) {
     const fresh = takeNewlyWaiting(waitWatch, data.sessions);
     if (fresh.length && bell) process.stdout.write('\x07');
-    notifier?.fire(fresh);
+    if (alerts.events.includes('waiting')) notifier?.fire(fresh);
+  }
+  if (eventWatch) {
+    const evs = takeEvents(eventWatch, data.sessions, { ready: loading.ready });
+    for (const kind of eventKinds) notifier.fire(evs.filter((e) => e.kind === kind).map((e) => e.session), kind);
   }
   lastMore = data.more;
   if (!once) {

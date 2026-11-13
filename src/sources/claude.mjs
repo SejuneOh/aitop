@@ -5,7 +5,7 @@ import { loadCache } from '../cache.mjs';
 import { contextWindow } from '../pricing.mjs';
 import { join, basename } from 'node:path';
 import { homedir } from 'node:os';
-import { isAlive } from '../procs.mjs';
+import { isSessionAlive } from '../procs.mjs';
 import { ClaudeTracker } from './claude-tracker.mjs';
 import { emptyTokens, mergeActivity, MEMBER_FADE_MS } from './common.mjs';
 import { mergeFiles } from './files.mjs';
@@ -294,31 +294,85 @@ function endedFromTranscripts(known, selectedId, budget) {
   return out;
 }
 
+// sessions 폴더 목록은 폴더 수정 시각이 그대로면 재사용한다 (#135).
+// 수정 시각은 틱(수 ms)이나 초 단위로 거칠어, 읽기 직전·직후의 변경이 같은 시각으로 남을 수 있다.
+// 그래서 수정된 지 RACY_MS 안에 읽은 결과는 믿지 않고 다음 갱신에 다시 읽는다 (git 의 racy 검사와 같다).
+const RACY_MS = 2000;
+const LIST_MAX_AGE_MS = 10_000;
+let listing = { mtime: -1, at: 0, files: [] };
+// 파일별로 읽은 내용. 수정 시각·크기가 그대로면 다시 읽지 않는다.
+// 한 번 죽은 것으로 본 pid 는 살아나지 않으므로(같은 pid 는 다른 프로세스), 파일이 바뀌기 전까지 다시 확인하지 않는다.
+const fileCache = new Map();
+let sessionReads = 0;
+
+export function _sessionReads() {
+  return sessionReads;
+}
+
+function listSessionFiles() {
+  const mtime = statSync(SESSIONS).mtimeMs;
+  if (mtime === listing.mtime && listing.at - mtime > RACY_MS && Date.now() - listing.at < LIST_MAX_AGE_MS) return listing.files;
+  const files = readdirSync(SESSIONS).filter((n) => n.endsWith('.json'));
+  listing = { mtime, at: Date.now(), files };
+  return files;
+}
+
+function sessionFile(name) {
+  const path = join(SESSIONS, name);
+  let st;
+  try {
+    st = statSync(path);
+  } catch (e) {
+    debugIo('claude', 'session file stat failed', e, path);
+    fileCache.delete(name);
+    return null;
+  }
+  let c = fileCache.get(name);
+  if (!c || c.mtime !== st.mtimeMs || c.size !== st.size || c.at - c.mtime <= RACY_MS) {
+    sessionReads++;
+    const at = Date.now();
+    c = { mtime: st.mtimeMs, size: st.size, at, entry: readJson(path), dead: false };
+    fileCache.set(name, c);
+  }
+  // 미리 띄워 둔 대기 프로세스(claude bg-spare)는 아직 세션이 아니다. 작업을 맡으면 spare 가 빠진 파일로 다시 쓰인다.
+  if (!c.entry?.sessionId || c.entry.spare) return null;
+  if (!c.dead && !isSessionAlive(c.entry.pid, c.entry.procStart)) c.dead = true;
+  return { ...c.entry, alive: !c.dead };
+}
+
 // ~/.claude/sessions/*.json 을 세션 id 마다 하나로 (살아 있는 쪽, 그다음 최근에 바뀐 쪽). 폴더를 읽지 못하면 null.
 function sessionEntries() {
   let files;
   try {
-    files = readdirSync(SESSIONS).filter((n) => n.endsWith('.json'));
+    files = listSessionFiles();
   } catch (e) {
     debugIo('claude', 'sessions read failed', e);
     return null;
   }
+  const names = new Set(files);
+  for (const n of fileCache.keys()) if (!names.has(n)) fileCache.delete(n);
   const latest = new Map();
   for (const f of files) {
-    const e = readJson(join(SESSIONS, f));
-    if (!e?.sessionId) continue;
-    e.alive = isAlive(e.pid);
+    const e = sessionFile(f);
+    if (!e) continue;
     const prev = latest.get(e.sessionId);
     if (!prev || (e.alive && !prev.alive) || (e.updatedAt ?? e.startedAt) > (prev.updatedAt ?? prev.startedAt)) latest.set(e.sessionId, e);
   }
   return latest;
 }
 
-// 응답 대기 중인 Claude 세션 수. 세션 파일과 pid 만 보므로 대화 기록·프로세스 목록을 읽지 않는다 (aitop --line 용).
-export function claudeWaitingCount() {
-  let n = 0;
-  for (const e of sessionEntries()?.values() ?? []) if (e.alive && e.waitingFor) n++;
-  return n;
+// 응답 대기 중인 Claude 세션들 [{ tool, name, since }]. 세션 파일과 pid 만 보므로 대화 기록·프로세스 목록을 읽지 않는다 (aitop --line 용).
+// 이름은 세션 파일의 이름, 자동 이름(id 앞 8자)이면 대화 제목 대신 작업 폴더 이름을 쓴다 (제목은 기록을 읽어야 안다).
+// 대기 시작은 상태가 바뀐 시각(statusUpdatedAt), 없으면 세션 파일이 바뀐 시각.
+export function claudeWaiting() {
+  const out = [];
+  for (const e of sessionEntries()?.values() ?? []) {
+    if (!e.alive || !e.waitingFor) continue;
+    const autoName = !e.name || e.name === e.sessionId.slice(0, 8);
+    const since = [e.statusUpdatedAt, e.updatedAt, e.startedAt].find(Number.isFinite) ?? null;
+    out.push({ tool: 'claude', name: autoName ? basename(e.cwd ?? '') : String(e.name), since });
+  }
+  return out;
 }
 
 export function collectClaude({ showEnded, budget, selectedId }) {

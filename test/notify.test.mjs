@@ -28,7 +28,7 @@ test('첫 갱신의 응답 대기는 알리지 않고, 그 뒤 새로 응답 대
 });
 
 test('--notify, --on-waiting <cmd>, --on-waiting=<cmd> 를 한 곳에서 해석하고 나머지는 남긴다', () => {
-  assert.deepEqual(notifyOptions(['--all']), { notify: false, onWaiting: null, rest: ['--all'], error: null });
+  assert.deepEqual(notifyOptions(['--all']), { notify: false, events: ['waiting'], eventsSet: false, onWaiting: null, rest: ['--all'], error: null });
   const a = notifyOptions(['--notify', '--on-waiting', 'echo hi', '--bell']);
   assert.equal(a.notify, true);
   assert.equal(a.onWaiting, 'echo hi');
@@ -40,7 +40,7 @@ test('--notify, --on-waiting <cmd>, --on-waiting=<cmd> 를 한 곳에서 해석�
   assert.match(notifyOptions(['--on-waiting', '--all']).error, /--on-waiting=/);
   assert.equal(notifyOptions(['--on-waiting=-x']).onWaiting, '-x');
   // --theme 의 값은 건드리지 않는다.
-  assert.deepEqual(notifyOptions(['--theme', 'light', '--notify']), { notify: true, onWaiting: null, rest: ['--theme', 'light'], error: null });
+  assert.deepEqual(notifyOptions(['--theme', 'light', '--notify']), { notify: true, events: ['waiting'], eventsSet: false, onWaiting: null, rest: ['--theme', 'light'], error: null });
   assert.deepEqual(notifyOptions(['--theme', '--on-waiting=x']).rest, ['--theme']);
   const odd = notifyOptions(['--theme', '--notify', 'x']);
   assert.deepEqual([odd.notify, odd.rest], [true, ['--theme', 'x']]);
@@ -48,7 +48,7 @@ test('--notify, --on-waiting <cmd>, --on-waiting=<cmd> 를 한 곳에서 해석�
   assert.deepEqual(notifyOptions(['--on-waiting', 'b'], { notify: true, onWaiting: 'a' }).onWaiting, 'b');
   assert.equal(notifyOptions([], { notify: true }).notify, true);
   // --no-notify 는 설정 파일의 notify 를 끄고, --notify 와 함께 주면 뒤에 준 쪽을 따른다.
-  assert.deepEqual(notifyOptions(['--no-notify', '--all'], { notify: true }), { notify: false, onWaiting: null, rest: ['--all'], error: null });
+  assert.deepEqual(notifyOptions(['--no-notify', '--all'], { notify: true }), { notify: false, events: ['waiting'], eventsSet: false, onWaiting: null, rest: ['--all'], error: null });
   assert.equal(notifyOptions(['--no-notify', '--notify']).notify, true);
   assert.equal(notifyOptions(['--notify', '--no-notify']).notify, false);
   assert.equal(notifyOptions(['--no-on-waiting'], { onWaiting: 'a' }).onWaiting, null);

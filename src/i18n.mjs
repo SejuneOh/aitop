@@ -61,8 +61,9 @@ const HELP_KO = `{logo} aitop - 터미널에서 Claude Code · Codex · Antigrav
   aitop            실시간 화면
   aitop --once     현재 상태를 한 번 출력하고 끝낸다
   aitop --all      종료된 세션(24시간 이내)도 함께 본다
-  aitop --line     오늘 비용·응답 대기 수·작업 중 수·시간당 지출을 한 줄로 내고 끝낸다 (tmux 상태줄용, 예: $54.13/$50 wait 2 run 3 $3.1/h)
-                   --line=tmux 는 tmux 색 서식(#[fg=...])을 넣는다. --line-width <N> 폭 상한(기본 40, 넘으면 뒤 항목부터 뺀다)
+  aitop --line     오늘 비용·응답 대기(가장 오래 기다린 세션 이름과 대기 시간)·작업 중 수·시간당 지출을 한 줄로 내고 끝낸다
+                   (tmux 상태줄용, 예: $54.13 wait 2 fix-login 3m run 3 $3.1/h. 하나만 기다리면 wait fix-login 3m)
+                   --line=tmux 는 tmux 색 서식(#[fg=...])을 넣는다. --line-width <N> 폭 상한(기본 40, 넘으면 뒤 항목부터 빼고 대기 세션 이름은 대기 수보다 먼저 뺀다)
                    캐시만 읽는다. 캐시가 없어 1.5초 안에 못 읽으면 ... 을 낸다. 작업 중 수와 Antigravity 의 대기 수는
                    1분 안에 aitop 화면·--once·--json 이 남긴 요약이 있을 때만 보인다
   aitop --json     세션 목록과 사용량 합계를 JSON 으로 한 번 출력한다 (--all 과 함께 쓸 수 있다)
@@ -74,8 +75,10 @@ const HELP_KO = `{logo} aitop - 터미널에서 Claude Code · Codex · Antigrav
   aitop --doctor   Claude · Codex · Antigravity · Gemini 기록과 실행 중인 프로세스, 설정 파일을 점검한다 (--json 과 함께 쓸 수 있다)
   aitop --bell     응답 대기 세션이 새로 생기면 터미널 벨을 울린다
   aitop --notify   응답 대기 세션이 새로 생기면 데스크톱 알림을 띄운다 (notify-send · osascript, 없으면 건너뜀)
-  aitop --on-waiting <명령>  응답 대기 세션이 새로 생기면 /bin/sh -c 로 명령을 실행한다 (내 권한으로 실행, 10초 제한)
-                   세션 정보는 환경변수로만: AITOP_TOOL AITOP_PROJECT AITOP_SESSION_ID AITOP_CWD AITOP_WAITING_FOR
+  aitop --notify=waiting,done,context  알릴 종류를 고른다 (--notify 만 주면 설정 파일 notify 배열, 없으면 waiting). done: 3분(설정 파일 doneMinutes, 응답 대기 시간 빼고) 넘게 작업하던 세션이 다음 지시를
+                   기다리면 한 번. context: 컨텍스트가 90% 를 넘으면 한 번 (85% 아래로 내려가면 다시)
+  aitop --on-waiting <명령>  알릴 일이 생기면 /bin/sh -c 로 명령을 실행한다 (내 권한으로 실행, 10초 제한). 종류는 --notify 를 따른다 (--no-notify 여도)
+                   세션 정보는 환경변수로만: AITOP_EVENT(waiting|done|context) AITOP_TOOL AITOP_PROJECT AITOP_SESSION_ID AITOP_CWD AITOP_WAITING_FOR
   aitop --show-requests  응답 대기 요청 전체를 상세 패널·--json 에 보인다 (AITOP_SHOW_REQUESTS=1). 비밀값 가림은 최선일 뿐이라 명령 속 비밀값이 보일 수 있다
   aitop --budget-day <달러>  하루 예산. 헤더에 오늘 $12.30/$50 처럼 보이고, 오늘 끝 예상 비용(오늘 + 최근 속도 × 자정까지, 늘 API 환산)이
                    80% 를 넘으면 '예상 $45', 100% 를 넘으면 '예상 $60!' 로 알린다 (AITOP_BUDGET_DAY, 설정 파일 budgetDay)
@@ -93,6 +96,7 @@ const HELP_KO = `{logo} aitop - 터미널에서 Claude Code · Codex · Antigrav
 
   설정 파일: {configPath}
     예) { "theme": "light", "icons": "plain", "bell": true, "notify": true, "onWaiting": "say 대기", "budgetDay": 50, "ambiguous": "wide", "hideIdleTools": false }
+    notify 에 ["waiting", "done", "context"] 처럼 종류를 주면 그 종류만 알린다. doneMinutes: done 알림 기준 작업 시간(분, 기본 3)
     hideIdleTools: 실행 중 세션이 없고 7일 동안 쓰지 않은 도구를 헤더 아래 도구 줄에서 숨긴다 (기본 true, false 면 늘 셋 다)
     onWaiting 은 파일 소유자가 나이고 그룹·다른 사용자가 쓸 수 없을 때(chmod 600)만 받는다.
     옵션 > 환경 변수 > 설정 파일 순서로 정한다. 잘못된 값은 무시하고 --doctor 에 알린다.
@@ -105,8 +109,9 @@ const HELP_EN = `{logo} aitop - watch Claude Code, Codex, Antigravity and Gemini
   aitop            live screen
   aitop --once     print the current state once and exit
   aitop --all      also show sessions that ended in the last 24 hours
-  aitop --line     print today's cost, waiting count, running count and spend per hour on one line and exit (for tmux, e.g. $54.13/$50 wait 2 run 3 $3.1/h)
-                   --line=tmux adds tmux colors (#[fg=...]). --line-width <N> sets the max width (default 40, drops items from the end)
+  aitop --line     print today's cost, waiting sessions (the longest waiting one's name and wait time), running count and spend per hour on one line
+                   and exit (for tmux, e.g. $54.13 wait 2 fix-login 3m run 3 $3.1/h; with one waiting: wait fix-login 3m)
+                   --line=tmux adds tmux colors (#[fg=...]). --line-width <N> sets the max width (default 40, drops items from the end, the waiting name before its count)
                    Reads only the cache. With no cache it prints ... after 1.5 seconds. The running count and waiting Antigravity sessions
                    show only when the live screen, --once or --json left a summary in the last minute
   aitop --json     print the session list and usage totals as JSON once (works with --all)
@@ -119,8 +124,10 @@ const HELP_EN = `{logo} aitop - watch Claude Code, Codex, Antigravity and Gemini
   aitop --doctor   check Claude, Codex, Antigravity and Gemini logs, running processes and the config file (works with --json)
   aitop --bell     ring the terminal bell when a session starts waiting for you
   aitop --notify   show a desktop notification when a session starts waiting (notify-send or osascript, skipped if missing)
-  aitop --on-waiting <cmd>  run a command with /bin/sh -c when a session starts waiting (runs as you, 10 second limit)
-                   Session info is passed only in env vars: AITOP_TOOL AITOP_PROJECT AITOP_SESSION_ID AITOP_CWD AITOP_WAITING_FOR
+  aitop --notify=waiting,done,context  pick what to notify about (plain --notify: the config notify list, else waiting). done: once when a session that worked for
+                   over 3 minutes (config doneMinutes, approval waits not counted) waits for its next instruction. context: once when context passes 90% (again after it drops below 85%)
+  aitop --on-waiting <cmd>  run a command with /bin/sh -c when there is something to notify (runs as you, 10 second limit). Follows the --notify kinds (even with --no-notify)
+                   Session info is passed only in env vars: AITOP_EVENT(waiting|done|context) AITOP_TOOL AITOP_PROJECT AITOP_SESSION_ID AITOP_CWD AITOP_WAITING_FOR
   aitop --show-requests  show full waiting requests in the detail panel and --json (AITOP_SHOW_REQUESTS=1). Secret masking is best effort, so secrets in commands may show
   aitop --budget-day <usd>  daily budget. The header shows today $12.30/$50, and it warns when the projected end-of-day cost (today + recent rate until midnight, always API cost)
                    passes 80%, and in the warning color with ! past 100% (AITOP_BUDGET_DAY, config budgetDay)
@@ -138,6 +145,7 @@ const HELP_EN = `{logo} aitop - watch Claude Code, Codex, Antigravity and Gemini
 
   Config file: {configPath}
     e.g. { "theme": "light", "icons": "plain", "bell": true, "notify": true, "onWaiting": "say waiting", "budgetDay": 50, "ambiguous": "wide", "hideIdleTools": false, "lang": "en" }
+    notify can also be a list like ["waiting", "done", "context"] to pick the kinds. doneMinutes: busy time (minutes, default 3) before a done notice
     hideIdleTools: hide tools with no running session and no use in 7 days from the tool line under the header (default true, false always shows all)
     onWaiting is accepted only when you own the file and no group or other user can write it (chmod 600).
     Order: option > env var > config file. Bad values are ignored and reported by --doctor.
@@ -196,6 +204,7 @@ export const STRINGS = {
     'opt.budgetMissing': '--budget-day 값이 없습니다 (하루 예산, 달러)',
     'opt.budgetBad': '--budget-day 값 {value} 이 잘못되었습니다 (0 보다 큰 수)',
     'opt.onWaitingMissing': '--on-waiting 값이 없습니다 (실행할 명령)',
+    'opt.notifyBad': '--notify={value} 를 알 수 없습니다. 쉼표로 이은 {kinds} 중에서 고른다',
     'opt.onWaitingDash': "--on-waiting 값이 - 로 시작합니다 ({value}). 명령이 맞으면 --on-waiting='{value}' 처럼 = 로 붙여 쓴다",
     'opt.lineBad': '--line 값 {value} 이 잘못되었습니다 (plain 또는 tmux)',
     'opt.lineWidthMissing': '--line-width 값이 없습니다 (글자 수)',
@@ -247,6 +256,7 @@ export const STRINGS = {
     'cfg.shared': '그룹·다른 사용자가 쓸 수 있음 (mode {mode})',
     'cfg.either': '{a} 또는 {b}',
     'cfg.command': '실행할 명령 문자열',
+    'cfg.notify': 'true, false 또는 waiting·done·context 배열',
     'cfg.positive': '0 보다 큰 수',
     'cfg.file': '설정 파일: {path} ({state})',
     'cfg.exists': '있음',
@@ -270,7 +280,7 @@ export const STRINGS = {
     'doctor.hint.agyMissing': 'agy 를 한 번 실행하면 생깁니다 (Gemini 탭에 보입니다)',
     'doctor.hint.gemini': '프로세스만 감지합니다 (세션·토큰은 아직 지원하지 않음)',
     'doctor.hint.agyNode': 'Node {node} 에서는 기록을 읽기 전용으로 열 수 없어 프로세스만 감지합니다 (Node 22.15 이상 필요)',
-    'doctor.notifier': '✓ 알림    {kind} ({path}) · --notify 로 켬',
+    'doctor.notifier': '✓ 알림    {kind} ({path}) · --notify 로 켬 (끝남·context 경고는 --notify=waiting,done,context)',
     'doctor.noNotifier': '○ 알림    {want} 없음 · --notify 를 켜도 알림을 건너뜀{wsl}',
     'doctor.wsl': ' (WSL 은 notify-send 만 쓴다)',
     'doctor.config': '{mark} 설정   {state}{path}',
@@ -428,9 +438,10 @@ export const STRINGS = {
 
     // 화면 안 도움말의 옵션 묶음 (help.mjs 의 OPTIONS). 값이 있는 옵션은 이름도 언어마다 다르다.
     'hopt.onWaiting': '--on-waiting <명령>',
+    'hopt.notifyOpt': '--notify[=종류]',
     'hopt.budgetDay': '--budget-day <달러>',
-    'hopt.notify': '응답 대기가 생기면 데스크톱 알림',
-    'hopt.onWaitingText': '응답 대기가 생기면 명령 실행',
+    'hopt.notify': '응답 대기(·작업 끝남·context 90%)에 데스크톱 알림',
+    'hopt.onWaitingText': '알릴 일이 생기면 명령 실행 (AITOP_EVENT)',
     'hopt.budgetDayText': '하루 예산. 헤더에 예상 비용 경고',
     'hopt.showRequests': '응답 대기 요청 전체를 상세·--json 에',
     'hopt.colorBlind': '적록 색약용 색 (대기·돈·경고를 노랑·파랑 계열로)',
@@ -501,6 +512,12 @@ export const STRINGS = {
     'notify.one': 'aitop: 응답 대기 ({tool})',
     'notify.title': 'aitop: 응답 대기',
     'notify.many': '{n}개 세션이 응답을 기다립니다',
+    'notify.done.one': 'aitop: 작업 끝남 ({tool})',
+    'notify.done.title': 'aitop: 작업 끝남',
+    'notify.done.many': '{n}개 세션이 다음 지시를 기다립니다',
+    'notify.context.one': 'aitop: context 90% 넘음 ({tool})',
+    'notify.context.title': 'aitop: context 90% 넘음',
+    'notify.context.many': '{n}개 세션의 context 가 90% 를 넘었습니다',
     // Antigravity 소스가 요청 이름을 모를 때 넣는 대기 사유. --json 에는 이 한국어 그대로 나가고 화면에서만 바꾼다.
     'phase.approve': '도구 허락',
   },
@@ -553,6 +570,7 @@ export const STRINGS = {
     'opt.budgetMissing': '--budget-day needs a value (daily budget in USD)',
     'opt.budgetBad': 'bad --budget-day value {value} (a number above 0)',
     'opt.onWaitingMissing': '--on-waiting needs a value (a command to run)',
+    'opt.notifyBad': 'unknown --notify={value}. Use a comma separated list of {kinds}',
     'opt.onWaitingDash': "--on-waiting value starts with - ({value}). If it is the command, attach it with =, like --on-waiting='{value}'",
     'opt.lineBad': 'bad --line value {value} (plain or tmux)',
     'opt.lineWidthMissing': '--line-width needs a value (characters)',
@@ -603,6 +621,7 @@ export const STRINGS = {
     'cfg.shared': 'group or other users can write it (mode {mode})',
     'cfg.either': '{a} or {b}',
     'cfg.command': 'a command string',
+    'cfg.notify': 'true, false or a list of waiting, done, context',
     'cfg.positive': 'a number above 0',
     'cfg.file': 'Config file: {path} ({state})',
     'cfg.exists': 'found',
@@ -626,7 +645,7 @@ export const STRINGS = {
     'doctor.hint.agyMissing': 'created after you run agy once (shown in the Gemini tab)',
     'doctor.hint.gemini': 'detects processes only (sessions and tokens not supported yet)',
     'doctor.hint.agyNode': 'Node {node} cannot open the logs read-only, so only processes are detected (needs Node 22.15 or later)',
-    'doctor.notifier': '✓ notify  {kind} ({path}) · turn on with --notify',
+    'doctor.notifier': '✓ notify  {kind} ({path}) · turn on with --notify (done and context alerts: --notify=waiting,done,context)',
     'doctor.noNotifier': '○ notify  {want} not found · --notify will skip notifications{wsl}',
     'doctor.wsl': ' (WSL uses notify-send only)',
     'doctor.config': '{mark} config {state}{path}',
@@ -780,9 +799,10 @@ export const STRINGS = {
     'hk.common.quit': 'Quit',
 
     'hopt.onWaiting': '--on-waiting <cmd>',
+    'hopt.notifyOpt': '--notify[=kinds]',
     'hopt.budgetDay': '--budget-day <usd>',
-    'hopt.notify': 'Desktop alert when a session waits',
-    'hopt.onWaitingText': 'Run a command when a session waits',
+    'hopt.notify': 'Desktop alert on waiting (or done, context 90%)',
+    'hopt.onWaitingText': 'Run a command on alerts (AITOP_EVENT)',
     'hopt.budgetDayText': 'Daily budget, warns in the header',
     'hopt.showRequests': 'Show full waiting requests',
     'hopt.colorBlind': 'Red-green color blind palette',
@@ -851,6 +871,12 @@ export const STRINGS = {
     'notify.one': 'aitop: waiting ({tool})',
     'notify.title': 'aitop: waiting',
     'notify.many': { one: '{n} session is waiting for you', other: '{n} sessions are waiting for you' },
+    'notify.done.one': 'aitop: done ({tool})',
+    'notify.done.title': 'aitop: done',
+    'notify.done.many': { one: '{n} session finished its work', other: '{n} sessions finished their work' },
+    'notify.context.one': 'aitop: context over 90% ({tool})',
+    'notify.context.title': 'aitop: context over 90%',
+    'notify.context.many': { one: '{n} session passed 90% context', other: '{n} sessions passed 90% context' },
     'phase.approve': 'Approve tool',
   },
 };
