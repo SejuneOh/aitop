@@ -176,6 +176,33 @@ let ticksPerSec = null;
 let bootMs = null;
 
 // /proc/<pid>/stat 의 22번째 칸은 부팅 뒤 지난 시간(클럭 틱)이다. 명령 이름에 공백·괄호가 들 수 있어 마지막 ')' 뒤부터 센다.
+export function parseStartTicks(stat) {
+  const s = String(stat);
+  const end = s.lastIndexOf(')');
+  if (end < 0) return null;
+  const ticks = Number(s.slice(end + 2).split(' ')[19]);
+  return Number.isFinite(ticks) ? ticks : null;
+}
+
+// /proc/<pid>/stat 원문을 읽는다. /proc 가 없는 OS 는 null. 테스트는 _setStatReader 로 바꾼다.
+let readStat = HAS_PROC ? (pid) => readFileSync(`/proc/${pid}/stat`, 'utf8') : null;
+
+export function _setStatReader(fn) {
+  const prev = readStat;
+  readStat = fn;
+  return prev;
+}
+
+// 프로세스 시작 시각(부팅 뒤 클럭 틱). 알 수 없으면 null.
+export function startTicks(pid) {
+  if (!readStat) return null;
+  try {
+    return parseStartTicks(readStat(pid));
+  } catch {
+    return null;
+  }
+}
+
 function procStartLinux(pid) {
   if (bootMs === null) {
     const m = /^btime (\d+)$/m.exec(readFileSync('/proc/stat', 'utf8'));
@@ -189,9 +216,26 @@ function procStartLinux(pid) {
       ticksPerSec = 100;
     }
   }
-  const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
-  const ticks = Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19]);
-  return Number.isFinite(ticks) ? bootMs + (ticks / ticksPerSec) * 1000 : null;
+  const ticks = parseStartTicks(readFileSync(`/proc/${pid}/stat`, 'utf8'));
+  return ticks !== null ? bootMs + (ticks / ticksPerSec) * 1000 : null;
+}
+
+// 세션 파일의 procStart(부팅 뒤 클럭 틱, 문자열)와 지금 그 pid 의 시작 시각을 비교한다.
+// pid 를 다른 프로세스가 다시 쓰면 시작 시각이 다르다. 틱 단위로 비교해 btime 흔들림(WSL)의 영향을 받지 않는다.
+// procStart 가 없거나 /proc 를 못 읽으면 알 수 없으므로 같은 프로세스로 본다 (예전 동작).
+const START_TOLERANCE_TICKS = 100;
+
+export function sameProcess(pid, procStart) {
+  const want = Number(procStart);
+  if (procStart == null || procStart === '' || !Number.isFinite(want)) return true;
+  const got = startTicks(pid);
+  if (got === null) return true;
+  return Math.abs(got - want) <= START_TOLERANCE_TICKS;
+}
+
+// 세션 파일의 주인 프로세스가 아직 살아 있는지 (pid 재사용 제외).
+export function isSessionAlive(pid, procStart) {
+  return isAlive(pid) && sameProcess(pid, procStart);
 }
 
 // 프로세스가 시작한 시각(ms). 알 수 없으면 null. 시작 시각은 바뀌지 않으므로 pid 별로 기억한다.
