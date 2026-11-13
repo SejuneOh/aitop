@@ -1,10 +1,10 @@
 // 도구별 연결 점검: 기록 폴더를 찾았는지, 기록이 몇 개이고 언제 마지막으로 쓰였는지, 지금 몇 개가 실행 중인지,
 // 가장 최근 기록을 읽을 수 있는지. aitop --doctor, 빈 화면, --json 의 tools 가 같은 결과를 쓴다.
 // 기록 내용은 읽어 내보내지 않는다 (Gemini 는 형식 확인용으로 JSON 키 이름만 보인다).
-import { readdirSync, statSync, existsSync, openSync, readSync, closeSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync, existsSync, openSync, readSync, closeSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir, platform } from 'node:os';
-import { findProcesses, isCodex, isGemini, isAgy, canListProcesses, isAlive } from './procs.mjs';
+import { findProcesses, isCodex, isGemini, isAgy, canListProcesses, isAlive, isSessionAlive } from './procs.mjs';
 import { AGY_ROOT } from './sources/antigravity.mjs';
 import { loadSqlite, openReadOnly } from './sqlite.mjs';
 import { fmtAgo, pad, stripControl } from './text.mjs';
@@ -102,12 +102,22 @@ function topKeys(path) {
   }
 }
 
+// 살아 있는 pid 의 세션 파일만 연다. 대기 프로세스(spare)와 pid 재사용은 세지 않는다.
+function liveSessionFile(path) {
+  try {
+    const e = JSON.parse(readFileSync(path, 'utf8'));
+    return !e.spare && isSessionAlive(e.pid, e.procStart);
+  } catch {
+    return false;
+  }
+}
+
 function claude() {
   const dir = join(CLAUDE, 'projects');
   const files = existsSync(dir) ? walk(dir, 1, (n) => n.endsWith('.jsonl')) : null;
   const last = files && newest(files);
   const running = canListProcesses()
-    ? ls(join(CLAUDE, 'sessions')).filter((e) => /^\d+\.json$/.test(e.name) && isAlive(Number(e.name.split('.')[0]))).length
+    ? ls(join(CLAUDE, 'sessions')).filter((e) => /^\d+\.json$/.test(e.name) && isAlive(Number(e.name.split('.')[0])) && liveSessionFile(join(CLAUDE, 'sessions', e.name))).length
     : null;
   if (!files) return { tool: 'claude', state: 'missing', path: tilde(dir), records: 0, lastAt: null, running, readable: null, hint: null };
   return { tool: 'claude', state: 'ok', path: tilde(dir), records: files.length, lastAt: last?.mtime ?? null, running, readable: last ? firstLineIsJson(last.path) : null, hint: null };
