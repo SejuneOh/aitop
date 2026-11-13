@@ -2,7 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { onKey, fixFocus, KEY } from '../src/keys.mjs';
 
-const file = (path) => ({ path, edits: 1, add: 1, del: 0, at: Date.now(), hunks: [] });
+// 시각을 고정한다. Date.now() 를 쓰면 만드는 도중 밀리초가 바뀌어 최근순 정렬이 /a, /b, /c 순서를 바꿀 수 있다 (#205).
+const AT = 1_700_000_000_000;
+const file = (path) => ({ path, edits: 1, add: 1, del: 0, at: AT, hunks: [] });
 
 function setup(extra = {}) {
   const calls = [];
