@@ -138,7 +138,8 @@ Total       1.69B $677  26.1M $4.45  1.71B $681
 | `bell` | true · false | `--bell` · `--no-bell` |
 | `showRequests` | true · false | `--show-requests` · `--no-show-requests`, `AITOP_SHOW_REQUESTS=1`·`0` |
 | `all` | true · false | `--all` · `--no-all` |
-| `notify` | true · false | `--notify` · `--no-notify` |
+| `notify` | true · false · 종류 배열 (`["waiting", "done", "context"]`) | `--notify` · `--notify=<종류>` · `--no-notify` |
+| `doneMinutes` | 0 보다 큰 수 (분, 기본 3) | 없음. `done` 알림을 띄우려면 작업 중이 이만큼 이어져야 한다 |
 | `onWaiting` | 명령 문자열 | `--on-waiting` · `--no-on-waiting` |
 | `debug` | true · false | `--debug` · `--no-debug`, `AITOP_DEBUG=1`·`0` |
 | `budgetDay` | 0 보다 큰 수 (달러) | `--budget-day <usd>` · `--budget-day=<usd>` · `--no-budget-day`, `AITOP_BUDGET_DAY` |
@@ -191,12 +192,22 @@ CLI 기록 형식이 바뀌어 값이 비어 보이면 `aitop --debug` 로 실�
 ```
 aitop --notify                     데스크톱 알림. Linux 는 notify-send, macOS 는 osascript. 없으면 조용히 건너뛴다 (--doctor 에 보임)
 aitop --on-waiting 'my-hook.sh'    응답 대기가 새로 생길 때마다 /bin/sh -c 로 명령 실행 (--on-waiting=<명령> 도 됨)
+aitop --notify=waiting,done,context  알릴 종류를 고른다. --notify 만 주면 설정 파일 notify 배열의 종류, 없으면 waiting 만
 ```
+
+| 종류 | 언제 |
+|---|---|
+| `waiting` (기본) | 세션이 새로 응답(허락) 대기가 될 때 |
+| `done` | 한 작업에서 작업 중이던 시간의 합(응답 대기 시간은 뺀다)이 3분(설정 파일 `doneMinutes`) 이상인 세션이 다음 지시 대기가 되고, 그 대기가 5초 이어질 때 한 번. 도구 호출 사이의 잠깐 대기, 응답 대기, 끝난 세션, 하위 에이전트, 상태를 기록 시각으로 추측한 세션은 알리지 않는다 |
+| `context` | 컨텍스트 사용률이 90% 를 넘을 때 한 번. 85% 아래로 내려가면(압축 등) 다시 알린다. aitop 을 켰을 때나 새 세션의 기록을 처음 다 읽었을 때 이미 넘어 있으면 알리지 않는다 |
+
+종류는 데스크톱 알림과 `--on-waiting` 명령에 함께 쓴다. 이름은 예전 그대로 `--on-waiting` 이고, 어떤 일인지는 `AITOP_EVENT` 로 가른다 (예: `[ "$AITOP_EVENT" = done ] && say 끝`). 종류는 명령줄 `--notify=<종류>` > 설정 파일 `notify` 배열 > `waiting` 순서로 정한다. 그래서 종류를 따로 정하지 않으면 예전처럼 응답 대기에만 실행된다. `--no-notify` 는 데스크톱 알림만 끄고, `--on-waiting` 명령은 그 종류를 그대로 따른다. 벨(`--bell`)은 늘 응답 대기만 울린다.
 
 `--on-waiting` 명령은 **aitop 을 실행한 사용자 권한 그대로** 돈다. 세션 정보는 명령 문자열에 끼워 넣지 않고 환경변수로만 넘긴다 (명령 안에서 쓸 때는 `"$AITOP_PROJECT"` 처럼 따옴표로 감싼다).
 
 | 환경변수 | 값 |
 |---|---|
+| `AITOP_EVENT` | `waiting` · `done` · `context` |
 | `AITOP_TOOL` | claude · codex · agy 등 |
 | `AITOP_PROJECT` | 프로젝트 이름 |
 | `AITOP_SESSION_ID` | 세션 id |

@@ -59,6 +59,22 @@ aitop --report daily --by project --days 7
 aitop --report monthly --by model --months 6
 ```
 
+### Notifications
+
+Off by default and only on the live screen. Sessions already waiting (or already over 90% context) when aitop starts are not reported.
+
+```
+aitop --notify                       desktop notification when a session starts waiting (notify-send on Linux/WSL, osascript on macOS)
+aitop --notify=waiting,done,context  pick the kinds; plain --notify uses the config file kinds, or waiting only when none are set
+aitop --on-waiting 'my-hook.sh'      run a command with /bin/sh -c for the same events (10 second limit, runs as you)
+```
+
+- `waiting`: a session starts waiting for your approval or answer.
+- `done`: a session that was busy for over 3 minutes in one turn (config `doneMinutes`; time spent waiting for approval does not count) goes idle and stays idle for 5 seconds. Brief idle gaps between tool calls, approval waits, ended sessions, subagents and sessions whose status is guessed from file times are not reported. Once per turn.
+- `context`: context use passes 90%, once; it re-arms after it drops below 85% (for example after compaction).
+
+The hook keeps its name: it gets `AITOP_EVENT` (`waiting`, `done` or `context`) plus `AITOP_TOOL`, `AITOP_PROJECT`, `AITOP_SESSION_ID`, `AITOP_CWD` and `AITOP_WAITING_FOR` in its environment. Config file: `"notify": true` or `"notify": ["waiting", "done", "context"]`, `"onWaiting": "..."` (file must be `chmod 600`), `"doneMinutes": 5`. Plain `--notify` keeps the kinds from the config `notify` list (waiting only when there is none). `--no-notify` turns off only the desktop notification: the hook still follows those kinds. `--bell` stays waiting only.
+
 ### tmux status line
 
 `aitop --line` prints today's cost (API list price, `/$<budget>` when a daily budget is set), the number of sessions waiting for you (`wait 2`, Claude Code counted live), the number of sessions running (`run 3`), and spend over the last hour. Items that are 0 are left out, and `--line-width N` (default 40) drops items from the end. It reads only aitop's cache, so it is fast once `aitop` has run before; with no cache yet it prints `...` after about 1.5 seconds. The running count (and waiting Antigravity sessions) come from a small summary that the live screen, `--once` and `--json` write to the cache; when no summary is newer than 60 seconds, `run` is left out rather than shown wrong. `--line=tmux` adds tmux colors, `NO_COLOR` turns them off.
