@@ -75,10 +75,10 @@ export function width(s) {
   return w;
 }
 
-export function truncate(s, max) {
+// mark: 자른 자리 표시. 기본은 … (ASCII 만 써야 하는 aitop --line 은 다른 글자를 넘긴다).
+export function truncate(s, max, mark = ellipsis(max)) {
   if (max <= 0) return '';
   if (width(s) <= max) return s;
-  const mark = ellipsis(max);
   const room = max - width(mark);
   let out = '';
   let w = 0;

@@ -66,7 +66,7 @@ aitop --no-bell · --no-all · --no-show-requests · --no-notify · --no-on-wait
 aitop --debug    디버그 로그 (AITOP_DEBUG=1, 설정 파일 debug). 아래 '디버그 로그' 참고
 AITOP_AMBIGUOUS=wide  폭이 모호한 기호를 2칸으로 그리는 터미널용 (설정 파일 ambiguous). 아래 '폭이 모호한 기호' 참고
 aitop --print-config   설정 값마다 값과 출처(flag/env/file/default), 설정 파일 위치를 보인다. --json 과 함께 가능
-aitop --line     tmux 상태줄용 한 줄 (예: $54.13/$50 wait 2 run 3 $3.1/h). 아래 'tmux 상태줄' 참고
+aitop --line     tmux 상태줄용 한 줄 (예: $54.13 wait 2 fix-login 3m run 3 $3.1/h). 아래 'tmux 상태줄' 참고
 aitop --report daily [--by tool|model|project] [--days N] [--json]  최근 N일의 날짜별 토큰·비용 표. 아래 '기간 리포트' 참고
 aitop --report monthly [--by tool|model|project] [--months N] [--json]  최근 N달(최대 12)의 달별 표. 아래 '기간 리포트' 참고
 aitop --lang ko|en  화면·--help·--doctor·오류 문구의 언어 (AITOP_LANG, 설정 파일 lang). 아래 '언어' 참고
@@ -74,14 +74,17 @@ aitop --lang ko|en  화면·--help·--doctor·오류 문구의 언어 (AITOP_LAN
 
 ### tmux 상태줄 (`--line`)
 
-`aitop --line` 은 한 줄을 내고 끝난다. 항목은 오늘 비용(헤더와 같은 API 환산, 하루 예산이 있으면 `/$50`), 응답 대기 세션 수(`wait 2`), 작업 중 세션 수(`run 3`), 최근 1시간 지출(`$3.1/h`) 순이다.
+`aitop --line` 은 한 줄을 내고 끝난다. 항목은 오늘 비용(헤더와 같은 API 환산, 하루 예산이 있으면 `/$50`), 응답 대기(가장 오래 기다린 세션 이름과 대기 시간. 하나면 `wait fix-login 3m`, 둘 이상이면 `wait 2 fix-login 3m`), 작업 중 세션 수(`run 3`), 최근 1시간 지출(`$3.1/h`) 순이다.
 
-- 0 인 항목은 뺀다. `--line-width N` (기본 40) 을 넘으면 뒤 항목부터 뺀다.
-- 글자는 ASCII 만 쓴다 (이모지·폭이 모호한 기호는 tmux 에서 칸이 어긋난다). 표기는 짧은 영어 약어로 고정하고 번역하지 않는다.
+- 0 인 항목은 뺀다. `--line-width N` (기본 40) 을 넘으면 뒤 항목부터 뺀다. 대기 항목은 이름과 시간을 먼저 빼고 수(`wait 2`)를 남긴다. 하루 예산과 대기 이름이 함께 있으면 기본 폭 40 에서 `$/h` 가 빠지기 쉬우니, 보고 싶으면 `--line-width` 를 늘린다.
+- 세션 이름은 화면 SESSION 칸과 같은 이름을 12칸으로 자른다 (자른 자리는 `~`). Claude Code 세션이 자동 이름이면 작업 폴더 이름을 쓴다.
+- 글자는 ASCII 만 쓴다 (이모지·폭이 모호한 기호는 tmux 에서 칸이 어긋난다). 세션 이름의 한글·한자·가나만 남기고 제어 문자·이모지 등은 지운다. 표기는 짧은 영어 약어로 고정하고 번역하지 않는다.
 - 기본은 색 없는 글. `--line=tmux` 는 항목마다 `#[fg=colourN]...#[default]` 를 씌운다 (대기는 주황, 돈은 연두, `--color-blind` 면 노랑·파랑). ANSI 코드는 넣지 않고, `NO_COLOR` 가 있으면 tmux 서식도 넣지 않는다.
+- 세션 이름이 들어가므로 tmux 에는 반드시 `--line=tmux` 를 쓴다. 이 모드는 이름 속 `#` 을 `##` 로 바꾸지만, 일반 출력을 그대로 넣으면 이름 속 `#{...}`·`#(...)` 를 tmux 가 해석할 수 있다.
+- zsh 프롬프트(`PROMPT_SUBST`)에 넣으면 이름 속 `%` 를 zsh 가 해석할 수 있다. `%` 를 `%%` 로 바꿔 넣거나(예: `${$(aitop --line)//\%/%%}`) tmux 에서만 쓴다.
 - 장부 캐시와 그 뒤에 붙은 줄만 읽고 세션 화면용 기록 전체·프로세스 목록은 읽지 않는다. 캐시가 없어(처음 실행) 1.5초 안에 다 읽지 못하면 `...` 을 내고 0 으로 끝난다. 읽은 만큼은 aitop 캐시에 남아 다음 실행이 이어 읽는다.
-- 응답 대기 수 중 Claude Code 몫은 세션 파일(`~/.claude/sessions` 와 pid)로 매번 지금 값을 센다.
-- 작업 중 수와 Antigravity 의 대기 수는 실시간 화면·`--once`·`--json` 이 캐시에 남기는 작은 요약(`summary.json`)에서 읽는다. 화면은 수가 바뀌면 5초 안에, 그대로여도 20초마다 다시 쓴다. 60초보다 오래된 요약은 쓰지 않고 `run` 을 뺀다 (틀린 수를 보이지 않게).
+- 응답 대기 수 중 Claude Code 몫은 세션 파일(`~/.claude/sessions` 와 pid)로 매번 지금 값을 센다. 대기 시간도 세션 파일의 상태 시각으로 센다.
+- 작업 중 수와 Antigravity 의 대기 수·이름(오래 기다린 순서로 둘)은 실시간 화면·`--once`·`--json` 이 캐시에 남기는 작은 요약(`summary.json`)에서 읽는다. 화면은 수가 바뀌면 5초 안에, 그대로여도 20초마다 다시 쓴다. 60초보다 오래된 요약은 쓰지 않고 `run` 과 Antigravity 대기 수·이름을 뺀다 (틀린 수를 보이지 않게).
 
 ```tmux
 set -g status-right '#(aitop --line=tmux)'

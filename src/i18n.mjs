@@ -61,8 +61,9 @@ const HELP_KO = `{logo} aitop - 터미널에서 Claude Code · Codex · Antigrav
   aitop            실시간 화면
   aitop --once     현재 상태를 한 번 출력하고 끝낸다
   aitop --all      종료된 세션(24시간 이내)도 함께 본다
-  aitop --line     오늘 비용·응답 대기 수·작업 중 수·시간당 지출을 한 줄로 내고 끝낸다 (tmux 상태줄용, 예: $54.13/$50 wait 2 run 3 $3.1/h)
-                   --line=tmux 는 tmux 색 서식(#[fg=...])을 넣는다. --line-width <N> 폭 상한(기본 40, 넘으면 뒤 항목부터 뺀다)
+  aitop --line     오늘 비용·응답 대기(가장 오래 기다린 세션 이름과 대기 시간)·작업 중 수·시간당 지출을 한 줄로 내고 끝낸다
+                   (tmux 상태줄용, 예: $54.13 wait 2 fix-login 3m run 3 $3.1/h. 하나만 기다리면 wait fix-login 3m)
+                   --line=tmux 는 tmux 색 서식(#[fg=...])을 넣는다. --line-width <N> 폭 상한(기본 40, 넘으면 뒤 항목부터 빼고 대기 세션 이름은 대기 수보다 먼저 뺀다)
                    캐시만 읽는다. 캐시가 없어 1.5초 안에 못 읽으면 ... 을 낸다. 작업 중 수와 Antigravity 의 대기 수는
                    1분 안에 aitop 화면·--once·--json 이 남긴 요약이 있을 때만 보인다
   aitop --json     세션 목록과 사용량 합계를 JSON 으로 한 번 출력한다 (--all 과 함께 쓸 수 있다)
@@ -105,8 +106,9 @@ const HELP_EN = `{logo} aitop - watch Claude Code, Codex, Antigravity and Gemini
   aitop            live screen
   aitop --once     print the current state once and exit
   aitop --all      also show sessions that ended in the last 24 hours
-  aitop --line     print today's cost, waiting count, running count and spend per hour on one line and exit (for tmux, e.g. $54.13/$50 wait 2 run 3 $3.1/h)
-                   --line=tmux adds tmux colors (#[fg=...]). --line-width <N> sets the max width (default 40, drops items from the end)
+  aitop --line     print today's cost, waiting sessions (the longest waiting one's name and wait time), running count and spend per hour on one line
+                   and exit (for tmux, e.g. $54.13 wait 2 fix-login 3m run 3 $3.1/h; with one waiting: wait fix-login 3m)
+                   --line=tmux adds tmux colors (#[fg=...]). --line-width <N> sets the max width (default 40, drops items from the end, the waiting name before its count)
                    Reads only the cache. With no cache it prints ... after 1.5 seconds. The running count and waiting Antigravity sessions
                    show only when the live screen, --once or --json left a summary in the last minute
   aitop --json     print the session list and usage totals as JSON once (works with --all)

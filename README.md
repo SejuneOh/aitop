@@ -33,7 +33,7 @@ aitop            live screen
 aitop --all      include sessions that ended in the last 24 hours
 aitop --json     print a snapshot as JSON and exit
 aitop --doctor   check which tools and logs aitop can see
-aitop --line     print one short status line and exit (for tmux, e.g. $54.13/$50 wait 2 run 3 $3.1/h)
+aitop --line     print one short status line and exit (for tmux, e.g. $54.13 wait 2 fix-login 3m run 3 $3.1/h)
 aitop --report daily  daily cost table and exit
 aitop --report monthly  monthly cost table (last 12 months) and exit
 aitop --help     all options
@@ -61,7 +61,9 @@ aitop --report monthly --by model --months 6
 
 ### tmux status line
 
-`aitop --line` prints today's cost (API list price, `/$<budget>` when a daily budget is set), the number of sessions waiting for you (`wait 2`, Claude Code counted live), the number of sessions running (`run 3`), and spend over the last hour. Items that are 0 are left out, and `--line-width N` (default 40) drops items from the end. It reads only aitop's cache, so it is fast once `aitop` has run before; with no cache yet it prints `...` after about 1.5 seconds. The running count (and waiting Antigravity sessions) come from a small summary that the live screen, `--once` and `--json` write to the cache; when no summary is newer than 60 seconds, `run` is left out rather than shown wrong. `--line=tmux` adds tmux colors, `NO_COLOR` turns them off.
+`aitop --line` prints today's cost (API list price, `/$<budget>` when a daily budget is set), the sessions waiting for you with the longest waiting one's name and wait time (`wait fix-login 3m` for one, `wait 2 fix-login 3m` for more; Claude Code read live, names cut to 12 columns with `~`), the number of sessions running (`run 3`), and spend over the last hour. Items that are 0 are left out, and `--line-width N` (default 40) drops items from the end (the waiting name goes before the waiting count; with a daily budget and a waiting name, `$/h` often does not fit in 40, so raise `--line-width` to keep it). It reads only aitop's cache, so it is fast once `aitop` has run before; with no cache yet it prints `...` after about 1.5 seconds. The running count (and waiting Antigravity sessions with their names) come from a small summary that the live screen, `--once` and `--json` write to the cache; when no summary is newer than 60 seconds, `run` is left out rather than shown wrong. `--line=tmux` adds tmux colors, `NO_COLOR` turns them off.
+
+Session names come from your sessions, so in tmux always use `--line=tmux`: it escapes `#` in names, while plain output could let tmux expand a `#{...}` or `#(...)` inside a name. In a zsh prompt with `PROMPT_SUBST`, a `%` in a name can be expanded by zsh, so escape `%` (for example `${$(aitop --line)//\%/%%}`) or use the line only in tmux.
 
 ```tmux
 set -g status-right '#(aitop --line=tmux)'

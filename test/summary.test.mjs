@@ -13,15 +13,48 @@ const sessions = [
   { tool: 'claude', live: true, status: 'busy' },
   { tool: 'codex', live: true, status: 'shell' },
   { tool: 'claude', live: true, status: 'waiting' },
-  { tool: 'antigravity', live: true, status: 'waiting' },
+  { tool: 'antigravity', live: true, status: 'waiting', name: 'gemini-gen', updatedAt: NOW - 120_000 },
   { tool: 'claude', live: true, status: 'idle' },
   { tool: 'claude', live: false, status: 'ended' },
   { tool: 'codex', live: false, status: 'busy' },
 ];
 
 test('summarize 는 화면 헤더와 같은 기준으로 센다 (살아 있는 busy·shell 이 작업 중)', () => {
-  assert.deepEqual(summarize(sessions, NOW), { v: 1, at: NOW, running: 2, waiting: 2, waitingOther: 1 });
-  assert.deepEqual(summarize([], NOW), { v: 1, at: NOW, running: 0, waiting: 0, waitingOther: 0 });
+  assert.deepEqual(summarize(sessions, NOW), { v: 1, at: NOW, running: 2, waiting: 2, waitingOther: 1, waitTop: [{ tool: 'antigravity', name: 'gemini-gen', since: NOW - 120_000 }] });
+  assert.deepEqual(summarize([], NOW), { v: 1, at: NOW, running: 0, waiting: 0, waitingOther: 0, waitTop: [] });
+});
+
+test('waitTop: Claude 를 뺀 대기 세션 중 오래 기다린 순서로 둘까지', () => {
+  const agy = (name, ago) => ({ tool: 'antigravity', live: true, status: 'waiting', name, updatedAt: NOW - ago });
+  const s = summarize([agy('b', 10_000), agy('a', 90_000), agy('c', 50_000), { tool: 'claude', live: true, status: 'waiting', name: 'cl', updatedAt: NOW - 999_000 }, { ...agy('gone', 999_000), live: false }], NOW);
+  assert.deepEqual(s.waitTop.map((w) => w.name), ['a', 'c']);
+  assert.equal(s.waitingOther, 3);
+});
+
+test('waitTop: 대기 시작 시각을 모르면(waitSince null) since 를 null 로 두고 맨 뒤로, 쓰기도 매번 하지 않는다', () => {
+  const agy = (name, extra) => ({ tool: 'gemini', live: true, status: 'waiting', name, updatedAt: NOW, ...extra });
+  const s = summarize([agy('unknown', { waitSince: null }), agy('known', { waitSince: NOW - 60_000 })], NOW);
+  assert.deepEqual(s.waitTop.map((w) => [w.name, w.since]), [['known', NOW - 60_000], ['unknown', null]]);
+  const file = join(dir(), 'summary.json');
+  writeSummary(s, file);
+  assert.deepEqual(readSummary({ file, now: NOW }).waitTop, s.waitTop, 'since null 도 읽는다');
+  // 시각을 모르면 대기 시간을 뺀다.
+  assert.equal(formatLine({ waiting: 1, longest: { name: 'unknown', since: null } }, { now: NOW }), 'wait unknown');
+  // 화면이 매 갱신 지금 시각(updatedAt)을 새로 넣어도 waitSince 가 null 이면 바뀐 것으로 보지 않는다.
+  const w = createSummaryWriter({ write: () => true });
+  w([agy('u', { waitSince: null, updatedAt: NOW })], NOW);
+  assert.equal(w([agy('u', { waitSince: null, updatedAt: NOW + MIN_WRITE_MS })], NOW + MIN_WRITE_MS), false);
+});
+
+test('waitTop 이 없는 예전 요약도 읽고(빈 목록), 형식이 틀린 항목만 버린다', () => {
+  const file = join(dir(), 'summary.json');
+  const old = { v: 1, at: NOW, running: 1, waiting: 1, waitingOther: 1 };
+  writeFileSync(file, JSON.stringify(old));
+  assert.deepEqual(readSummary({ file, now: NOW }), { ...old, waitTop: [] });
+  writeFileSync(file, JSON.stringify({ ...old, waitTop: [{ name: 'ok', since: NOW }, { name: 3, since: NOW }, { name: 'x' }, null, { name: 'ok2', since: NOW }, { name: 'ok3', since: NOW }] }));
+  assert.deepEqual(readSummary({ file, now: NOW }).waitTop.map((w) => w.name), ['ok', 'ok2']);
+  writeFileSync(file, JSON.stringify({ ...old, waitTop: 'bad' }));
+  assert.deepEqual(readSummary({ file, now: NOW }).waitTop, []);
 });
 
 test('새 요약은 읽고, 임시 파일을 남기지 않는다', () => {
@@ -68,6 +101,11 @@ test('쓰기 간격: 처음엔 바로, 수가 바뀌면 MIN_WRITE_MS 뒤에, 그
   assert.equal(w([], NOW + MIN_WRITE_MS + HEARTBEAT_MS - 1), false);
   assert.equal(w([], NOW + MIN_WRITE_MS + HEARTBEAT_MS), true, '그대로여도 시각을 새로 적는다');
   assert.deepEqual(writes.map((s) => s.running), [1, 0, 0]);
+  // 기다리는 세션이 바뀌면(수는 같아도) 바뀐 것으로 본다.
+  const agy = (name) => [{ tool: 'antigravity', live: true, status: 'waiting', name, updatedAt: NOW }];
+  const w2 = createSummaryWriter({ write: () => true });
+  w2(agy('a'), NOW);
+  assert.equal(w2(agy('b'), NOW + MIN_WRITE_MS), true);
   assert.ok(HEARTBEAT_MS * 2 < STALE_MS, '한 번 놓쳐도 오래된 요약이 되지 않는다');
 });
 
@@ -92,10 +130,17 @@ test('실제 파일로: 여러 번 써도 파일은 하나이고 마지막 값�
 });
 
 test('pickCounts: 요약이 없으면 작업 중은 빼고 Claude 대기만, 있으면 다른 도구 대기를 더한다', () => {
-  assert.deepEqual(pickCounts(null, 2), { waiting: 2, running: null });
+  const cl = [{ tool: 'claude', name: 'fix-login', since: NOW - 30_000 }, { tool: 'claude', name: 'old', since: NOW - 300_000 }];
+  assert.deepEqual(pickCounts(null, cl), { waiting: 2, longest: { name: 'old', since: NOW - 300_000 }, running: null });
+  assert.deepEqual(pickCounts(null, []), { waiting: 0, longest: null, running: null });
   const s = summarize(sessions, NOW);
-  // Claude 대기는 요약(1)이 아니라 지금 센 값(0)을 쓴다.
-  assert.deepEqual(pickCounts(s, 0), { waiting: 1, running: 2 });
+  // Claude 대기는 요약(1)이 아니라 지금 찾은 값(없음)을 쓰고, 이름은 요약의 다른 도구 몫에서.
+  assert.deepEqual(pickCounts(s, []), { waiting: 1, longest: { name: 'gemini-gen', since: NOW - 120_000 }, running: 2 });
+  // 둘을 합쳐 대기 시작이 가장 이른 세션을 고른다.
+  assert.equal(pickCounts(s, cl).longest.name, 'old');
+  assert.equal(pickCounts(s, cl.slice(0, 1)).longest.name, 'gemini-gen');
+  // 시각을 모르는 세션은 맨 뒤.
+  assert.equal(pickCounts(null, [{ name: 'x', since: null }, { name: 'y', since: NOW }]).longest.name, 'y');
 });
 
 test('formatLine: run 은 wait 뒤, 시간당 지출 앞. 0 이나 null 이면 뺀다', () => {
