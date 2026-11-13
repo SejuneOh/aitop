@@ -1,7 +1,8 @@
 // aitop --line 의 한 줄 만들기: 0 인 항목 빼기, 예산, 폭 상한, tmux 서식, NO_COLOR, ASCII 만.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatLine, lineOption, DEFAULT_WIDTH, PENDING } from '../src/line.mjs';
+import { formatLine, lineOption, lineName, DEFAULT_WIDTH, NAME_WIDTH, PENDING } from '../src/line.mjs';
+import { width } from '../src/text.mjs';
 
 const ascii = (s) => assert.match(s, /^[\x20-\x7e]*$/, `ASCII 만: ${JSON.stringify(s)}`);
 const v = { today: 54.13, waiting: 2, perHour: 3.14 };
@@ -61,4 +62,63 @@ test('lineOption 은 --line, --line=tmux, --line-width 를 꺼낸다', () => {
   assert.match(lineOption(['--line=bar']).error, /plain 또는 tmux/);
   assert.match(lineOption(['--line-width', '0']).error, /0 보다 큰 정수/);
   assert.match(lineOption(['--line-width']).error, /값이 없습니다/);
+});
+
+const NOW = 1_800_000_000_000;
+const one = { today: 176, waiting: 1, longest: { name: 'gemini-gen', since: NOW - 125_000 }, running: 3, perHour: 37.7 };
+const two = { ...one, waiting: 2 };
+
+test('대기 세션 이름: 하나면 수 대신 이름, 둘 이상이면 수 뒤에 가장 오래 기다린 세션과 대기 시간', () => {
+  assert.equal(formatLine(one, { now: NOW }), '$176 wait gemini-gen 2m run 3 $37.7/h');
+  assert.equal(formatLine(two, { now: NOW }), '$176 wait 2 gemini-gen 2m run 3 $37.7/h');
+  // 이름을 모르면 예전처럼 수만. 시각을 모르면 시간만 뺀다.
+  assert.equal(formatLine({ ...one, longest: null }, { now: NOW }), '$176 wait 1 run 3 $37.7/h');
+  assert.equal(formatLine({ ...one, longest: { name: 'x', since: null } }, { now: NOW }), '$176 wait x run 3 $37.7/h');
+  assert.equal(formatLine({ ...one, longest: { name: '\x1b[31m', since: NOW } }, { now: NOW }), '$176 wait 1 run 3 $37.7/h');
+});
+
+test('폭이 모자라면 시간당 지출, 작업 중, 이름 순서로 빼고, 대기 수는 이름보다 늦게 뺀다', () => {
+  const at = (w, v = two) => formatLine(v, { now: NOW, width: w });
+  assert.equal(at(33), '$176 wait 2 gemini-gen 2m run 3');
+  assert.equal(at(25), '$176 wait 2 gemini-gen 2m');
+  assert.equal(at(24), '$176 wait 2');
+  assert.equal(at(11), '$176 wait 2');
+  assert.equal(at(10), '$176');
+  // 하나만 기다릴 때도 이름이 빠지면 수가 남는다.
+  assert.equal(at(23, one), '$176 wait gemini-gen 2m');
+  assert.equal(at(22, one), '$176 wait 1');
+});
+
+test('lineName: 제어 문자·색 순서·이모지·폭이 모호한 기호는 지우고 NAME_WIDTH 칸에서 ~ 로 자른다', () => {
+  assert.equal(lineName('a\x1b[31mred\x1b[0m\x07'), 'ared');
+  assert.equal(lineName('fix \u{1f389} bug \u00b7 x'), 'fix bug x');
+  assert.equal(lineName('gemini-generator-long'), 'gemini-gene~');
+  assert.equal(width(lineName('gemini-generator-long')), NAME_WIDTH);
+  // 한글은 2칸으로 센다.
+  assert.equal(lineName('한글 세션 이름이 깁니다'), '한글 세션~');
+  assert.ok(width(lineName('한글 세션 이름이 깁니다')) <= NAME_WIDTH);
+  // OSC(창 제목·링크)는 BEL 이나 ESC \ 까지 통째로 지운다.
+  assert.equal(lineName('a\x1b]0;title\x07b'), 'ab');
+  assert.equal(lineName('a\x1b]8;;http://x\x1b\\link\x1b]8;;\x1b\\c'), 'alinkc');
+  assert.equal(lineName('a\x1b]2;unterminated'), 'a');
+  assert.equal(lineName(null), '');
+  assert.equal(lineName('\n\t'), '');
+});
+
+test('폭은 표시 칸으로 센다 (한글 이름)', () => {
+  const v = { today: 1, waiting: 1, longest: { name: '한글세션', since: NOW } };
+  assert.equal(formatLine(v, { now: NOW }), '$1.00 wait 한글세션 0s');
+  assert.equal(formatLine(v, { now: NOW, width: 20 }), '$1.00 wait 1');
+});
+
+test('tmux 모드: 이름 속 # 은 ## 로 바꿔 서식으로 읽히지 않게 한다 (NO_COLOR 여도)', () => {
+  const v = { waiting: 1, longest: { name: 'a#[x]#(rm)', since: NOW } };
+  assert.equal(formatLine(v, { now: NOW, mode: 'tmux' }), '#[fg=colour214]wait a##[x]##(rm) 0s#[default]');
+  assert.equal(formatLine(v, { now: NOW, mode: 'tmux', noColor: true }), 'wait a##[x]##(rm) 0s');
+  assert.equal(formatLine(v, { now: NOW }), 'wait a#[x]#(rm) 0s');
+  assert.equal(formatLine(two, { now: NOW, mode: 'tmux' }), '#[fg=colour154]$176#[default] #[fg=colour214]wait 2 gemini-gen 2m#[default] #[fg=colour250]run 3#[default] #[fg=colour154]$37.7/h#[default]');
+});
+
+test('이름이 ASCII 면 출력도 ASCII 만', () => {
+  for (const mode of ['plain', 'tmux']) for (const x of [one, two, { ...two, longest: { name: 'x\u00e9\u2192y', since: NOW } }]) ascii(formatLine(x, { mode, now: NOW }));
 });

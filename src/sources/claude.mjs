@@ -361,11 +361,18 @@ function sessionEntries() {
   return latest;
 }
 
-// 응답 대기 중인 Claude 세션 수. 세션 파일과 pid 만 보므로 대화 기록·프로세스 목록을 읽지 않는다 (aitop --line 용).
-export function claudeWaitingCount() {
-  let n = 0;
-  for (const e of sessionEntries()?.values() ?? []) if (e.alive && e.waitingFor) n++;
-  return n;
+// 응답 대기 중인 Claude 세션들 [{ tool, name, since }]. 세션 파일과 pid 만 보므로 대화 기록·프로세스 목록을 읽지 않는다 (aitop --line 용).
+// 이름은 세션 파일의 이름, 자동 이름(id 앞 8자)이면 대화 제목 대신 작업 폴더 이름을 쓴다 (제목은 기록을 읽어야 안다).
+// 대기 시작은 상태가 바뀐 시각(statusUpdatedAt), 없으면 세션 파일이 바뀐 시각.
+export function claudeWaiting() {
+  const out = [];
+  for (const e of sessionEntries()?.values() ?? []) {
+    if (!e.alive || !e.waitingFor) continue;
+    const autoName = !e.name || e.name === e.sessionId.slice(0, 8);
+    const since = [e.statusUpdatedAt, e.updatedAt, e.startedAt].find(Number.isFinite) ?? null;
+    out.push({ tool: 'claude', name: autoName ? basename(e.cwd ?? '') : String(e.name), since });
+  }
+  return out;
 }
 
 export function collectClaude({ showEnded, budget, selectedId }) {

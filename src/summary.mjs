@@ -20,6 +20,25 @@ export const HEARTBEAT_MS = 20_000;
 const SKEW_MS = 5_000;
 
 const nat = (x) => Number.isInteger(x) && x >= 0;
+// 요약에 적는 다른 도구 대기 세션 수 상한. --line 은 가장 오래 기다린 하나만 보이지만, 둘을 적어 둔다.
+export const WAIT_TOP = 2;
+// 이름은 화면에 보이는 것보다 넉넉히, 그래도 파일이 커지지 않게 자른다.
+const NAME_MAX = 80;
+
+// 요약의 waitTop: [{ tool, name, since }]. since 는 모르면 null. 형식이 맞는 항목만 남긴다 (예전 요약에는 없으므로 없으면 빈 목록).
+function waitTopOf(x) {
+  if (!Array.isArray(x)) return [];
+  return x.filter((w) => typeof w?.name === 'string' && (w.since === null || Number.isFinite(w.since))).slice(0, WAIT_TOP);
+}
+
+// 세션의 대기 시작 시각. 출처가 따로 적은 waitSince 가 있으면 그것(null 이면 모름), 없으면 updatedAt.
+// 모르는 시각을 지금 시각으로 메우면 요약이 매번 바뀌고 대기 시간이 늘 0s 로 보인다.
+function sinceOf(s) {
+  const t = s.waitSince !== undefined ? s.waitSince : s.updatedAt;
+  return Number.isFinite(t) ? t : null;
+}
+// 시각을 모르는 세션은 정렬에서 맨 뒤.
+const sinceKey = (t) => t ?? Number.MAX_SAFE_INTEGER;
 
 // 세션 목록에서 요약 값을 뽑는다. 화면 헤더(ui/table.mjs)와 같은 기준이다.
 export function summarize(sessions, now = Date.now()) {
@@ -32,6 +51,13 @@ export function summarize(sessions, now = Date.now()) {
     waiting: waiting.length,
     // Claude 대기 수는 --line 이 세션 파일에서 바로 세므로, 그 밖의 도구 몫(지금은 Antigravity 만 대기 상태가 있다)을 따로 적는다.
     waitingOther: waiting.filter((s) => s.tool !== 'claude').length,
+    // 그중 가장 오래 기다린 세션 이름과 대기 시작 시각 (화면 IDLE 칸과 같은 기준). 대기 시간은 읽는 쪽이 지금 시각으로 센다.
+    // v 는 그대로 둔다: 예전 aitop 은 이 칸을 모르고 넘기고, 새 aitop 은 이 칸이 없는 예전 요약도 읽는다.
+    waitTop: waiting
+      .filter((s) => s.tool !== 'claude')
+      .map((s) => ({ tool: s.tool, name: String(s.name ?? '').slice(0, NAME_MAX), since: sinceOf(s) }))
+      .sort((a, b) => sinceKey(a.since) - sinceKey(b.since))
+      .slice(0, WAIT_TOP),
   };
 }
 
@@ -62,7 +88,7 @@ export function readSummary({ file = SUMMARY_FILE, now = Date.now(), staleMs = S
   }
   if (s?.v !== V || !Number.isFinite(s.at) || ![s.running, s.waiting, s.waitingOther].every(nat)) return null;
   if (now - s.at > staleMs || s.at - now > SKEW_MS) return null;
-  return s;
+  return { ...s, waitTop: waitTopOf(s.waitTop) };
 }
 
 // 실시간 화면용: 수가 바뀌면 지난번 쓴 뒤 minMs 가 지났을 때, 그대로면 heartbeatMs 마다 쓴다.
@@ -71,7 +97,8 @@ export function createSummaryWriter({ file = SUMMARY_FILE, minMs = MIN_WRITE_MS,
   return (sessions, now = Date.now()) => {
     const s = summarize(sessions, now);
     const since = last ? now - last.at : Infinity;
-    const changed = !last || s.running !== last.running || s.waiting !== last.waiting || s.waitingOther !== last.waitingOther;
+    const top = (x) => x.waitTop.map((w) => `${w.name}@${w.since}`).join('|');
+    const changed = !last || s.running !== last.running || s.waiting !== last.waiting || s.waitingOther !== last.waitingOther || top(s) !== top(last);
     if (since < (changed ? minMs : heartbeatMs)) return false;
     if (!write(s, file)) return false;
     last = s;
