@@ -1,13 +1,14 @@
 // 설정: 옵션마다 명령줄 옵션(flag) > 환경 변수(env) > 설정 파일(file) > 기본값(default) 순서로 고른다.
 // 설정 파일은 $XDG_CONFIG_HOME/aitop/config.json (없으면 ~/.config/aitop/config.json). aitop 은 이 파일을 읽기만 한다.
 // 잘못된 JSON, 모르는 키, 잘못된 값은 그 키만 무시하고 problems 에 남긴다 (--doctor 와 --print-config 가 보인다).
-// 화면 모듈은 불러올 때 테마·아이콘을 고르므로, 이 모듈은 다른 aitop 모듈을 불러오지 않는다.
+// 화면 모듈은 불러올 때 테마·아이콘을 고르므로, 이 모듈은 화면 모듈을 불러오지 않는다 (notify.mjs 는 text·i18n 만 쓴다).
 import { closeSync, constants, fstatSync, openSync, readSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { posix, win32 } from 'node:path';
 import { appDir } from './paths.mjs';
 import { stripControl } from './text.mjs';
 import { langValue, localeLang, t } from './i18n.mjs';
+import { EVENT_KINDS } from './notify.mjs';
 
 const bool = (v) => typeof v === 'boolean';
 const oneOf = (...xs) => (v) => xs.includes(v);
@@ -58,7 +59,10 @@ export const KEYS = {
   bell: { ok: bool, expect: BOOL, def: false },
   showRequests: { ok: bool, expect: BOOL, def: false, env: ['AITOP_SHOW_REQUESTS', (v) => (v === '1' ? true : v === '0' ? false : undefined)] },
   all: { ok: bool, expect: BOOL, def: false },
-  notify: { ok: bool, expect: BOOL, def: false },
+  // notify 는 true/false 또는 알릴 종류 배열 (예: ["waiting", "done", "context"]).
+  notify: { ok: (v) => bool(v) || (Array.isArray(v) && v.length > 0 && v.every((x) => EVENT_KINDS.includes(x))), expect: 'cfg.notify', def: false },
+  // done 알림을 띄우려면 작업 중이 이어져야 하는 시간(분).
+  doneMinutes: { ok: (v) => typeof v === 'number' && Number.isFinite(v) && v > 0, expect: 'cfg.positive', def: 3 },
   onWaiting: { ok: (v) => typeof v === 'string' && v.trim() !== '', expect: 'cfg.command', def: null },
   debug: { ok: bool, expect: BOOL, def: false, env: ['AITOP_DEBUG', (v) => (v === '1' ? true : v === '0' ? false : undefined)], envProblem: true, envExpect: ['1', '0'] },
   budgetDay: { ok: (v) => typeof v === 'number' && Number.isFinite(v) && v > 0, expect: 'cfg.positive', def: null, env: ['AITOP_BUDGET_DAY', (v) => usd(v) ?? undefined], envProblem: true },
@@ -167,7 +171,8 @@ export function resolveConfig({ flags = {}, env = process.env, file } = {}) {
 export function configText(cfg) {
   const out = [t('cfg.file', { path: stripControl(cfg.path), state: t(cfg.exists ? 'cfg.exists' : 'cfg.missing') }), ''];
   for (const [key, { value, source }] of Object.entries(cfg.values)) {
-    const v = value == null ? (key === 'theme' ? 'auto' : '-') : typeof value === 'string' ? JSON.stringify(value) : String(value);
+    // 배열(notify 의 종류)은 waiting,done 처럼 쉼표로 잇는다.
+    const v = value == null ? (key === 'theme' ? 'auto' : '-') : typeof value === 'string' ? JSON.stringify(value) : Array.isArray(value) ? value.join(',') : String(value);
     out.push(`${key.padEnd(14)}${v.padEnd(12)} ${source}`);
   }
   if (cfg.problems.length) out.push('', ...cfg.problems.map((p) => `! ${stripControl(p)}`));

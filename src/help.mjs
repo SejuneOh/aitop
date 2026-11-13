@@ -90,7 +90,7 @@ export const COMMON = {
 
 // 화면 안 도움말의 옵션 묶음. 자세한 설명은 aitop --help. [옵션(값을 받는 옵션은 i18n 키), 설명 i18n 키]
 const OPTION_IDS = [
-  ['--notify', 'hopt.notify'],
+  ['hopt.notifyOpt', 'hopt.notify'],
   ['hopt.onWaiting', 'hopt.onWaitingText'],
   ['hopt.budgetDay', 'hopt.budgetDayText'],
   ['--show-requests', 'hopt.showRequests'],
@@ -137,5 +137,7 @@ export function settingsLine(s, lang = getLang()) {
   const o = { lang };
   const onOff = (v) => t(v ? 'set.on' : 'set.off', null, o);
   const usd = (x) => (Number.isInteger(x) ? `$${x}` : `$${x.toFixed(2)}`);
-  return [t('set.budget', { v: s.budgetDay > 0 ? usd(s.budgetDay) : t('set.none', null, o) }, o), t('set.notify', { v: onOff(s.notify) }, o), ...(s.onWaiting ? [t('set.onWaiting', null, o)] : []), t('set.debug', { v: onOff(s.debug) }, o)].join(' · ');
+  // 알림이 켜져 있고 종류를 기본(waiting)과 다르게 정했으면 함께 보인다. 예: 알림 켜짐 (waiting,done)
+  const kinds = s.notify && s.events && s.events.join(',') !== 'waiting' ? ` (${s.events.join(',')})` : '';
+  return [t('set.budget', { v: s.budgetDay > 0 ? usd(s.budgetDay) : t('set.none', null, o) }, o), t('set.notify', { v: onOff(s.notify) + kinds }, o), ...(s.onWaiting ? [t('set.onWaiting', null, o)] : []), t('set.debug', { v: onOff(s.debug) }, o)].join(' · ');
 }
