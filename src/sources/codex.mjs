@@ -11,7 +11,7 @@ import { codexCost } from '../pricing.mjs';
 import { parsePatch, extractPatch, patchSucceeded } from './patch.mjs';
 import { debug, debugIo } from '../log.mjs';
 import { lastName } from '../paths.mjs';
-import { codexHomes, codexSessionRoots, dedupeBy } from './dirs.mjs';
+import { codexHomes, codexSessionRoots, dedupeBy, homeOf } from './dirs.mjs';
 
 // 지시 탭에 쓰는 지시 목록은 최근 것만 남긴다.
 const MAX_TURNS = 50;
@@ -212,7 +212,7 @@ function readIndex(budget) {
 // rollout 이 든 홈의 이름을 먼저, 없으면 다른 홈의 이름 (같은 세션을 다른 홈으로 옮긴 경우).
 function indexName(path, id) {
   const homes = codexHomes();
-  const own = homes.find((h) => path.startsWith(join(h, 'sessions') + '/') || path.startsWith(join(h, 'sessions') + '\\'));
+  const own = homeOf(path, homes);
   const first = own ? indexes.get(own)?.names.get(id) : undefined;
   if (first) return first;
   for (const h of homes) {
@@ -424,6 +424,8 @@ export function collectCodex({ showEnded, budget, filesOf = openFiles, startOf =
       kind: 'interactive',
       name: customName ?? (lastName(st.cwd) || 'codex'),
       customName,
+      // rollout 이 든 Codex 홈. 기본 홈이 아니면 이어 열기 명령에 CODEX_HOME 을 붙인다.
+      home: homeOf(f.path, codexHomes()),
       cwd: st.cwd,
       project: lastName(st.cwd),
       branch: st.branch,

@@ -369,11 +369,12 @@ let STALE_KEEP_MS = 30_000;
 export const _setStaleKeepMs = (ms) => (STALE_KEEP_MS = ms);
 
 function sessionEntries() {
-  const dirs = claudeDirs().map((h) => join(h, 'sessions'));
+  const homes = claudeDirs();
   const all = [];
   const keep = new Set();
   let ok = false;
-  for (const dir of dirs) {
+  for (const home of homes) {
+    const dir = join(home, 'sessions');
     let files;
     try {
       files = listSessionFiles(dir);
@@ -396,7 +397,8 @@ function sessionEntries() {
     for (const f of files) {
       keep.add(f);
       const e = sessionFile(f);
-      if (e) entries.push(e);
+      // home: 세션 파일이 든 설정 폴더. 이어 열기 명령이 그 폴더를 CLAUDE_CONFIG_DIR 로 집는다.
+      if (e) entries.push({ ...e, home });
     }
     entriesByDir.set(dir, { at: Date.now(), files, entries });
     all.push(...entries);
@@ -471,6 +473,7 @@ export function collectClaude({ showEnded, budget, selectedId }) {
       kind: e.kind === 'bg' ? 'background' : e.kind ?? 'interactive',
       name: sessionLabel(e, t),
       customName: givenName(e, t?.customTitle) ?? null,
+      home: e.home,
       cwd: e.cwd,
       project: basename(e.cwd ?? ''),
       branch: t?.branch,
