@@ -1,19 +1,30 @@
 # ⣠⣴⣾ aitop
 
-터미널에서 지금 돌고 있는 AI 코딩 세션(Claude Code · Codex CLI · Antigravity CLI · Gemini CLI)과 진행 내용, 토큰을 실시간으로 보는 읽기 전용 모니터.
+AI 코딩 에이전트를 위한 `top`. 내 PC 의 Claude Code · Codex CLI · Antigravity CLI 세션과 진행 내용, 토큰을 터미널 한 화면에서 실시간으로 보는 읽기 전용 모니터 (Gemini CLI 는 프로세스만).
 
-![Claude Code · Codex · Antigravity 세션을 보여 주는 aitop (가짜 데이터)](https://raw.githubusercontent.com/SejuneOh/aitop/main/docs/demo.gif)
+```bash
+npx @sejuneoh/aitop          # 설치 없이 바로 실행
+npm i -g @sejuneoh/aitop     # 설치한 뒤에는 aitop
+```
 
-- 포트를 열지 않고, 네트워크 요청을 하지 않는다. 각 CLI 가 내 PC 에 남기는 세션 파일만 읽는다.
-- 세션 파일은 읽기 전용으로만 연다. 디스크에 쓰는 곳은 읽은 위치·합계를 기억하는 `~/.cache/aitop` 뿐이다 (지워도 된다). `--debug` 를 켰을 때만 디버그 로그를 따로 쓴다.
-- 화면에 표시되는 텍스트 중 API 키·토큰처럼 보이는 값은 `••••` 로 가린다.
-- 외부 라이브러리 없음 (Node 22 이상). Antigravity CLI 의 세부 정보는 Node 내장 `node:sqlite` 로 기록을 immutable(파일을 하나도 만들거나 고치지 않는 열기)로 열 수 있는 Node 22.15 이상에서만 읽는다.
+![세션 하나가 기다리기 시작해 맨 위로 올라오고, 상세 패널에 이어 열기 명령이 보이는 aitop (가짜 데이터)](https://raw.githubusercontent.com/SejuneOh/aitop/main/docs/demo.gif)
+
+- **나를 기다리는 세션이 먼저 보인다.** 기다리는 세션은 맨 위로 올라오고 `n` 으로 바로 간다. `--notify=waiting,done,context` 로 데스크톱 알림을, `aitop --line` 으로 tmux 상태줄을 쓴다.
+- **어느 세션이 무엇인지 안다.** 모든 행에 세션 이름(`/rename` 이름이나 도구가 붙인 제목)이 보인다. `y` 는 이어 열기 명령을 복사하고, `--report sessions` 는 어제 세션과 비용을 스탠드업용으로 정리한다.
+- **모든 에이전트, 모든 프로필, 밖으로 보내는 것 없음.** Claude Code · Codex · Antigravity 를 나란히, [여러 기록 폴더](#기록-폴더-여러-개)(`~/.claude`, `~/.claude-work` ...)에서 읽는다. 네트워크·포트·외부 라이브러리 없음.
+
+**비슷한 도구와 다른 점**
+
+- [ccusage](https://github.com/ryoppippi/ccusage) 는 로컬 기록으로 토큰 사용량과 비용을 리포트한다 (일·월·세션·5시간 블록). aitop 은 실시간 세션 모니터가 중심이고 비용 리포트는 곁들임이다.
+- [abtop](https://github.com/graykode/abtop) 은 Claude Code · Codex CLI · OpenCode 를 보는 Rust 실시간 대시보드로, 사용 한도·포트와 세션 종료 키가 있다. aitop 은 npm 으로 설치하고 Antigravity 도 보며, 보기만 한다.
+- [claude-code-monitor](https://github.com/onikan27/claude-code-monitor) 는 macOS 에서 `~/.claude/settings.json` 에 훅을 넣어 Claude Code 를 보고, 휴대폰 웹 화면이 있다. aitop 은 훅을 넣지 않고 이미 있는 기록만 읽으며 Linux · macOS · WSL · Windows 에서 돈다.
 
 ## 설치
 
 npmjs.com 에 공개로 올린다 (MIT).
 
 ```bash
+npx @sejuneoh/aitop              # 설치 없이 최신 버전 실행
 npm install -g @sejuneoh/aitop   # 설치·업데이트
 aitop
 ```
@@ -26,6 +37,13 @@ npm config delete //npm.pkg.github.com/:_authToken
 ```
 
 로컬 코드로 바로 써 보려면 저장소에서 `npm install -g .`
+
+## 특징
+
+- 포트를 열지 않고, 네트워크 요청을 하지 않는다. 각 CLI 가 내 PC 에 남기는 세션 파일만 읽는다.
+- 세션 파일은 읽기 전용으로만 연다. 디스크에 쓰는 곳은 읽은 위치·합계를 기억하는 `~/.cache/aitop` 뿐이다 (지워도 된다). `--debug` 를 켰을 때만 디버그 로그를 따로 쓴다.
+- 화면에 표시되는 텍스트 중 API 키·토큰처럼 보이는 값은 `••••` 로 가린다.
+- 외부 라이브러리 없음 (Node 22 이상). Antigravity CLI 의 세부 정보는 Node 내장 `node:sqlite` 로 기록을 immutable(파일을 하나도 만들거나 고치지 않는 열기)로 열 수 있는 Node 22.15 이상에서만 읽는다.
 
 ## 릴리스
 
