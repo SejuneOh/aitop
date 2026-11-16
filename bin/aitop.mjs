@@ -41,7 +41,7 @@ if (line.error) {
   process.stderr.write(`aitop: ${line.error}\n`);
   process.exit(2);
 }
-// --report daily|monthly, --by tool|model|project, --days <N>, --months <N> 은 reportOption 이 꺼낸다.
+// --report daily|monthly|sessions, --by tool|model|project, --days <N>, --months <N>, --since, --plan, --md, --show-prompts 는 reportOption 이 꺼낸다.
 const report = reportOption(line.rest);
 if (report.error) {
   process.stderr.write(`aitop: ${report.error}\n`);
@@ -153,6 +153,33 @@ if (line.mode) {
 // --report: 날짜별 사용량 표(또는 --json)를 내고 끝낸다. 실시간 화면·세션 목록은 읽지 않고 장부만 읽는다.
 // --report monthly 는 월별 보관함(monthly.mjs)과 장부를 합친다.
 // 처음 실행은 30일치(monthly 는 1년치) 기록을 읽으므로 stderr 가 터미널이면 진행률을 보이고, 시간 상한(AITOP_REPORT_MS, 기본 120초)을 넘으면 읽은 만큼 낸다.
+// --report sessions: 기간 안 세션별 한 줄과 요약 카드. 진행률·시간 상한은 daily 와 같다. --md 는 Markdown, --json 은 JSON.
+if (report.kind === 'sessions') {
+  const { collectSessions, buildSessions, formatSessions, sessionsMarkdown, sessionsJson } = await import('../src/sessions-report.mjs');
+  const { progressWriter, MAX_DAYS } = await import('../src/report.mjs');
+  const { flushCache } = await import('../src/cache.mjs');
+  const json = args.has('--json');
+  if (json && report.md) {
+    process.stderr.write(`aitop: ${t('opt.mdJson')}\n`);
+    process.exit(2);
+  }
+  if (report.capped) process.stderr.write(`aitop: ${t('sessions.capped', { n: MAX_DAYS })}\n`);
+  const progress = progressWriter();
+  const maxMs = Number(process.env.AITOP_REPORT_MS) > 0 ? Number(process.env.AITOP_REPORT_MS) : undefined;
+  const now = Date.now();
+  const got = await collectSessions({ since: report.since, now, maxMs, onProgress: progress.update });
+  progress.done();
+  flushCache();
+  if (got.partial && json) process.stderr.write(`aitop: ${t('report.partial')}\n`);
+  const r = buildSessions(got.books, { since: report.since, now, extra: got.extra, agy: got.agy, plan: report.plan });
+  const cols = process.stdout.isTTY ? process.stdout.columns : Number(process.env.COLUMNS) || 0;
+  const opts = { partial: got.partial, prompts: report.prompts };
+  const text = json ? JSON.stringify(sessionsJson(r, VERSION, opts), null, 2) : report.md ? sessionsMarkdown(r, opts) : formatSessions(r, { ...opts, cols });
+  process.stdout.on('error', (err) => process.exit(err.code === 'EPIPE' ? 0 : 1));
+  await new Promise((resolve) => process.stdout.write(text + '\n', resolve));
+  process.exit(0);
+}
+
 if (report.kind) {
   const { buildMonthly, buildReport, collectMonthly, collectReport, fitReport, formatReport, PIPE_COLUMNS, progressWriter, reportJson, MAX_DAYS, MAX_MONTHS } = await import('../src/report.mjs');
   const { flushCache } = await import('../src/cache.mjs');

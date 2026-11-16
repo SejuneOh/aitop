@@ -36,6 +36,7 @@ aitop --doctor   check which tools and logs aitop can see
 aitop --line     print one short status line and exit (for tmux, e.g. $54.13 wait 2 fix-login 3m run 3 $3.1/h)
 aitop --report daily  daily cost table and exit
 aitop --report monthly  monthly cost table (last 12 months) and exit
+aitop --report sessions  yesterday's sessions with cost, for standups (--md, --json)
 aitop --help     all options
 aitop --lang ko  Korean screen, help, doctor and error messages (also AITOP_LANG=ko or "lang": "ko" in the config file)
 ```
@@ -59,6 +60,15 @@ aitop --report daily --by project --days 7
 
 ```
 aitop --report monthly --by model --months 6
+```
+
+### Session report
+
+`aitop --report sessions [--since yesterday|today|Nd|YYYY-MM-DD] [--plan USD] [--md|--json] [--show-prompts]` lists every session that used tokens in the period (default: since midnight yesterday; at most 30 days back), highest cost first: tool, main model (`+N` more), project (same rule as `--by project`), session name (your `/rename` name, then the tool's title, then the folder), start and end of activity within the period, tokens, cost (API list price, `?` for unpriced models) and files changed (`-` when unknown, always for agy). A summary card on top shows the total, the share per tool and the session count; `--plan 200` adds how many times the period's share of a $200/month subscription (period days / 30) you used, still in API list price and not your bill. Claude subagents are counted in their parent session. `--md` prints Markdown you can paste (`|` and line breaks escaped), `--json` the same numbers for scripts. First prompts are hidden unless you pass `--show-prompts`, so they do not end up in shared output (session names still show).
+
+```
+aitop --report sessions --md --plan 200
+aitop --report sessions --since 7d --json
 ```
 
 ### Notifications
