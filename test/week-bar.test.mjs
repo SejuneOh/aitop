@@ -22,7 +22,7 @@ test('막대는 7일 중 가장 큰 날을 █ 로 맞추고, 0 인 날은 흐�
   assert.equal(bar[1].fg, PALETTE.info);
   for (const x of bar) assert.ok(![PALETTE.waiting, PALETTE.alert].includes(x.fg));
   const unpriced = D([0, 0, 0, 0, 0, 0, 0]).map((d, i) => (i === 2 ? { ...d, unknown: true } : d));
-  assert.equal(glyphs(unpriced), '▁▁?▁▁▁▁', '가격 모르는 모델만 쓴 날은 ? 로 쓰지 않은 날과 갈린다');
+  assert.equal(glyphs(unpriced), '▁▁▂▁▁▁▁', '가격 모르는 모델만 쓴 날은 흐린 ▂ 로 쓰지 않은 날과 갈린다');
   assert.equal(weekBar(unpriced)[2].fg, PALETTE.muted);
   assert.equal(glyphs(D([0, 0, 0, 0, 0, 0, 5]).map((d, i) => (i === 6 ? { ...d, unknown: true } : d))), '▁▁▁▁▁▁█', '아는 몫이 있으면 막대 그대로');
   assert.equal(glyphs(D([10, 0, 0, 0, 0, 0, 5], 0), 'net'), '▁▁▁▁▁▁▁', '캐시 제외 화면은 캐시 제외 비용으로 맞춘다');

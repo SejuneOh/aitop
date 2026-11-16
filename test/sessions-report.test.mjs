@@ -172,7 +172,7 @@ test('표: 요약 카드, 머리글, 첫 지시는 --show-prompts 일 때만 (�
   const r = buildSessions(books, { since: SINCE, now: NOW, extra, agy });
   const text = formatSessions(r, { cols: 160 });
   assert.match(text, /^세션 리포트 · 2026-11-15 00:00 ~ 2026-11-16 14:30 \(1\.6일\)/);
-  assert.match(text, /합계 \$29\.00\? \(API 정가 환산\) · 토큰 3\.5M · 세션 4개/);
+  assert.match(text, /합계 \$29\.00 \(API 정가 환산\) · 토큰 3\.5M · 세션 4개/);
   assert.match(text, /도구별 비용 비중: claude 90% · agy 10% · codex 0%/);
   assert.match(text, /^도구 +모델 +프로젝트 +세션 +시작 +끝 +토큰 +비용 +파일$/m);
   assert.match(text, /^claude +claude-opus-5-5 \+1 +app +리포트 \| 작업 +11-15 10:00 +11-16 09:10 +1\.5M +\$6\.00 +2$/m);
@@ -197,7 +197,7 @@ test('Markdown: 요약 줄과 표, 칸 안의 | 와 줄바꿈은 이스케이프
   const md = sessionsMarkdown(buildSessions(books, { since: SINCE, now: NOW, extra, agy, plan: 100 }));
   const lines = md.split('\n');
   assert.match(lines[0], /^\*\*세션 리포트/);
-  assert.ok(lines.some((l) => /^- 합계 \*\*\$29\.00\?\*\* \(API 정가 환산\)/.test(l)));
+  assert.ok(lines.some((l) => /^- 합계 \*\*\$29\.00\*\* \(API 정가 환산\)/.test(l)));
   assert.ok(lines.some((l) => /^- 구독료 .*API 정가 환산, 실제 청구액이 아님/.test(l)));
   assert.ok(lines.includes('| 도구 | 모델 | 프로젝트 | 세션 | 시작 | 끝 | 토큰 | 비용 | 파일 |'));
   assert.ok(lines.includes('| claude | claude-opus-5-5 +1 | app | 리포트 \\| 작업 | 11-15 10:00 | 11-16 09:10 | 1.5M | $6.00 | 2 |'));

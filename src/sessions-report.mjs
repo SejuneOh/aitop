@@ -288,7 +288,7 @@ const mdhm = (ms) => {
 // 끝 시각: 시작과 같은 날이면 시:분만.
 const endText = (x) => (x.end == null ? '-' : x.start != null && dayKey(x.start) === dayKey(x.end) ? hm(new Date(x.end)) : mdhm(x.end));
 const startText = (x) => (x.start == null ? '-' : mdhm(x.start));
-const costText = (x) => (used(x) ? `${money(x.cost)}${x.unpriced ? '?' : ''}` : '-');
+const costText = (x) => (used(x) && !(x.unpriced && !(x.cost > 0)) ? money(x.cost) : '-');
 const filesText = (x) => (x.files == null ? '-' : `${x.files}${x.filesMore ? '+' : ''}`);
 const modelText = (x) => (x.model ? `${x.model}${x.models.length > 1 ? ` +${x.models.length - 1}` : ''}` : '-');
 const projectText = (x) => (x.project === UNKNOWN ? t('report.unknown') : x.project);
@@ -304,7 +304,7 @@ const daysText = (n) => (n >= 10 ? String(Math.round(n)) : n.toFixed(1));
 function cardLines(r, md = false) {
   const s = r.summary;
   const b = (x) => (md ? `**${x}**` : x);
-  const out = [t('sessions.cardTotal', { cost: b(`${money(s.cost)}${s.unpriced ? '?' : ''}`), tokens: fmtTokens(Math.round(s.tokens)), n: s.sessions })];
+  const out = [t('sessions.cardTotal', { cost: b(s.unpriced && !(s.cost > 0) ? '-' : money(s.cost)), tokens: fmtTokens(Math.round(s.tokens)), n: s.sessions })];
   const tools = Object.entries(s.tools).map(([tool, o]) => `${tool} ${pct(o.share)}`);
   if (tools.length) out.push(t(s.shareBy === 'cost' ? 'sessions.cardTools' : 'sessions.cardToolsTokens', { tools: tools.join(' · ') }));
   if (s.plan) {
