@@ -84,7 +84,7 @@ export function render(view, W, H) {
   // 준비 완료 전에는 값이 커지는 대로 ▲ 가 옮겨 다니므로 붙이지 않는다.
   const hot = view.ready === false ? null : topCost(visible.filter(isSession).map((r) => r.s), view.costMode);
   if (!sessions.length) table.push(...(view.filter ? [line([{ t: `   ${t('ui.noMatch', { q: view.filter })}`, fg: PALETTE.muted, italic: true }], TW)] : emptyLines(view, TW)));
-  for (const r of visible) table.push(r.g ? groupRow(r.g, TW) : r.m ? memberRow(r.m, r.last, c, TW, view.frame, r.s.model, view.costMode) : sessionRow(r.s, c, TW, r.s === sel, view.frame, hot, view.costMode, Boolean(view.pins?.includes(r.s.id))));
+  for (const r of visible) table.push(r.g ? groupRow(r.g, TW) : r.m ? memberRow(r.m, r.last, c, TW, view.frame, r.s.model, view.costMode, r.s.status) : sessionRow(r.s, c, TW, r.s === sel, view.frame, hot, view.costMode, Boolean(view.pins?.includes(r.s.id))));
   if (clipped) {
     const onScreen = new Set(visible.filter(isSession).map((r) => r.s));
     const hidden = sessions.filter((s) => !onScreen.has(s));

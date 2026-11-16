@@ -5,6 +5,29 @@ export const MAX_EVENTS = 40;
 // 끝난 서브에이전트(팀원)는 이 시간 동안 "완료"로 보였다가 목록에서 사라진다.
 export const MEMBER_FADE_MS = 6000;
 
+// 작업 중인 서브에이전트가 '멈춘 듯' 보이기까지 기록이 바뀌지 않은 시간.
+// 서브에이전트는 모델 응답 한 번, 도구 결과 한 번마다 기록에 한 줄을 쓴다. 긴 생각을 하는 응답도 대개 1~2분 안에 끝나므로
+// 3분 동안 한 줄도 없으면 드문 일로 본다. 다만 Bash 같은 도구가 도는 동안에는 결과가 올 때까지 쓰지 않는데,
+// Claude Code 의 Bash 시간 제한이 최대 10분이라 그런 단계에서는 10분을 기다린다.
+// 짐작일 뿐이라 화면에 흐리게만 보이고 정렬·알림·창 제목·--line 에는 쓰지 않는다.
+export const MEMBER_STALL_MS = 3 * 60_000;
+export const MEMBER_STALL_LONG_MS = 10 * 60_000;
+// 결과가 올 때까지 오래 기록이 없을 수 있는 도구 (Claude·agy 이름). 서브에이전트 안의 서브에이전트(Agent·Task)도 그동안 쓰지 않는다.
+// Skill 은 지침 글을 바로 돌려주는 도구라 넣지 않는다.
+export const LONG_TOOLS = new Set(['Bash', 'PowerShell', 'Agent', 'Task', 'WebFetch', 'WebSearch', 'run_command', 'shell', 'call_mcp_tool']);
+// MCP 도구(mcp__서버__도구, agy 는 call_mcp_tool)는 바깥 서버가 응답할 때까지 기다리므로 얼마나 걸릴지 알 수 없어 오래 걸리는 쪽으로 본다.
+export const isLongTool = (name) => LONG_TOOLS.has(name) || String(name ?? '').startsWith('mcp__');
+
+// m: 수집기가 만든 팀원. status 'busy' 이고 lastActivityAt 이 기준보다 오래됐으면 true. longStep 이면 긴 기준을 쓴다.
+// 허락을 기다리는 동안은 기록이 멈추는 것이 정상이므로, 팀원이 응답 대기('waiting')이거나 부모 세션(parentStatus)이
+// 응답 대기면 멈춘 듯으로 보지 않는다 (Claude 는 서브에이전트의 허락 요청이 부모 세션의 대기로만 보인다).
+// 팀원 쪽은 'busy' 가 아니면(대기·완료 모두) 따로 보지 않고 false 다. 부모가 기다리면 형제 팀원의 표시도 함께 꺼진다 (덜 알리는 쪽).
+export function memberStalled(m, now = Date.now(), parentStatus = null) {
+  if (parentStatus === 'waiting') return false;
+  if (m?.status !== 'busy' || !Number.isFinite(m.lastActivityAt)) return false;
+  return now - m.lastActivityAt >= (m.longStep ? MEMBER_STALL_LONG_MS : MEMBER_STALL_MS);
+}
+
 export function emptyTokens() {
   return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
 }

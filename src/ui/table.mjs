@@ -2,7 +2,8 @@
 import { describe } from '../doctor.mjs';
 import { BRAND } from '../brand.mjs';
 import { projectBudget } from '../budget.mjs';
-import { fmtAgo, fmtTokens, pad, truncate, width } from '../text.mjs';
+import { fmtAgo, fmtElapsed, fmtTokens, pad, truncate, width } from '../text.mjs';
+import { memberStalled } from '../sources/common.mjs';
 import { BUDGET_COLOR, PALETTE, PHASE_COLOR, RESET, style } from './theme.mjs';
 import { NOW, SPIN, clock, costOf, gauge, glyph, levelBar, line, money, segsWidth, shortModel } from './draw.mjs';
 import { glyphs } from './glyphs.mjs';
@@ -366,8 +367,10 @@ const pendingGauge = (cells) => [{ t: glyphs().bar.empty.repeat(cells), fg: PALE
 export const statusText = (phase) => phaseText(phase, { short: true });
 
 // 메인 세션 아래에 붙는 팀원(서브에이전트) 행. 끝나면 잠깐 "완료"로 보였다가 사라진다.
-// parentModel: 부모와 같은 모델이면 모델 칸을 비운다. costMode: 'api' | 'net'.
-export function memberRow(m, last, c, W, frame, parentModel, costMode = 'api') {
+// parentModel: 부모와 같은 모델이면 모델 칸을 비운다. costMode: 'api' | 'net'. parentStatus: 부모 세션 상태 (응답 대기면 멈춘 듯을 붙이지 않는다).
+// 경과 시간은 초 단위로 바뀌지만 타이머를 따로 두지 않는다. 작업 중인 팀원이 있으면 ui.mjs animating() 이 이미 참이라
+// 스피너 틱(120ms)마다 다시 그리고 있고, 그 틱에 실려 바뀐다. 끝난 팀원(done)은 경과 시간을 그리지 않아 틱을 붙잡지 않는다.
+export function memberRow(m, last, c, W, frame, parentModel, costMode = 'api', parentStatus = null) {
   const done = m.status === 'done';
   const g = done ? { t: '✓', fg: PALETTE.info } : { t: SPIN[(frame + 3) % SPIN.length], fg: PALETTE.team, bold: true };
   const branch = last ? glyphs().memberLast : glyphs().member;
@@ -389,11 +392,26 @@ export function memberRow(m, last, c, W, frame, parentModel, costMode = 'api') {
     { t: label, fg: done ? PALETTE.info : PALETTE.team },
     { t: pad(showSuffix ? suffix : '', nameW - width(label)) + ' ', fg: PALETTE.info },
   );
+  // 팀원 행은 CONTEXT·IDLE 칸이 비므로 그 자리(둘 사이 공백 포함)에 작업 중 경과 시간과 '멈춘 듯' 을 오른쪽 맞춤으로 둔다.
+  // 두 칸은 폭과 상관없이 늘 있는 열이라, 좁아지면 이름·STATUS 가 먼저 줄고 경과 시간은 남는다 (세션 행의 IDLE 과 같은 규칙).
+  // '멈춘 듯' 은 글자로 적어 색이 없어도 구분되고, 흐린 색으로만 둔다. 놓는 곳은 위에서부터 들어가는 첫 자리다:
+  // 끝 칸에 '멈춘 듯 3m12s' → STATUS 칸 앞 (CTX 5칸만 남는 폭) → STATUS 칸도 그보다 좁으면 경과 시간 뒤에 '?' 하나 (3m12s?).
+  const tailW = c.ctx + 1 + c.age;
+  const elapsed = !done && Number.isFinite(m.startedAt) ? fmtElapsed(NOW - m.startedAt) : '';
+  const stalled = !done && memberStalled(m, NOW, parentStatus) ? t('member.stalled') : '';
+  const both = stalled && elapsed ? width(stalled) + 1 + width(elapsed) <= tailW : Boolean(stalled);
+  const before = stalled && !both && c.status >= width(stalled) + 1;
+  const quest = stalled && !both && !before;
+  const inStatus = before ? [{ t: `${stalled} `, fg: PALETTE.info, italic: true }] : [];
   segs.push(
-    { t: pad(statusText(m.phase), c.status) + ' ', fg: done ? PALETTE.info : PHASE_COLOR[m.phase?.kind] ?? PALETTE.muted },
+    ...inStatus,
+    { t: pad(statusText(m.phase), Math.max(0, c.status - segsWidth(inStatus))) + ' ', fg: done ? PALETTE.info : PHASE_COLOR[m.phase?.kind] ?? PALETTE.muted },
     { t: pad(m.loading ? '…' : started ? fmtTokens(m.tokens ?? 0) : '', c.tokens, 'right') + ' ', fg: done || m.loading ? PALETTE.info : PALETTE.muted },
   );
   if (c.showCost) segs.push({ t: pad(m.loading ? '…' : started ? money(costOf(m, costMode), m.costUnknown) : '', c.cost, 'right') + ' ', fg: done || m.loading ? PALETTE.info : PALETTE.muted });
+  const mark = stalled && both ? [{ t: stalled, fg: PALETTE.info, italic: true }, ...(elapsed ? [{ t: ' ' }] : [])] : [];
+  const time = elapsed ? [{ t: elapsed, fg: PALETTE.info }, ...(quest ? [{ t: '?', fg: PALETTE.info, italic: true }] : [])] : [];
+  if (mark.length || time.length) segs.push({ t: ' '.repeat(Math.max(0, tailW - segsWidth([...mark, ...time]))) }, ...mark, ...time);
   // 끝난 팀원은 종료 행처럼 기울임꼴로 둔다.
   return line(done ? segs.map((x) => ({ ...x, italic: true })) : segs, W);
 }

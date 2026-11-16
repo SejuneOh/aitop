@@ -7,7 +7,7 @@ import { contextWindow } from '../pricing.mjs';
 import { join, basename } from 'node:path';
 import { isSessionAlive } from '../procs.mjs';
 import { ClaudeTracker, tailCustomTitle } from './claude-tracker.mjs';
-import { emptyTokens, mergeActivity, MEMBER_FADE_MS, sessionName } from './common.mjs';
+import { emptyTokens, isLongTool, mergeActivity, MEMBER_FADE_MS, sessionName } from './common.mjs';
 import { mergeFiles } from './files.mjs';
 import { debug, debugIo } from '../log.mjs';
 import { claudeDirs, claudeProjectRoots, dedupeBy } from './dirs.mjs';
@@ -148,7 +148,11 @@ function readMembers(transcript, parent, budget) {
       costNoCache: t.costNoCache,
       costUnknown: t.costUnknown,
       loading: t.loading != null,
-      startedAt: t.events[0]?.at,
+      // 경과 시간의 기준은 서브에이전트 기록의 첫 줄 시각, 멈춘 듯 판단은 기록 파일의 마지막 수정 시각이다.
+      startedAt: t.firstAt ?? t.events[0]?.at,
+      lastActivityAt: t.mtimeMs || null,
+      // Bash 처럼 결과가 오기까지 오래 걸릴 수 있는 도구가 도는 중이면 멈춘 듯 기준을 길게 잡는다 (common.mjs).
+      longStep: [...t.pending.values()].some((p) => isLongTool(p.name)),
     });
   }
   members.sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0));
