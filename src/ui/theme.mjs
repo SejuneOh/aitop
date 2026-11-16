@@ -128,7 +128,7 @@ export const RESET = NO_COLOR ? '' : '\x1b[0m';
 export const BUDGET_TOKEN = { caution: 'team', warn: 'alert' };
 export const BUDGET_COLOR = { caution: PALETTE[BUDGET_TOKEN.caution], warn: PALETTE[BUDGET_TOKEN.warn] };
 
-export const PHASE_COLOR = { tool: PALETTE.tool, team: PALETTE.team, think: PALETTE.busy, write: PALETTE.busy, waiting: PALETTE.waiting, idle: PALETTE.idle, ended: PALETTE.ended, done: PALETTE.info, unseen: PALETTE.busy };
+export const PHASE_COLOR = { tool: PALETTE.tool, team: PALETTE.team, think: PALETTE.busy, write: PALETTE.busy, waiting: PALETTE.waiting, idle: PALETTE.idle, ended: PALETTE.ended, done: PALETTE.info, unseen: PALETTE.busy, stopped: PALETTE.alert };
 
 // 상자 테두리. 포커스가 있으면 강조색으로, 색이 없으면 굵은 선으로 구분한다.
 export const EDGE = {
