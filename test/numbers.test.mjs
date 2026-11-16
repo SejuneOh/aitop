@@ -28,14 +28,14 @@ test('토큰 합계는 메인 + 서브이고, 입력·출력·캐시 합과도 �
   assert.equal(s.costUnknown, false);
 });
 
-test('가격표에 없는 모델이 섞이면 비용에 넣지 않고 ? 로 알린다', () => {
+test('가격표에 없는 모델이 섞이면 비용에 넣지 않고 표시도 하지 않는다', () => {
   fx.session({ sessionId: 'dddddddd-2', pid: process.pid });
   fx.transcript('dddddddd-2', [assistant('m1', [], usage(1_000_000, 0), 'claude-unknown-9')]);
   const [s] = run();
   assert.equal(s.costUnknown, true);
   assert.equal(s.cost, 0);
-  assert.equal(money(s.cost, s.costUnknown), '?');
-  assert.equal(money(1.5, true), '$1.50?');
+  assert.equal(money(s.cost, s.costUnknown), '-');
+  assert.equal(money(1.5, true), '$1.50');
   assert.equal(money(null), '-');
 });
 

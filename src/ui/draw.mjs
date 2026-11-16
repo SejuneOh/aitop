@@ -76,13 +76,14 @@ export function gauge(used, total, cells) {
 
 export const dollars = (usd) => (usd >= 1000 ? `$${Math.round(usd).toLocaleString('en-US')}` : usd >= 100 ? `$${usd.toFixed(0)}` : `$${usd.toFixed(2)}`);
 
-// 비용을 모르는 도구는 '-'. 가격표에 없는 모델이 섞이면 아는 몫 뒤에 '?' 를 붙이고, 아는 몫이 없으면 '?' 만 보인다.
+// 비용을 모르는 도구는 '-'. 가격표에 없는 모델이 섞이면 아는 몫만 보이고(표시는 붙이지 않는다), 아는 몫이 없으면 '-'.
+// 가격표에 없는 모델이 섞였는지는 --json 의 unpriced·costUnknown 과 상세 패널 안내 줄로 알린다.
 // 비용 표시 기준: 'api' 는 API 정가 환산(캐시 포함), 'net' 은 캐시 읽기·쓰기를 뺀 입력·출력만.
 export const costOf = (x, mode = 'api') => (mode === 'net' ? x?.costNoCache ?? null : x?.cost ?? null);
 
 export function money(usd, unknown = false) {
   if (usd == null) return '-';
-  if (unknown) return usd > 0 ? `${dollars(usd)}?` : '?';
+  if (unknown && !(usd > 0)) return '-';
   return dollars(usd);
 }
 

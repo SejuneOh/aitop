@@ -289,7 +289,7 @@ function foldOthers(columns, keep, lines) {
 }
 
 // --json 모양: 키는 영어, 값은 숫자만 (날짜·이름은 문자열). partial: 시간 상한 때문에 덜 읽었는지.
-// 칸마다 unpriced(가격표에 없는 모델이 끼었는지)를 참·거짓으로 둔다. 화면의 ? 와 같은 뜻이다.
+// 칸마다 unpriced(가격표에 없는 모델이 끼었는지)를 참·거짓으로 둔다. 그 몫은 비용에서 빠져 있다.
 export function reportJson(r, version, { partial = false } = {}) {
   const items = (o) => Object.fromEntries(r.columns.map((c) => [c, { tokens: o.items[c]?.tokens ?? 0, cost: o.items[c]?.cost ?? 0, unpriced: Boolean(o.items[c]?.unpriced) }]));
   const monthly = r.report === 'monthly';
@@ -312,7 +312,7 @@ export function reportJson(r, version, { partial = false } = {}) {
 }
 
 // 칸 하나: '1.2M $3.40'. 토큰이 없으면 '-'. 가격표에 없는 모델이 끼었으면 화면 헤더처럼 비용 뒤에 ? 를 붙인다 ('$12.30?').
-const cell = (x) => (x && (x.tokens > 0 || x.cost > 0) ? `${fmtTokens(Math.round(x.tokens))} ${money(x.cost)}${x.unpriced ? '?' : ''}` : '-');
+const cell = (x) => (x && (x.tokens > 0 || x.cost > 0) ? `${fmtTokens(Math.round(x.tokens))} ${x.unpriced && !(x.cost > 0) ? '-' : money(x.cost)}` : '-');
 
 // 사람이 읽는 표. 머리글·합계 줄 문구는 화면 언어(t)를 따른다. 도구·모델·프로젝트 이름은 그대로 쓴다.
 const colName = (c) => (c === UNKNOWN ? t('report.unknown') : c === OTHERS ? t('report.others') : truncate(stripControl(c), HEAD_MAX));

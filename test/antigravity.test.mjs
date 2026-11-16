@@ -510,7 +510,7 @@ test('비용은 호출 직전 단계의 시각에 쓰던 가격으로 센다', {
   assert.equal(g.costUnknown, false);
 });
 
-test('가격표에 없는 모델이 섞이면 비용에 ? 를 붙일 수 있게 알린다', { skip: noSqlite }, () => {
+test('가격표에 없는 모델이 섞이면 아는 모델만 더하고 costUnknown 으로 알린다', { skip: noSqlite }, () => {
   makeSteps('cost-2', [prompt('a', T0)]);
   makeConversation('cost-2', [
     { model: 'gemini-3.8-flash', input: 1_000_000, step: 0 },

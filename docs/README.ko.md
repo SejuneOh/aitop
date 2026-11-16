@@ -119,7 +119,7 @@ set -g status-interval 15
 - `--days N` 은 기본·최대 30일이다. 30을 넘기면 30일로 줄이고 stderr 에 알린다.
 - 줄은 최근 날짜가 위(오늘부터 거꾸로)이고 맨 아래가 합계다. 합계는 위 날짜 줄을 더한 값이다. 비용은 헤더와 같은 API 정가 환산이다.
 - `--json` 은 같은 값을 영어 키와 숫자로만 낸다: `report`, `by`, `days`, `from`, `to`, `basis`, `partial`, `unpriced`, `columns`, `paths` (`--by project` 때만), `rows[]{date, tokens, cost, unpriced, items}`, `total{tokens, cost, unpriced, items}`. `items` 의 칸도 `{tokens, cost, unpriced}` 다.
-- 가격표에 없는 모델이 낀 칸은 헤더처럼 비용 뒤에 `?` 를 붙인다 (예: `$12.30?`). `--json` 은 그 칸의 `unpriced` 가 `true` 다.
+- 가격표에 없는 모델은 추측하지 않고 비용에서 뺀다 (전부 그런 칸은 `-`). `--json` 은 그 칸의 `unpriced` 가 `true` 다.
 - 장부는 날짜별·모델별 합계를 기록마다 캐시에 남긴다 (캐시 형식 14, 장부 kind 2). 평소 실행(화면 · `--json` · `--line`)은 지금처럼 최근 7일 안에 바뀐 기록만 읽고, `--report` 만 30일 안에 바뀐 기록까지 읽는다. 그래서 처음 `--report` 는 30일치 기록을 읽느라 수십 초 걸릴 수 있다. stderr 가 터미널이면 진행률을 보이고, 120초(`AITOP_REPORT_MS`)를 넘으면 읽은 만큼으로 표를 내며 덜 읽었다고 알린다 (`--json` 은 `partial: true`). 읽은 만큼은 캐시에 남아 다음 실행이 이어 읽는다.
 
 `aitop --report monthly` 는 같은 표를 달별로 낸다 (최근 달이 위, `--months N` 기본·최대 12).
@@ -148,7 +148,7 @@ Total       1.69B $677  26.1M $4.45  1.71B $681
 
 `aitop --report sessions [--since yesterday|today|Nd|YYYY-MM-DD] [--plan USD] [--md|--json] [--show-prompts]` 는 기간(기본: 어제 0시부터 지금까지, 최대 30일 전) 안에 사용량이 있는 세션을 비용이 큰 순서로 한 줄씩 보인다. 스탠드업이나 공유용이다.
 
-- 칸: 도구, 주된 모델(여럿이면 `+N`), 프로젝트(`--by project` 와 같은 규칙), 세션 이름(사용자 이름 > 도구가 붙인 제목 > 폴더), 기간 안 활동의 시작·끝, 토큰, 비용(API 정가 환산, 가격표에 없는 모델은 `?`), 고친 파일 수(모르면 `-`, agy 는 늘 `-`). Claude 서브에이전트는 부모 세션에 더한다.
+- 칸: 도구, 주된 모델(여럿이면 `+N`), 프로젝트(`--by project` 와 같은 규칙), 세션 이름(사용자 이름 > 도구가 붙인 제목 > 폴더), 기간 안 활동의 시작·끝, 토큰, 비용(API 정가 환산, 가격표에 없는 모델은 빼고 셈), 고친 파일 수(모르면 `-`, agy 는 늘 `-`). Claude 서브에이전트는 부모 세션에 더한다.
 - 맨 위 요약 카드: 기간 합계, 도구별 비중, 세션 수. `--plan 200` 처럼 월 구독료를 주면 기간 몫(경과 일수/30)의 몇 배인지 보인다. 모두 API 정가 환산이며 실제 청구액이 아니다.
 - `--md` 는 그대로 붙여 넣을 Markdown(칸 안의 `|` 와 줄바꿈은 이스케이프), `--json` 은 `summary` 와 `sessions[]` 를 숫자로 낸다.
 - 첫 지시는 `--show-prompts` 일 때만 보인다 (한 줄, 약 60자). 기본 출력과 `--json` 에는 지시 글이 없다.
@@ -326,7 +326,7 @@ end)
 - STATUS: 지금 단계 (`도구 실행 · Bash`, `생각 중`, `답변 작성 중`, `팀원 N명 작업 중`, `응답 대기`, `다음 지시 대기`). 큰 기록을 처음 읽는 동안은 `기록 읽는 중 N%`
 - 응답 대기 세션은 맨 위에 배경색으로 보인다. 화면이 작아 표가 잘리면 마지막 줄에 `… +N 세션` 이 나온다.
 - 서브에이전트는 메인 세션 아래 `├─` 행으로 붙고, 하는 일(description) 뒤에 타입이 흐리게 붙는다. 첫 응답 전에는 `시작 중`, 끝나면 6초간 `완료`로 보였다가 사라진다.
-- COST: Claude API 정가로 환산한 비용. 구독 요금제 사용분도 같은 기준으로 계산한다 (`src/pricing.mjs`). 가격표에 없는 모델이 섞이면 `$1.20?` 처럼 `?` 가 붙는다. Codex 는 OpenAI API 정가로 환산한다 (gpt-5.6-sol/terra/luna, gpt-5.5, gpt-5.4(-mini), gpt-5.3-codex, gpt-5.2, gpt-5.1-codex(-max, -mini), gpt-5(-mini, -codex), codex-mini, gpt-4o-mini). 값은 OpenAI 공식 가격표(https://developers.openai.com/api/docs/pricing)와 모델별 문서(2026-11-11 확인) 기준이며, 세션 중 모델이 바뀌면 마지막 모델 가격으로 계산한다. 모델 이름이 표와 똑같을 때(끝의 `-latest` 나 날짜는 떼고 본다)만 가격을 매기고, gpt-5.5-pro 처럼 앞부분만 같은 모델은 `?` 로 보인다. 입력 272K 초과 요청의 긴 컨텍스트 단가(입력 2배·출력 1.5배)는 반영하지 않고 기본 단가로 계산한다. gpt-5.6-sol 은 2026-11-30 까지의 프로모션 가격이다. Antigravity CLI 는 Google 공식 Gemini API 가격표(유료 등급 standard, https://aistudio.google.com/docs/pricing, 2026-11-06 확인)로 호출마다 그 호출 시각의 가격으로 환산한다: gemini-4-argon 은 2026-12-01 부터, gemini-3.8-flash·gemini-3.6-flash 는 2027-01-01 부터 두 배 가격이다 (UTC 기준). gemini-3.5-flash-lite, gemini-3.1-flash-lite 도 표에 있다. 모델 이름이 표와 똑같을 때만 가격을 매기고, 그 밖의 모델(gemini-3.5-flash, gemini-3-flash-preview 등)은 추측하지 않고 `?` 로 보인다. 서브에이전트 비용은 부모 세션에 더한다.
+- COST: Claude API 정가로 환산한 비용. 구독 요금제 사용분도 같은 기준으로 계산한다 (`src/pricing.mjs`). 가격표에 없는 모델은 추측하지 않고 비용에서 뺀다 (`--json` 은 `unpriced` 로 알린다). Codex 는 OpenAI API 정가로 환산한다 (gpt-5.6-sol/terra/luna, gpt-5.5, gpt-5.4(-mini), gpt-5.3-codex, gpt-5.2, gpt-5.1-codex(-max, -mini), gpt-5(-mini, -codex), codex-mini, gpt-4o-mini). 값은 OpenAI 공식 가격표(https://developers.openai.com/api/docs/pricing)와 모델별 문서(2026-11-11 확인) 기준이며, 세션 중 모델이 바뀌면 마지막 모델 가격으로 계산한다. 모델 이름이 표와 똑같을 때(끝의 `-latest` 나 날짜는 떼고 본다)만 가격을 매기고, gpt-5.5-pro 처럼 앞부분만 같은 모델은 비용에서 빠진다. 입력 272K 초과 요청의 긴 컨텍스트 단가(입력 2배·출력 1.5배)는 반영하지 않고 기본 단가로 계산한다. gpt-5.6-sol 은 2026-11-30 까지의 프로모션 가격이다. Antigravity CLI 는 Google 공식 Gemini API 가격표(유료 등급 standard, https://aistudio.google.com/docs/pricing, 2026-11-06 확인)로 호출마다 그 호출 시각의 가격으로 환산한다: gemini-4-argon 은 2026-12-01 부터, gemini-3.8-flash·gemini-3.6-flash 는 2027-01-01 부터 두 배 가격이다 (UTC 기준). gemini-3.5-flash-lite, gemini-3.1-flash-lite 도 표에 있다. 모델 이름이 표와 똑같을 때만 가격을 매기고, 그 밖의 모델(gemini-3.5-flash, gemini-3-flash-preview 등)은 추측하지 않고 비용에서 뺀다. 서브에이전트 비용은 부모 세션에 더한다.
 - IDLE: 마지막 활동 후 지난 시간. 작업 중이면 `now`.
 - 상세 패널의 토큰 합계 = 메인 + 서브에이전트 = 입력 + 출력 + 캐시 읽기 + 캐시 쓰기. 비용은 캐시 제외 금액도 함께 보인다.
 - `--all`: 24시간 안에 바뀐 기록을 종료 세션으로 보인다. 본문은 선택했을 때 읽는다.

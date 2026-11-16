@@ -162,7 +162,7 @@ test('옵션: 두 모양, 기본값, 30일 상한, 잘못된 값, --report 없�
   assert.equal(reportOption(['--once']).kind, null);
 });
 
-test('가격표에 없는 모델이 낀 칸은 비용 뒤에 ? 를 붙이고, --json 은 칸마다 unpriced 를 둔다', () => {
+test('가격표에 없는 모델이 낀 칸은 아는 비용만 보이고(전부 모르면 -), --json 은 칸마다 unpriced 를 둔다', () => {
   const day = (models) => ({
     tokens: Object.values(models).reduce((a, m) => a + m.tokens, 0),
     cost: Object.values(models).reduce((a, m) => a + m.cost, 0),
@@ -178,11 +178,12 @@ test('가격표에 없는 모델이 낀 칸은 비용 뒤에 ? 를 붙이고, --
   const byModel = formatReport(buildReport(b, { by: 'model', days: 2, now: NOW }));
   setLang('ko');
   const line = (out, start) => out.split('\n').find((l) => l.startsWith(start));
-  assert.match(line(byTool, '2026-11-02'), /1\.0k \$12\.30 +- +1\.0k \$12\.30$/, '가격을 아는 칸에는 ? 가 없다');
-  assert.match(line(byTool, '2026-11-01'), /3\.0k \$1\.00\? +3\.0k \$1\.00\?$/);
-  assert.match(line(byTool, 'Total'), /\$1\.00\? +[\d.]+k \$13\.30\?$/);
-  assert.match(line(byModel, 'Total'), /2\.0k \$0\.00\?/);
-  assert.doesNotMatch(line(byModel, 'Total'), /1\.0k \$1\.00\?/, 'gpt-x 칸에는 ? 가 없다');
+  assert.match(line(byTool, '2026-11-02'), /1\.0k \$12\.30 +- +1\.0k \$12\.30$/);
+  assert.match(line(byTool, '2026-11-01'), /3\.0k \$1\.00 +3\.0k \$1\.00$/);
+  assert.match(line(byTool, 'Total'), /\$1\.00 +[\d.]+k \$13\.30$/);
+  assert.match(line(byModel, 'Total'), /2\.0k -/);
+  assert.match(line(byModel, 'Total'), /1\.0k \$1\.00/);
+  assert.doesNotMatch(byTool + byModel, /\?/, '? 표시는 없다');
   const j = reportJson(buildReport(b, { by: 'model', days: 2, now: NOW }), '0.0.0');
   assert.equal(j.total.items['mystery-1'].unpriced, true);
   assert.equal(j.total.items['gpt-x'].unpriced, false);

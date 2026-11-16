@@ -52,10 +52,10 @@ export function columns(W) {
 
 // 헤더의 7일 비용 막대. days: usage.days7 (오래된 날 → 오늘). 7일 중 가장 큰 날을 █ 로 맞춘다.
 // 비용이 0 인 날은 ▁ 를 장식 색(faint)으로, 쓴 날은 ▂~█ 로 그린다. 색이 없어도 쓴 날(▂ 이상)과 안 쓴 날(▁)이 갈린다.
-// 가격표에 없는 모델만 쓴 날(아는 비용 0)은 쓰지 않은 날과 헷갈리지 않게 ? 로 둔다.
+// 가격표에 없는 모델만 쓴 날(아는 비용 0)은 쓰지 않은 날과 헷갈리지 않게 가장 낮은 '쓴 날' 막대(▂)를 흐린 색으로 둔다.
 export function weekBar(days, costMode = 'api') {
   const bar = levelBar(days.map((d) => costOf(d, costMode)));
-  return bar.map((x, i) => (x.t === glyphs().week[0] && days[i].unknown ? { t: '?', fg: PALETTE.muted } : x));
+  return bar.map((x, i) => (x.t === glyphs().week[0] && days[i].unknown ? { t: glyphs().week[1], fg: PALETTE.muted } : x));
 }
 
 export function header(view, W) {
@@ -109,7 +109,7 @@ export function header(view, W) {
   const bud = u ? projectBudget(u, view.budgetDay, { now: view.data.at ?? Date.now() }) : null;
   const ofBudget = bud ? [{ t: `/${Number.isInteger(bud.day) ? `$${bud.day.toLocaleString('en-US')}` : `$${bud.day.toFixed(2)}`}`, fg: PALETTE.muted, bg: B }] : [];
   // 캐시 제외 화면에서 예산 칸 없이 예상만 남으면 캐시 제외 금액으로 읽히지 않게 'API 예상' 이라고 적는다.
-  const projOf = (label) => (bud && bud.level !== 'ok' ? { t: `${label} ${usd(bud.projected)}${bud.unknown ? '?' : ''}${bud.level === 'warn' ? '!' : ''}`, fg: BUDGET_COLOR[bud.level], bg: B, bold: true } : null);
+  const projOf = (label) => (bud && bud.level !== 'ok' ? { t: `${label} ${usd(bud.projected)}${bud.level === 'warn' ? '!' : ''}`, fg: BUDGET_COLOR[bud.level], bg: B, bold: true } : null);
   const projSeg = projOf(t('hdr.proj'));
   const projApi = net ? projOf(t('hdr.projApi')) : projSeg;
   // budget: 'full' | 'proj' (아래 right 참고). 오늘 칸 뒤에 붙는 예산 칸.
@@ -126,9 +126,8 @@ export function header(view, W) {
     ...(tok ? [{ t: ` ${fmtTokens(p.tokens)}`, fg: PALETTE.info, bg: B }] : []),
   ];
   // 지출 속도: 최근 1시간 비용(5분 칸 근사)을 시간당으로. 0 이거나 아직 집계 중이면 숨기고, 폭이 모자라면 가장 먼저 뺀다.
-  // 아는 몫이 0 인데 가격표에 없는 모델이 섞였으면 금액 없이 (?/h) 만 보인다.
   const hour = u?.lastHour && u.loading == null ? (net ? u.lastHour.costNoCache : u.lastHour.cost) : null;
-  const rateText = hour >= 0.005 ? `${usd(hour)}${u.lastHour.unknown ? '?' : ''}` : hour != null && u.lastHour.unknown ? '?' : null;
+  const rateText = hour >= 0.005 ? usd(hour) : null;
   const rate = rateText ? [{ t: ` (${rateText}/h)`, fg: PALETTE.muted, bg: B }] : null;
   // bar: 7일 금액 뒤의 날짜별 막대. 집계 중이거나 날짜별 값이 없으면 넣지 않는다.
   const bar = u?.loading == null && u?.days7?.length ? [{ t: ' ', bg: B }, ...weekBar(u.days7, view.costMode).map((x) => ({ ...x, bg: B }))] : null;

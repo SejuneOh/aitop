@@ -74,7 +74,7 @@ export class ClaudeTracker {
     this.tokens = emptyTokens();
     this.cost = 0;
     this.costNoCache = 0;
-    // 가격표에 없는 모델의 사용량이 섞였는지. 그 몫은 비용에 넣지 않고 화면에 '?' 로 알린다.
+    // 가격표에 없는 모델의 사용량이 섞였는지. 그 몫은 비용에 넣지 않는다 (--json 의 costUnknown, 상세 패널 안내 줄).
     this.costUnknown = false;
     this.context = 0;
     this.model = null;
