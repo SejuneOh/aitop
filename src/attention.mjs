@@ -11,7 +11,8 @@ export function updateAttention(state, sessions, selectedId) {
     ids.add(s.id);
     const before = state.prev.get(s.id);
     // 상태를 기록 수정 시각으로 추측한 세션(statusGuessed)은, 작업이 아닌 줄이 붙어도 잠깐 작업 중으로 보이므로 확인 전으로 치지 않는다.
-    if (s.id === selectedId || s.status === 'busy' || s.status === 'shell' || !s.live) state.unseen.delete(s.id);
+    // 오류로 멈춘 세션(stopReason)은 끝난 게 아니므로 확인 전으로 치지 않는다 (화면에 멈춘 이유가 그대로 보인다).
+    if (s.id === selectedId || s.status === 'busy' || s.status === 'shell' || !s.live || s.stopReason) state.unseen.delete(s.id);
     else if ((before === 'busy' || before === 'shell') && s.status === 'idle' && !s.statusGuessed) state.unseen.add(s.id);
     state.prev.set(s.id, s.status);
   }
@@ -74,6 +75,7 @@ export function takeNewlyWaiting(watch, sessions) {
 //   도구 호출 사이의 잠깐 대기는 settleMs 안에 다시 작업 중이 되므로 같은 작업으로 이어 센다 (그 틈도 작업 시간에 넣는다).
 //   응답 대기(waiting)는 따로 알리므로 끝남으로 치지 않는다. 같은 작업은 이어지지만 기다린 시간은 작업 시간에 넣지 않는다.
 //   상태를 추측한 세션(statusGuessed), 끝난 세션, 하위 에이전트 줄은 알리지 않는다.
+//   오류로 멈춘 세션(stopReason: 로그인 만료, 연결 끊김 등)도 끝난 게 아니므로 알리지 않고 그 작업을 잊는다.
 // context: 사용률이 ctxHigh 이상이 되면 한 번 알리고, ctxRearm 아래로 내려가면(압축 등) 다시 알릴 수 있게 한다.
 //   기록을 다 읽기 전(s.loading)의 세션은 기준선만 잡고, 다 읽은 첫 갱신에 이미 높으면 알리지 않는다.
 export const DONE_MS = 3 * 60_000;
@@ -101,7 +103,7 @@ export function takeEvents(watch, sessions, { now = Date.now(), ready = true } =
     const reset = () => Object.assign(st, { run: false, busyMs: 0, busyAt: null, idleSince: null });
 
     // done
-    if (s.statusGuessed) reset();
+    if (s.statusGuessed || s.stopReason) reset();
     else if (isBusy(s)) {
       st.run = true;
       st.busyAt ??= now;

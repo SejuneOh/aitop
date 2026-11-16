@@ -46,6 +46,8 @@ export function toJson(data, version = null, opts = {}) {
       // phase 는 화면 언어와 상관없이 늘 한국어 문구(예전과 같은 글)로 두고, 언어와 상관없는 상태 이름은 phaseKind 로 준다.
       phase: koPhase(s.phase),
       phaseKind: s.phase?.kind ?? null,
+      // 오류로 멈춘 이유 { kind: 'auth'|'network'|'api' } (phaseKind 가 stopped 일 때만), 아니면 null.
+      stopReason: s.stopReason ?? null,
       waitingFor: s.waitingFor ?? null,
       // 이 세션을 이어 여는 셸 명령 (resume.mjs). 만들 수 없으면 null.
       resumeCmd: resumeCmd(s),

@@ -182,10 +182,18 @@ function phaseOf(status, entry, t) {
     case 'shell':
       return { kind: 'tool', msg: 'shell' };
     case 'idle':
-      return { kind: 'idle' };
+      return stoppedPhase(t) ?? { kind: 'idle' };
     default:
       return loadingPhase(t) ?? (t ? t.phase() : { kind: 'think', msg: 'working' });
   }
+}
+
+// 대기(idle) 중인 세션의 마지막 대화 줄이 API 오류면 '멈춤' 으로 보인다 (claude-tracker.mjs stopReasonOf).
+// 응답 대기·작업 중·종료는 그대로 두고, 기록을 다 읽기 전에는 판단하지 않는다.
+const STOP_MSG = { auth: 'stopAuth', network: 'stopNetwork', api: 'stopApi' };
+function stoppedPhase(t) {
+  const r = t?.loading == null ? t?.stopReason : null;
+  return r ? { kind: 'stopped', msg: STOP_MSG[r.kind] ?? 'stopApi' } : null;
 }
 
 // sessions/<pid>.json 은 세션이 끝나면 지워지므로, 끝난 세션은 최근에 바뀐 기록 파일로 찾는다.
@@ -487,6 +495,8 @@ export function collectClaude({ showEnded, budget, selectedId }) {
       // Claude Code 가 상태를 남기지 않아 기록 수정 시각으로 추측한 경우
       statusGuessed: e.alive && !e.waitingFor && !['busy', 'shell', 'idle'].includes(e.status),
       phase: withRunningMembers(phaseOf(status, e, t), status, members),
+      // 멈춘 이유 (phase 가 stopped 일 때만). 끝남(done) 알림과 확인 전(●)을 이 동안 막는다 (attention.mjs).
+      stopReason: status === 'idle' && stoppedPhase(t) ? t.stopReason : null,
       waitingFor: e.waitingFor ?? null,
       waitDetail: status === 'waiting' ? (t?.waitDetail(e.waitingFor) ?? null) : null,
       now: t?.lastTool ?? t?.events.at(-1)?.text ?? '',

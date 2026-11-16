@@ -22,6 +22,7 @@ const LEGEND_IDS = [
   ['◆', 'legend.waiting'],
   ['●', 'legend.unseen'],
   ['○', 'legend.idle'],
+  ['!', 'legend.stopped'],
   ['·', 'legend.ended'],
   ['★', 'legend.pin'],
   ['', ''],

@@ -15,8 +15,8 @@ const LOADING_MIN_BYTES = 4 * 1024 * 1024;
 const TAIL_BYTES = 256 * 1024;
 const CUSTOM_TITLE = '"type":"custom-title"';
 
-// 기록 끝 TAIL_BYTES 에서 마지막 custom-title 이름. 줄이 없으면 undefined, 이름이 비었으면 null.
-export function tailCustomTitle(path) {
+// 기록 끝 TAIL_BYTES 의 줄들. 읽지 못하면 null.
+function tailLines(path) {
   let text;
   try {
     const fd = openSync(path, 'r');
@@ -30,9 +30,15 @@ export function tailCustomTitle(path) {
     }
   } catch (e) {
     debugIo('claude', 'transcript tail read failed', e, path);
-    return undefined;
+    return null;
   }
-  const lines = text.split('\n');
+  return text.split('\n');
+}
+
+// 기록 끝 TAIL_BYTES 에서 마지막 custom-title 이름. 줄이 없으면 undefined, 이름이 비었으면 null.
+export function tailCustomTitle(path) {
+  const lines = tailLines(path);
+  if (!lines) return undefined;
   for (let i = lines.length - 1; i >= 0; i--) {
     if (!lines[i].includes(CUSTOM_TITLE)) continue;
     try {
@@ -41,6 +47,33 @@ export function tailCustomTitle(path) {
     } catch {}
   }
   return undefined;
+}
+
+// API 오류 줄(isApiErrorMessage)이 말하는 멈춘 이유. 이 PC 기록 표본에서 확인한 형식만 가른다.
+//   error: 'authentication_failed' (본문 'Login expired · Please run /login', 'OAuth session expired ...') → auth
+//   apiError: 'connection_failed' (error: 'server_error', 본문 'API Error: Connection lost mid-response ...') → network
+// 사용 한도 줄은 표본이 없어 따로 가르지 않고(재개 시각도 읽지 않는다) 그 밖의 오류와 함께 api 로 둔다.
+export function stopReasonOf(x) {
+  if (x?.type !== 'assistant' || x.isApiErrorMessage !== true) return null;
+  if (x.error === 'authentication_failed') return { kind: 'auth' };
+  if (x.apiError === 'connection_failed') return { kind: 'network' };
+  return { kind: 'api' };
+}
+
+// 기록 끝에서 멈춘 이유를 다시 찾는다: 마지막 대화 줄(assistant·user, isMeta 제외)이 API 오류면 그 이유, 아니면 null.
+// 이 필드가 생기기 전 캐시를 위해서다. 오류 뒤에는 대화가 아닌 줄(last-prompt, turn_duration 등)만 붙는다.
+export function tailStopReason(path) {
+  const lines = tailLines(path);
+  if (!lines) return null;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const l = lines[i];
+    if (!l.includes('"type":"assistant"') && !l.includes('"type":"user"')) continue;
+    try {
+      const x = JSON.parse(l);
+      if ((x.type === 'assistant' || x.type === 'user') && x.message && !x.isMeta) return stopReasonOf(x);
+    } catch {}
+  }
+  return null;
 }
 
 export class ClaudeTracker {
@@ -56,13 +89,18 @@ export class ClaudeTracker {
     const c = loadCache(path);
     if (c) {
       this.tail.offset = c.offset;
-      Object.assign(this, { tokens: c.tokens, cost: c.cost, costNoCache: c.costNoCache, costUnknown: c.costUnknown, context: c.context, model: c.model, title: c.title, customTitle: c.customTitle ?? null, branch: c.branch, events: c.events, lastTool: c.lastTool, lastKind: c.lastKind, files: c.files ?? [], turns: c.turns ?? [], turnCount: c.turnCount ?? 0, firstAt: c.firstAt ?? null, activity: c.activity ?? {} });
+      Object.assign(this, { tokens: c.tokens, cost: c.cost, costNoCache: c.costNoCache, costUnknown: c.costUnknown, context: c.context, model: c.model, title: c.title, customTitle: c.customTitle ?? null, branch: c.branch, events: c.events, lastTool: c.lastTool, lastKind: c.lastKind, files: c.files ?? [], turns: c.turns ?? [], turnCount: c.turnCount ?? 0, firstAt: c.firstAt ?? null, activity: c.activity ?? {}, stopReason: c.stopReason ?? null });
       this.recent = new Map(c.recent);
       this.pending = new Map(c.pending);
       // 이 필드가 생기기 전 캐시는 이미 지나간 custom-title 을 모른다. 끝부분을 한 번 훑어 채우고 캐시에 다시 적어
       // 새 줄이 없어도 다음 실행에서 또 훑지 않게 한다 (캐시 버전은 그대로).
       if (!('customTitle' in c)) {
         this.customTitle = tailCustomTitle(path) ?? null;
+        markDirty(path, () => this.snapshot());
+      }
+      // 멈춘 이유도 같은 방식으로 한 번만 채운다 (캐시 버전은 그대로).
+      if (!('stopReason' in c)) {
+        this.stopReason = tailStopReason(path);
         markDirty(path, () => this.snapshot());
       }
     }
@@ -91,6 +129,9 @@ export class ClaudeTracker {
     this.firstAt = null;
     // 시간별 토큰 (common.mjs addActivity)
     this.activity = {};
+    // 마지막 대화 줄이 API 오류면 멈춘 이유 { kind: 'auth'|'network'|'api' } (stopReasonOf), 아니면 null.
+    // 그 뒤 정상 assistant 줄이나 사용자 줄이 오면 지운다.
+    this.stopReason = null;
   }
 
   get path() {
@@ -135,6 +176,7 @@ export class ClaudeTracker {
       turnCount: this.turnCount,
       firstAt: this.firstAt,
       activity: this.activity,
+      stopReason: this.stopReason,
     };
   }
 
@@ -166,6 +208,8 @@ export class ClaudeTracker {
     if (x.gitBranch) this.branch = x.gitBranch;
     if (this.firstAt == null && x.timestamp) this.firstAt = parseTs(x.timestamp);
     if (x.isMeta) return;
+
+    if ((x.type === 'assistant' || x.type === 'user') && x.message) this.stopReason = stopReasonOf(x);
 
     if (x.type === 'assistant' && x.message) {
       const m = x.message;

@@ -37,7 +37,7 @@ Native Windows support is early (Windows Terminal recommended): Claude Code and 
 
 ## Features
 
-- **Live status** of every session and its subagents: thinking, running a tool, waiting for you, idle. Subagent rows show how long they have run ([details](#subagents))
+- **Live status** of every session and its subagents: thinking, running a tool, waiting for you, idle, or stopped by an error (`! Login needed`, `! Connection lost`, read from the API error lines Claude Code already logs; it sorts right under waiting and pinned sessions and never counts as done). Subagent rows show how long they have run ([details](#subagents))
 - **Waiting alerts**: blocked sessions jump to the top, with optional bell, desktop notification or hook command
 - **Tokens and cost** per session and for today / last 7 days, estimated at public API list prices. This is not your bill
 - **Changed files and diffs** per session and per prompt
@@ -64,7 +64,7 @@ The language is picked from `--lang`, then `AITOP_LANG`, then `lang` in the conf
 
 To continue a session elsewhere (for example when you cannot jump to its tab, as in Windows Terminal with WSL), the detail panel shows a `Resume` command and `y` copies it to the clipboard with OSC 52: Claude `cd <dir> && claude --resume <id>`, Codex `cd <dir> && codex resume <id>`, Antigravity `cd <dir> && agy --conversation <id>` (none for Gemini CLI). A session from a data folder other than `~/.claude` / `~/.codex` (or any session while `CLAUDE_CONFIG_DIR` / `CODEX_HOME` is set) gets `CLAUDE_CONFIG_DIR=<dir>` / `CODEX_HOME=<dir>` before the tool so it finds the right history. Claude finds sessions per folder, so without a known folder no command is made; ids that are not UUIDs make none either. A short detail panel leaves the command out; use `y` or `--json` then. Paths and ids are shell quoted and control characters are stripped. Windows Terminal, WezTerm, iTerm2 and kitty accept OSC 52; tmux needs `set -g set-clipboard on`; other terminals ignore it silently, so copy the command from the panel. Nothing is sent to the session. `--json` has the same command as `resumeCmd` per session (`null` if none).
 
-In `--json`, `phase` stays the Korean status text in every language (as does `AITOP_WAITING_FOR` for `--on-waiting`). Session `name` uses the same user-given names as the table: a Codex session's `name` changes from the folder name to its `thread_name` once it has one. For scripts, use `phaseKind`, a stable state name: `think`, `write`, `tool`, `team`, `waiting`, `idle`, `done`, `ended` (or `null`). Other text fields follow their own rules: with English selected, `--doctor --json` has Korean `tools.*.hint` but English `config.problems`.
+In `--json`, `phase` stays the Korean status text in every language (as does `AITOP_WAITING_FOR` for `--on-waiting`). Session `name` uses the same user-given names as the table: a Codex session's `name` changes from the folder name to its `thread_name` once it has one. For scripts, use `phaseKind`, a stable state name: `think`, `write`, `tool`, `team`, `waiting`, `idle`, `stopped`, `done`, `ended` (or `null`). `stopped` is an idle Claude session whose last log entry is an API error; `stopReason` then says why (`{ "kind": "auth" }` login needed, `network` connection lost, `api` any other API error), `null` otherwise. Other text fields follow their own rules: with English selected, `--doctor --json` has Korean `tools.*.hint` but English `config.problems`.
 
 ### Subagents
 
@@ -109,7 +109,7 @@ aitop --on-waiting 'my-hook.sh'      run a command with /bin/sh -c for the same 
 ```
 
 - `waiting`: a session starts waiting for your approval or answer.
-- `done`: a session that was busy for over 3 minutes in one turn (config `doneMinutes`; time spent waiting for approval does not count) goes idle and stays idle for 5 seconds. Brief idle gaps between tool calls, approval waits, ended sessions, subagents and sessions whose status is guessed from file times are not reported. Once per turn.
+- `done`: a session that was busy for over 3 minutes in one turn (config `doneMinutes`; time spent waiting for approval does not count) goes idle and stays idle for 5 seconds. Brief idle gaps between tool calls, approval waits, ended sessions, subagents, sessions stopped by an API error and sessions whose status is guessed from file times are not reported. Once per turn.
 - `context`: context use passes 90%, once; it re-arms after it drops below 85% (for example after compaction).
 
 The hook keeps its name: it gets `AITOP_EVENT` (`waiting`, `done` or `context`) plus `AITOP_TOOL`, `AITOP_PROJECT`, `AITOP_SESSION_ID`, `AITOP_CWD` and `AITOP_WAITING_FOR` in its environment. Config file: `"notify": true` or `"notify": ["waiting", "done", "context"]`, `"onWaiting": "..."` (file must be `chmod 600`), `"doneMinutes": 5`. Plain `--notify` keeps the kinds from the config `notify` list (waiting only when there is none). `--no-notify` turns off only the desktop notification: the hook still follows those kinds. `--bell` stays waiting only.
