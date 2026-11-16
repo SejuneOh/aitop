@@ -7,7 +7,7 @@ export const BIN = fileURLToPath(new URL('../../bin/aitop.mjs', import.meta.url)
 
 // 이 PC 에서 실제로 돌고 있는 agy 의 기록을 읽지 않게 한다 (기록 폴더가 없으면 agy 를 보지 않는다).
 process.env.AITOP_AGY_HOME = '/nonexistent/aitop-e2e-agy';
-export const SESSION_ID = 'e2e00000-1';
+export const SESSION_ID = 'e2e00000-0000-4000-8000-000000000001';
 
 export function makeSession() {
   const fx = makeClaudeHome();

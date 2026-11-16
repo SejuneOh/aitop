@@ -19,7 +19,7 @@ const KEY = { right: '\x1b[C', left: '\x1b[D', enter: '\r', esc: '\x1b' };
 const WAIT_MS = 8_000;
 
 test('f → ←/→ → Enter → Esc 로 오가고, Esc 로는 끝나지 않고 q 로 끝난다', { skip: !hasScript && 'util-linux script 없음', timeout: 120_000 }, async () => {
-  makeSession();
+  const fx = makeSession();
   // 경로는 환경 변수로 넘겨 따옴표가 든 경로에서도 명령이 깨지지 않게 한다.
   const cmd = 'stty cols 140 rows 45; exec "$AITOP_NODE" "$AITOP_BIN"';
   const child = spawn('script', ['-qfec', cmd, '/dev/null'], { env: { ...process.env, AITOP_NODE: process.execPath, AITOP_BIN: BIN } });
@@ -61,6 +61,12 @@ test('f → ←/→ → Enter → Esc 로 오가고, Esc 로는 끝나지 않고
     await press(KEY.esc);
     await sleep(1_500);
     assert.equal(child.exitCode, null, 'Esc 로는 끝나지 않는다');
+    // y: 이어 여는 명령을 OSC 52 로 쓰고 키 줄에 복사 알림을 보인다 (#214).
+    await press('y');
+    await waitFor(/이어 여는 명령을 클립보드로 보냄/, '복사 알림');
+    // 기록이 임시 CLAUDE_CONFIG_DIR 에 있으므로 명령이 그 폴더를 집는다 (#212).
+    const want = Buffer.from(`cd /work/demo && CLAUDE_CONFIG_DIR=${fx.home} claude --resume ${SESSION_ID}`).toString('base64');
+    assert.ok(out.includes(`\x1b]52;c;${want}\x07`), 'OSC 52 로 명령을 쓴다');
     await press('q');
     const code = await Promise.race([exited, sleep(5_000).then(() => 'timeout')]);
     assert.equal(code, 0, 'q 로 끝난다');

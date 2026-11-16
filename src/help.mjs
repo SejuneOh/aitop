@@ -33,6 +33,7 @@ export const VIEWS = {
     keys: [
       k('detail.switch', '↑↓ j k', 'switchSession', '↑↓/jk'),
       k('detail.files', 'f Tab', 'files'),
+      k('detail.copy', 'y', 'copy'),
       k('detail.close', 'd', 'close'),
     ],
   },
@@ -128,7 +129,7 @@ export function viewText(v, lang = getLang()) {
 // aitop --help 끝의 키 안내. 지금 언어(bin 이 정한다)로 쓴다.
 export function keysText(lang = getLang()) {
   const title = (n) => t(`view.${n}`, null, { lang });
-  return [`${t('help.keys', null, { lang })}: ${keysLine('table', lang)} · ${keysLine('common', lang)}`, ...['files', 'diff', 'filtered', 'search'].map((n) => `  ${title(n)}: ${keysLine(n, lang)}`)].join('\n');
+  return [`${t('help.keys', null, { lang })}: ${keysLine('table', lang)} · ${keysLine('common', lang)}`, ...['detail', 'files', 'diff', 'filtered', 'search'].map((n) => `  ${title(n)}: ${keysLine(n, lang)}`)].join('\n');
 }
 
 // 지금 설정 값 한 줄 (예: 예산 $50 · 알림 켜짐 · 디버그 꺼짐). settings 가 없으면 null.

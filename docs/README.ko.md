@@ -271,6 +271,7 @@ end)
 | f / Tab | 변경 파일 목록으로. ←→ 지시 탭, ↑↓ 파일 고르기, Enter diff 보기 |
 | diff 에서 ↑↓ · space · [ ] | 스크롤 · 페이지 · 이전·다음 파일 |
 | d | 상세 열기·닫기 |
+| y | 고른 세션을 이어 여는 명령을 클립보드로 복사 (OSC 52). 상세 패널의 `이어 열기` 에 같은 명령이 보인다: Claude `cd <폴더> && claude --resume <id>`, Codex `cd <폴더> && codex resume <id>`, Antigravity `cd <폴더> && agy --conversation <id>` (Gemini CLI 는 없음). `~/.claude`·`~/.codex` 가 아닌 기록 폴더의 세션(또는 `CLAUDE_CONFIG_DIR`·`CODEX_HOME` 이 설정된 때의 세션)은 도구 앞에 `CLAUDE_CONFIG_DIR=<폴더>`·`CODEX_HOME=<폴더>` 를 붙여 맞는 기록을 찾게 한다. Claude 는 작업 폴더별로 기록을 찾으므로 폴더를 모르면 명령을 만들지 않는다. id 가 UUID 가 아니면 만들지 않는다. 상세 패널이 낮으면 명령 줄을 빼므로 그때는 y 나 `--json` 을 쓴다. 경로·id 는 셸 따옴표로 감싸고 제어 문자는 지운다. Windows Terminal · WezTerm · iTerm2 · kitty 는 받고, tmux 는 `set -g set-clipboard on` 이 있어야 한다. 지원하지 않는 터미널은 조용히 무시하므로 그때는 화면의 명령을 직접 복사한다. 세션에는 아무것도 보내지 않는다. `--json` 에는 세션마다 `resumeCmd` (없으면 `null`) 로 나간다 |
 | e | 종료된 세션 보이기·숨기기 |
 | c | 비용 기준 전환: API 환산(캐시 포함, 기본) ↔ 캐시 제외(입력·출력만). 표·헤더·상세가 같이 바뀐다 |
 | ? | 도움말. 지금 화면(세션 표·검색어가 걸린 표·상세·파일 목록·diff)의 키부터, 다른 화면 · 옵션 · 지금 설정 값 순으로 보인다. 열려 있는 동안은 ↑↓ j k space PgUp PgDn 스크롤, ? · Esc 닫기, q 나가기만 듣는다 |

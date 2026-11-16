@@ -212,6 +212,7 @@ const { createAttention, updateAttention, markSeen, nextAttention, windowTitle, 
 const { createNotifier } = await import('../src/notify.mjs');
 const { onKey, fixFocus } = await import('../src/keys.mjs');
 const { admit, createLoading, latchReady } = await import('../src/loading.mjs');
+const { osc52, resumeCmd } = await import('../src/resume.mjs');
 
 // 요청 전체 보기는 기본으로 꺼 둔다. 켜지 않으면 상세 패널에도 --json 에도 나가지 않는다.
 const showRequests = opt.showRequests;
@@ -405,8 +406,24 @@ function keepSelectionVisible() {
   if (list.length && !list.some((s) => s.id === view.selectedId)) select(list[0].id);
 }
 
+// y: 이어 여는 명령을 OSC 52 로 클립보드에 쓴다. 터미널이 아니면 아무것도 하지 않는다. 알림은 2초 보인다.
+const TOAST_MS = 2000;
+let toastTimer = null;
+function copy(s) {
+  if (!out.isTTY) return;
+  const cmd = resumeCmd(s);
+  if (cmd) out.write(osc52(cmd));
+  view.toast = { key: cmd ? 'foot.copied' : 'foot.copyNone', until: Date.now() + TOAST_MS };
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    view.toast = null;
+    draw();
+  }, TOAST_MS);
+}
+
 stdin.setEncoding('utf8');
 const act = {
+  copy,
   quit,
   refresh,
   move,

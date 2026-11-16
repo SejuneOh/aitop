@@ -67,6 +67,7 @@ const HELP_KO = `{logo} aitop - 터미널에서 Claude Code · Codex · Antigrav
                    캐시만 읽는다. 캐시가 없어 1.5초 안에 못 읽으면 ... 을 낸다. 작업 중 수와 Antigravity 의 대기 수는
                    1분 안에 aitop 화면·--once·--json 이 남긴 요약이 있을 때만 보인다
   aitop --json     세션 목록과 사용량 합계를 JSON 으로 한 번 출력한다 (--all 과 함께 쓸 수 있다)
+                   세션마다 resumeCmd 에 그 세션을 이어 여는 명령을 넣는다 (예: cd /repo && claude --resume <id>, 없으면 null)
   aitop --report daily [--by tool|model|project] [--days N] [--json]  최근 N일(기본·최대 30)의 날짜별 토큰·비용(API 정가 환산)을
                    도구별·모델별·프로젝트별 표로 내고 끝낸다. 최근 날짜가 위, 맨 아래는 합계. 처음 실행은 30일치 기록을 읽느라 오래 걸릴 수 있다
                    프로젝트는 작업 폴더의 마지막 이름이고, 열이 터미널 폭을 넘으면 비용이 작은 쪽을 (그 외) 로 합친다
@@ -105,7 +106,8 @@ const HELP_KO = `{logo} aitop - 터미널에서 Claude Code · Codex · Antigrav
     옵션 > 환경 변수 > 설정 파일 순서로 정한다. 잘못된 값은 무시하고 --doctor 에 알린다.
 
 {keys}
-  실시간 화면에서 ? 를 누르면 지금 화면의 키부터 보인다`;
+  실시간 화면에서 ? 를 누르면 지금 화면의 키부터 보인다
+  y 는 고른 세션을 이어 여는 명령을 OSC 52 로 클립보드에 복사한다. 지원하지 않는 터미널(tmux 는 set-clipboard on 필요)은 조용히 무시하니 상세 패널의 명령을 직접 복사한다`;
 
 const HELP_EN = `{logo} aitop - watch Claude Code, Codex, Antigravity and Gemini sessions live in your terminal
 
@@ -118,6 +120,7 @@ const HELP_EN = `{logo} aitop - watch Claude Code, Codex, Antigravity and Gemini
                    Reads only the cache. With no cache it prints ... after 1.5 seconds. The running count and waiting Antigravity sessions
                    show only when the live screen, --once or --json left a summary in the last minute
   aitop --json     print the session list and usage totals as JSON once (works with --all)
+                   Each session has resumeCmd, the command that reopens it (e.g. cd /repo && claude --resume <id>, null if none)
   aitop --report daily [--by tool|model|project] [--days N] [--json]  print daily tokens and cost (API list price) for the last N days
                    (default and max 30) by tool, model or project, then exit. Newest day first, total at the bottom. The first run reads 30 days of logs and may take a while
                    A project is the last folder name of the working directory. Columns beyond the terminal width are merged into (others)
@@ -157,7 +160,8 @@ const HELP_EN = `{logo} aitop - watch Claude Code, Codex, Antigravity and Gemini
     Order: option > env var > config file. Bad values are ignored and reported by --doctor.
 
 {keys}
-  Press ? on the live screen to see the keys for the current view first`;
+  Press ? on the live screen to see the keys for the current view first
+  y copies the selected session's resume command to the clipboard with OSC 52. Terminals without it (tmux needs set-clipboard on) ignore it silently, so copy it from the detail panel`;
 
 export const STRINGS = {
   ko: {
@@ -184,6 +188,7 @@ export const STRINGS = {
     'key.back': '뒤로',
     'key.switchSession': '세션 바꾸기',
     'key.close': '닫기',
+    'key.copy': '명령 복사',
     'key.pick': '고르기',
     'key.promptTab': '지시 탭',
     'key.diff': 'diff',
@@ -384,6 +389,8 @@ export const STRINGS = {
     'foot.showDetail': '상세 열기',
     'foot.unpin': '고정 해제',
     'foot.costMode': '비용 기준',
+    'foot.copied': '이어 여는 명령을 클립보드로 보냄 (OSC 52)',
+    'foot.copyNone': '이 세션은 이어 여는 명령이 없다',
     'foot.clearSearch': '검색 지우기',
 
     'help.title': '도움말  ·  ? 또는 Esc 로 닫기',
@@ -429,6 +436,7 @@ export const STRINGS = {
     'hk.detail.switch': '다른 세션을 고르면 상세도 따라 바뀐다',
     'hk.detail.files': '변경 파일 목록으로',
     'hk.detail.close': '상세 패널 닫기',
+    'hk.detail.copy': '이어 여는 명령을 클립보드로 복사 (OSC 52, 지원하지 않는 터미널은 조용히 무시)',
     'hk.files.pick': '파일 고르기',
     'hk.files.tabs': '지시 탭: 이번 지시 · 편집이 있던 이전 지시 T번호 · 전체',
     'hk.files.diff': '고른 파일의 diff 보기',
@@ -500,6 +508,7 @@ export const STRINGS = {
     'detail.sub': ' +서브{n}',
     'detail.netTag': '캐시제외 ',
     'detail.session': '세션',
+    'detail.resume': '이어 열기',
     'detail.folder': '폴더',
     'detail.branch': '브랜치',
     'detail.model': '모델',
@@ -555,6 +564,7 @@ export const STRINGS = {
     'key.back': 'back',
     'key.switchSession': 'switch session',
     'key.close': 'close',
+    'key.copy': 'copy cmd',
     'key.pick': 'pick',
     'key.promptTab': 'prompt tabs',
     'key.diff': 'diff',
@@ -752,6 +762,8 @@ export const STRINGS = {
     'foot.showDetail': 'show detail',
     'foot.unpin': 'unpin',
     'foot.costMode': 'cost',
+    'foot.copied': 'resume command sent to clipboard (OSC 52)',
+    'foot.copyNone': 'no resume command for this session',
     'foot.clearSearch': 'clear search',
 
     'help.title': 'Help  ·  ? or Esc to close',
@@ -796,6 +808,7 @@ export const STRINGS = {
     'hk.detail.switch': 'Pick another session, the detail follows',
     'hk.detail.files': 'Open the changed files',
     'hk.detail.close': 'Close the detail panel',
+    'hk.detail.copy': 'Copy the resume command to the clipboard (OSC 52, terminals without it ignore it silently)',
     'hk.files.pick': 'Pick a file',
     'hk.files.tabs': 'Prompt tabs: latest, earlier (T number), all',
     'hk.files.diff': 'View the diff of the file',
@@ -865,6 +878,7 @@ export const STRINGS = {
     'detail.sub': ' +sub{n}',
     'detail.netTag': 'no cache ',
     'detail.session': 'Session',
+    'detail.resume': 'Resume',
     'detail.folder': 'Folder',
     'detail.branch': 'Branch',
     'detail.model': 'Model',

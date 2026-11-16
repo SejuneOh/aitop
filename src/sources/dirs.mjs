@@ -77,6 +77,18 @@ export const codexHomes = () => pick().codex;
 export const claudeProjectRoots = () => claudeDirs().map((d) => join(d, 'projects'));
 export const codexSessionRoots = () => codexHomes().map((h) => join(h, 'sessions'));
 
+// 기록 파일이 든 홈 (roots 가운데 path 가 그 아래 sessions/ 에 있는 것). 없으면 null.
+export const homeOf = (path, roots) => roots.find((h) => path.startsWith(join(h, 'sessions') + '/') || path.startsWith(join(h, 'sessions') + '\\')) ?? null;
+
+// 이어 열기 명령 앞에 붙일 환경 변수 (#214). 도구가 스스로 고르는 폴더(물려받은 변수가 없으면 ~/.claude, ~/.codex)와
+// 세션이 든 폴더가 같으면 null. 다르거나 셸에 물려받은 변수가 있으면 [변수 이름, 폴더] 로 그 폴더를 꼭 집어 준다.
+export function homeEnv(kind, dir, env = process.env, home = homedir()) {
+  if (!dir) return null;
+  const { inherited, home: base } = DIR_ENV[kind];
+  if (!env[inherited] && resolve(dir) === resolve(home, base)) return null;
+  return [inherited, dir];
+}
+
 // 여러 폴더에 같은 기록이 있으면(복사본, 링크) 한 번만 센다. key 가 같으면 더 최근에 바뀐 쪽, 같으면 앞 폴더 것.
 // items: [{ key, mtime, ... }]. 순서는 처음 나온 자리를 지킨다.
 export function dedupeBy(items) {

@@ -5,6 +5,7 @@ import { box, line, segsWidth } from './draw.mjs';
 import { glyphs, legendMark } from './glyphs.mjs';
 import { COMMON, VIEWS, helpContext, keysLine, options, settingsLine, viewText } from '../help.mjs';
 import { getLang, t } from '../i18n.mjs';
+import { resumeCmd } from '../resume.mjs';
 
 // 상세 패널을 기본으로 여는 최소 화면 높이. 이보다 낮으면 세션 표에 줄을 준다.
 export const DETAIL_MIN_H = 24;
@@ -128,8 +129,16 @@ function orderHint(view) {
   return { segs: [...segs, { t: '   ' }] };
 }
 
+// y 를 누른 뒤 잠깐 보이는 알림 (view.toast = { key, until }). 시간이 지나면 빠진다.
+function toastItem(view, now = Date.now()) {
+  const x = view.toast;
+  if (!x || now >= x.until) return [];
+  return [{ segs: [{ t: t(x.key), fg: x.key === 'foot.copied' ? PALETTE.busy : PALETTE.waiting, bold: true }, { t: '   ' }], keep: true }];
+}
+
 export function footer(view, W, matched, sel) {
   const RO = t('foot.readOnly');
+  const toast = toastItem(view);
   const tail = [
     { k: '?', t: t('foot.help'), keep: true },
     { k: 'q', t: t('key.quit'), keep: true },
@@ -146,7 +155,7 @@ export function footer(view, W, matched, sel) {
       view.focus === 'diff'
         ? [{ k: '↑↓', t: t('key.scroll') }, { k: 'space', t: t('key.page') }, { k: '[ ]', t: t('key.prevNext') }, { k: 'Esc', t: t('foot.toFiles'), keep: true }]
         : [{ k: '←→', t: t('foot.prompts') }, { k: '↑↓', t: t('foot.pickFile') }, { k: '⏎', t: t('foot.viewDiff') }, { k: 'Esc', t: t('foot.toSessions'), keep: true }];
-    return hintBar([...keys, ...tail], W, RO);
+    return hintBar([...toast, ...keys, ...tail], W, RO);
   }
   // 세션이 하나도 없으면 쓸 수 있는 키만 남긴다.
   if (!view.filter && !view.data?.sessions?.length) return hintBar([ended, ...tail], W, RO);
@@ -155,6 +164,7 @@ export function footer(view, W, matched, sel) {
     ? { segs: [{ t: ` /${view.filter} `, fg: PALETTE.chipText, bg: PALETTE.brand, bold: true }, { t: ` ${t('foot.count', { n: matched })} `, fg: PALETTE.muted }, keyChip('Esc'), keyLabel(t('foot.clearSearch'))], keep: true }
     : { k: '/', t: t('key.search') };
   const items = [
+    ...toast,
     search,
     { k: '↑↓', t: t('key.select') },
     { k: 'n', t: t('foot.next') },
@@ -163,8 +173,10 @@ export function footer(view, W, matched, sel) {
     { k: 'd', t: t(view.showDetail ? 'foot.hideDetail' : 'foot.showDetail') },
     ended,
     { k: 'c', t: t('foot.costMode') },
-    // 고정은 폭이 모자라면 가장 먼저 빠진다.
+    // 고정은 폭이 모자라면 복사 다음으로 빠진다.
     ...(sel ? [{ k: 'p', t: t(view.pins?.includes(sel.id) ? 'foot.unpin' : 'key.pin') }] : []),
+    // 복사(y)는 상세 패널에 이어 여는 명령이 보일 때만 안내하고, 폭이 모자라면 가장 먼저 빠진다.
+    ...(view.showDetail && resumeCmd(sel) ? [{ k: 'y', t: t('key.copy') }] : []),
     ...tail,
   ];
   return hintBar(items, W, RO);
