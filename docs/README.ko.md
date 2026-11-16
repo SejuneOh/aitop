@@ -69,6 +69,7 @@ aitop --print-config   설정 값마다 값과 출처(flag/env/file/default), �
 aitop --line     tmux 상태줄용 한 줄 (예: $54.13 wait 2 fix-login 3m run 3 $3.1/h). 아래 'tmux 상태줄' 참고
 aitop --report daily [--by tool|model|project] [--days N] [--json]  최근 N일의 날짜별 토큰·비용 표. 아래 '기간 리포트' 참고
 aitop --report monthly [--by tool|model|project] [--months N] [--json]  최근 N달(최대 12)의 달별 표. 아래 '기간 리포트' 참고
+aitop --report sessions [--since yesterday|7d|YYYY-MM-DD] [--md|--json] [--plan USD]  기간 안 세션별 비용. 아래 '세션 리포트' 참고
 aitop --lang ko|en  화면·--help·--doctor·오류 문구의 언어 (AITOP_LANG, 설정 파일 lang). 아래 '언어' 참고
 ```
 
@@ -123,6 +124,21 @@ Date            claude          agy       Total
 2026-11-09   461M $176   4.8M $0.83   466M $177
 ----------  ----------  -----------  ----------
 Total       1.69B $677  26.1M $4.45  1.71B $681
+```
+
+### 세션 리포트 (`--report sessions`)
+
+`aitop --report sessions [--since yesterday|today|Nd|YYYY-MM-DD] [--plan USD] [--md|--json] [--show-prompts]` 는 기간(기본: 어제 0시부터 지금까지, 최대 30일 전) 안에 사용량이 있는 세션을 비용이 큰 순서로 한 줄씩 보인다. 스탠드업이나 공유용이다.
+
+- 칸: 도구, 주된 모델(여럿이면 `+N`), 프로젝트(`--by project` 와 같은 규칙), 세션 이름(사용자 이름 > 도구가 붙인 제목 > 폴더), 기간 안 활동의 시작·끝, 토큰, 비용(API 정가 환산, 가격표에 없는 모델은 `?`), 고친 파일 수(모르면 `-`, agy 는 늘 `-`). Claude 서브에이전트는 부모 세션에 더한다.
+- 맨 위 요약 카드: 기간 합계, 도구별 비중, 세션 수. `--plan 200` 처럼 월 구독료를 주면 기간 몫(경과 일수/30)의 몇 배인지 보인다. 모두 API 정가 환산이며 실제 청구액이 아니다.
+- `--md` 는 그대로 붙여 넣을 Markdown(칸 안의 `|` 와 줄바꿈은 이스케이프), `--json` 은 `summary` 와 `sessions[]` 를 숫자로 낸다.
+- 첫 지시는 `--show-prompts` 일 때만 보인다 (한 줄, 약 60자). 기본 출력과 `--json` 에는 지시 글이 없다.
+- 시작·끝과 고친 파일은 장부와 따로 기록을 읽어(캐시 kind `sheet1`) 얻는다. 그래서 처음 실행은 기간 안 기록을 한 번 더 읽는다. agy 시작·끝은 장부의 호출 시각이라, 이 버전 전에 이미 센 날은 `-` 로 보일 수 있다.
+
+```
+aitop --report sessions --md --plan 200
+aitop --report sessions --since 7d --json
 ```
 
 ### 설정 파일

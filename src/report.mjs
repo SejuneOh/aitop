@@ -3,6 +3,7 @@
 // 줄은 최근 날짜가 위(오늘부터 거꾸로)이고, 맨 아래 합계 줄은 위 날짜 줄을 더한 값이다. --json 도 같은 값을 숫자로만 낸다.
 // 처음 읽는 동안 stderr 가 터미널이면 진행률을 보이고, 시간 상한을 넘으면 읽은 만큼으로 표를 내고 덜 읽었다고 알린다.
 // --report monthly: 최근 N달(기본·최대 12)의 달별 표. 지난 날은 월별 보관함(monthly.mjs), 접기 전의 날은 장부에서 센다.
+// --report sessions: 기간 안 세션별 한 줄과 요약 카드 (sessions-report.mjs).
 import { t } from './i18n.mjs';
 import { fmtTokens, pad, stripControl, truncate, width } from './text.mjs';
 import { money } from './line.mjs';
@@ -10,7 +11,7 @@ import { KEEP_DAYS, lastDays } from './sources/common.mjs';
 import { projectLabels } from './sources/projects.mjs';
 import { KEEP_MONTHS, lastMonths, monthOf, monthEnd } from './monthly.mjs';
 
-export const KINDS = ['daily', 'monthly'];
+export const KINDS = ['daily', 'monthly', 'sessions'];
 export const BY = ['tool', 'model', 'project'];
 // --by project 의 특별한 열: 프로젝트를 못 찾은 기록, 열 수 상한을 넘어 합친 나머지. --json 에도 이 이름 그대로 나간다.
 export const UNKNOWN = '(unknown)';
@@ -30,10 +31,37 @@ const PROGRESS_AFTER_MS = 400;
 const FLUSH_MS = 3000;
 const TOOLS = ['claude', 'codex', 'agy'];
 
+// --report sessions 의 기본 기간.
+export const DEFAULT_SINCE = 'yesterday';
+
+// --since 값 → { from: 기간 시작 ms(로컬 0시), back: 오늘부터 며칠 전인지, capped } 또는 { error }.
+// yesterday, today, Nd(N일 전 0시), YYYY-MM-DD(그날 0시). KEEP_DAYS 일 전보다 앞이면 KEEP_DAYS 일 전으로 줄인다 (capped).
+export function parseSince(raw, now = Date.now()) {
+  const d = new Date(now);
+  const at = (back) => new Date(d.getFullYear(), d.getMonth(), d.getDate() - back).getTime();
+  let back = null;
+  if (raw === 'today') back = 0;
+  else if (raw === 'yesterday') back = 1;
+  else if (/^\d+d$/.test(raw)) back = Number(raw.slice(0, -1));
+  else {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+    if (!m) return { error: raw === '' ? t('opt.sinceMissing') : t('opt.sinceBad', { value: JSON.stringify(raw) }) };
+    const day = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    // 2026-02-30 처럼 없는 날짜는 다음 달로 넘어가므로 되돌려 확인한다.
+    if (day.getFullYear() !== Number(m[1]) || day.getMonth() !== Number(m[2]) - 1 || day.getDate() !== Number(m[3])) return { error: t('opt.sinceBad', { value: JSON.stringify(raw) }) };
+    back = Math.round((at(0) - day.getTime()) / 86400_000);
+    if (back < 0) return { error: t('opt.sinceFuture', { value: JSON.stringify(raw) }) };
+  }
+  const capped = back > KEEP_DAYS;
+  back = Math.min(back, KEEP_DAYS);
+  return { from: at(back), back, capped };
+}
+
 // --report <kind>, --report=<kind>, --by <tool|model|project>, --by=..., --days <N>, --months <N> (= 꼴도) 를 꺼낸다.
 // kind 는 --report 를 주지 않았으면 null. --by·--days·--months 는 --report 와 함께일 때만 받는다.
-// --days 는 daily, --months 는 monthly 와만 쓴다. capped: --days 를 30으로(--months 를 12로) 줄였는지.
-export function reportOption(argv) {
+// --days 는 daily, --months 는 monthly 와만 쓴다. capped: --days 를 30으로(--months 를 12로, --since 를 30일 전으로) 줄였는지.
+// --report sessions 는 --since, --plan <USD>, --md, --show-prompts 를 받는다 (이 넷은 sessions 와만 쓴다). --by·--days·--months 는 받지 않는다.
+export function reportOption(argv, now = Date.now()) {
   let kind = null;
   let by = 'tool';
   let days = DEFAULT_DAYS;
@@ -42,10 +70,22 @@ export function reportOption(argv) {
   let gave = null;
   let error = null;
   let extra = false;
+  let since = null;
+  let plan = null;
+  let md = false;
+  let prompts = false;
+  let sessionsOnly = null;
+  let sinceRaw = DEFAULT_SINCE;
   const rest = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    const m = /^--(report|by|days|months)(?:=(.*))?$/.exec(a);
+    if (a === '--md' || a === '--show-prompts') {
+      sessionsOnly ??= a;
+      if (a === '--md') md = true;
+      else prompts = true;
+      continue;
+    }
+    const m = /^--(report|by|days|months|since|plan)(?:=(.*))?$/.exec(a);
     if (!m) {
       rest.push(a);
       continue;
@@ -55,8 +95,19 @@ export function reportOption(argv) {
     if (name === 'report') {
       if (KINDS.includes(raw)) kind = raw;
       else error ??= raw === '' ? t('opt.reportMissing') : t('opt.reportBad', { value: JSON.stringify(raw) });
+    } else if (name === 'since') {
+      sessionsOnly ??= '--since';
+      sinceRaw = raw;
+      const r = parseSince(raw, now);
+      if (r.error) error ??= r.error;
+    } else if (name === 'plan') {
+      sessionsOnly ??= '--plan';
+      const n = /^\d+(?:\.\d+)?$/.test(raw) ? Number(raw) : NaN;
+      if (n > 0) plan = n;
+      else error ??= raw === '' ? t('opt.planMissing') : t('opt.planBad', { value: JSON.stringify(raw) });
     } else if (name === 'by') {
       extra = true;
+      gave ??= 'by';
       if (BY.includes(raw)) by = raw;
       else error ??= raw === '' ? t('opt.byMissing') : t('opt.byBad', { value: JSON.stringify(raw) });
     } else {
@@ -71,9 +122,16 @@ export function reportOption(argv) {
       } else error ??= raw === '' ? t(`opt.${name}Missing`) : t(`opt.${name}Bad`, { value: JSON.stringify(raw) });
     }
   }
+  if (!error && sessionsOnly && kind !== 'sessions') error = t('opt.sessionsOnly', { opt: sessionsOnly });
   if (!error && extra && !kind) error = t('opt.reportOnly');
-  if (!error && gave && kind && (gave === 'days') !== (kind === 'daily')) error = t(gave === 'days' ? 'opt.daysDaily' : 'opt.monthsMonthly');
-  return { kind, by, days, months, capped, rest, error };
+  if (!error && kind === 'sessions' && gave) error = t('opt.notSessions', { opt: `--${gave}` });
+  if (!error && gave && gave !== 'by' && kind && (gave === 'days') !== (kind === 'daily')) error = t(gave === 'days' ? 'opt.daysDaily' : 'opt.monthsMonthly');
+  if (!error && kind === 'sessions') {
+    const r = parseSince(sinceRaw, now);
+    since = r.from;
+    capped = r.capped;
+  }
+  return { kind, by, days, months, capped, rest, error, since, plan, md, prompts };
 }
 
 const zero = () => ({ tokens: 0, cost: 0, unpriced: false });

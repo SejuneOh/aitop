@@ -103,12 +103,19 @@ export function codexProject(path) {
 
 // 대화 id → 작업 폴더. 서브에이전트는 작업 폴더가 비어 있으면 부모를 따라 올라간다. 리포트 한 번에 한 번만 읽는다.
 export function agyWorkspaces(root = AGY_ROOT) {
+  return new Map([...agyConversations(root)].map(([id, c]) => [id, c.cwd]));
+}
+
+// 대화 id → { cwd, title, root }. root: 부모를 끝까지 따라간 맨 위 대화 id (서브에이전트를 그 세션에 묶을 때 쓴다).
+// title 은 agy 가 붙인 대화 제목 (세션 리포트의 '그 밖 이름').
+export function agyConversations(root = AGY_ROOT) {
   const out = new Map();
   let db;
   try {
     db = openReadOnly(join(root, 'conversation_summaries.db'));
     if (!db) return out;
-    const rows = db.prepare('select conversation_id id, parent_conversation_id parent, workspace_uris ws from conversation_summaries').all();
+    // title 열은 예전 기록에 없을 수 있어 * 로 읽는다.
+    const rows = db.prepare('select * from conversation_summaries').all().map((r) => ({ id: r.conversation_id, parent: r.parent_conversation_id, ws: r.workspace_uris, title: r.title }));
     const byId = new Map(rows.map((r) => [r.id, r]));
     for (const r of rows) {
       let cur = r;
@@ -117,7 +124,9 @@ export function agyWorkspaces(root = AGY_ROOT) {
         cur = byId.get(cur.parent);
         cwd = cur ? cwdOf(cur.ws) : null;
       }
-      out.set(r.id, cwd);
+      let top = r;
+      for (let i = 0; top.parent && byId.has(top.parent) && i < 10; i++) top = byId.get(top.parent);
+      out.set(r.id, { cwd, title: typeof r.title === 'string' && r.title ? r.title : null, root: top.id });
     }
   } catch (e) {
     debugIo('report', 'agy workspaces read failed', e);

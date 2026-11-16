@@ -96,7 +96,15 @@ export class AgyBook {
       if (last < n.idx) n = { idx: -1, model: null, days: {}, slots: {} };
       result = has
         ? readCalls(db, n, last, budget, mtime, ({ model, usage: u, cost, at }) => {
+            const fresh = !n.days[dayKey(at)];
             const day = (n.days[dayKey(at)] ??= { tokens: 0, cost: 0, costNoCache: 0, unknown: false });
+            // 그날 첫·마지막 호출 시각 (세션 리포트의 시작·끝). 장부 kind 는 그대로라 예전 캐시에서 불러온 날에는 a 가 없다.
+            // 그런 날(이미 센 호출이 있는데 a 가 없는 날)은 첫 호출을 모르므로 a 를 채우지 않는다 (시작은 '모름').
+            // z 는 마지막 호출이라 이어서 갱신해도 맞다.
+            if (Number.isFinite(at)) {
+              if ((fresh || day.a != null) && !(day.a <= at)) day.a = at;
+              if (!(day.z >= at)) day.z = at;
+            }
             const tokens = u.input + u.output + u.cacheRead + u.cacheWrite;
             day.tokens += tokens;
             day.cost += cost?.total ?? 0;
