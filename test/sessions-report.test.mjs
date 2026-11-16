@@ -1,5 +1,6 @@
 // 세션 리포트 (--report sessions, #215): --since 해석, 옵션 오류, 세션 묶기(서브에이전트·agy 부모), 정렬, 기간 안 시작·끝,
-// 고친 파일 수, 세션 이름 순서, 요약 카드(도구별 비중, --plan), 표·Markdown·JSON 모양, 첫 지시는 --show-prompts 일 때만.
+// 고친 파일 수, 세션 이름 순서, 요약 카드(도구별 비중, --plan), 표·Markdown·JSON 모양, 첫 지시는 --show-prompts 일 때만,
+// 기다린 시간 추정 (#243: 에이전트 응답 뒤 사용자 입력까지, 간격당 2시간 상한, 날짜 경계, 서브에이전트 제외).
 process.env.TZ = 'Asia/Seoul';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -15,7 +16,7 @@ process.env.CODEX_HOME = join(root, 'codex');
 const { reportOption, parseSince } = await import('../src/report.mjs');
 const { KEEP_DAYS } = await import('../src/sources/common.mjs');
 const { buildSessions, collectSessions, formatSessions, sessionsMarkdown, sessionsJson, mdCell, claudeSession } = await import('../src/sessions-report.mjs');
-const { SessionSheet } = await import('../src/sources/sheets.mjs');
+const { SessionSheet, WAIT_CAP_MS } = await import('../src/sources/sheets.mjs');
 const { setLang } = await import('../src/i18n.mjs');
 
 const NOW = Date.parse('2026-11-16T14:30:00+09:00');
@@ -91,14 +92,15 @@ function sample() {
         custom: '리포트 | 작업',
         title: 'AI 제목',
         days: {
-          '2026-11-14': { a: ms('2026-11-14T08:00:00+09:00'), z: ms('2026-11-14T09:00:00+09:00'), f: ['/work/app/old.mjs'], p: '지난 지시' },
-          '2026-11-15': { a: ms('2026-11-15T10:00:00+09:00'), z: ms('2026-11-15T11:00:00+09:00'), f: ['/work/app/a.mjs'], p: '비밀\n지시 sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAA 입니다' },
+          '2026-11-14': { a: ms('2026-11-14T08:00:00+09:00'), z: ms('2026-11-14T09:00:00+09:00'), f: ['/work/app/old.mjs'], p: '지난 지시', w: 999_000 },
+          '2026-11-15': { a: ms('2026-11-15T10:00:00+09:00'), z: ms('2026-11-15T11:00:00+09:00'), f: ['/work/app/a.mjs'], p: '비밀\n지시 sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAA 입니다', w: 600_000 },
         },
       },
     ],
-    ['/c/projects/-w/aaa/subagents/agent-x.jsonl', { custom: null, title: null, days: { '2026-11-16': { a: ms('2026-11-16T09:00:00+09:00'), z: ms('2026-11-16T09:10:00+09:00'), f: ['/work/app/a.mjs', '/work/app/b.mjs'] } } }],
-    ['/c/projects/-w/bbb.jsonl', { custom: null, title: null, days: { '2026-11-16': { a: ms('2026-11-16T12:00:00+09:00'), z: ms('2026-11-16T13:00:00+09:00'), f: [] } } }],
-    ['/x/sessions/2026/11/16/rollout-1.jsonl', { custom: 'codex 이름', title: null, days: { '2026-11-16': { a: ms('2026-11-16T11:00:00+09:00'), z: ms('2026-11-16T11:30:00+09:00'), f: ['/r/x.py'] } } }],
+    // 서브에이전트 기록의 w 는 세지 않는다 (부모 세션 기준).
+    ['/c/projects/-w/aaa/subagents/agent-x.jsonl', { custom: null, title: null, days: { '2026-11-16': { a: ms('2026-11-16T09:00:00+09:00'), z: ms('2026-11-16T09:10:00+09:00'), f: ['/work/app/a.mjs', '/work/app/b.mjs'], w: 5_000_000 } } }],
+    ['/c/projects/-w/bbb.jsonl', { custom: null, title: null, days: { '2026-11-16': { a: ms('2026-11-16T12:00:00+09:00'), z: ms('2026-11-16T13:00:00+09:00'), f: [], w: 4_320_000 } } }],
+    ['/x/sessions/2026/11/16/rollout-1.jsonl', { custom: 'codex 이름', title: null, days: { '2026-11-16': { a: ms('2026-11-16T11:00:00+09:00'), z: ms('2026-11-16T11:30:00+09:00'), f: ['/r/x.py'], w: 60_000 } } }],
   ]);
   const agy = new Map([
     ['g1', { cwd: '/work/agy', title: 'agy 대화', root: 'g1' }],
@@ -143,6 +145,12 @@ test('세션 묶기·정렬·시작끝·파일·이름: 비용 큰 순, 기간 �
   assert.deepEqual(Object.keys(r.summary.tools), ['claude', 'agy', 'codex']);
   assert.ok(Math.abs(r.summary.tools.claude.share - 26 / 29) < 1e-9);
   assert.equal(r.summary.plan, null);
+  // 기다린 시간: 기간 안 날만, 부모 기록만. agy 는 모름.
+  assert.equal(a.waited, 600_000, '11-14 몫과 서브에이전트 몫은 빠진다');
+  assert.equal(r.sessions[0].waited, 4_320_000);
+  assert.equal(g.waited, null);
+  assert.equal(c.waited, 60_000);
+  assert.equal(r.summary.waited, 4_980_000);
 });
 
 test('이름 순서: 사용자 이름 > 그 밖 이름(ai-title) > 폴더', () => {
@@ -174,9 +182,12 @@ test('표: 요약 카드, 머리글, 첫 지시는 --show-prompts 일 때만 (�
   assert.match(text, /^세션 리포트 · 2026-11-15 00:00 ~ 2026-11-16 14:30 \(1\.6일\)/);
   assert.match(text, /합계 \$29\.00 \(API 정가 환산\) · 토큰 3\.5M · 세션 4개/);
   assert.match(text, /도구별 비용 비중: claude 90% · agy 10% · codex 0%/);
-  assert.match(text, /^도구 +모델 +프로젝트 +세션 +시작 +끝 +토큰 +비용 +파일$/m);
-  assert.match(text, /^claude +claude-opus-5-5 \+1 +app +리포트 \| 작업 +11-15 10:00 +11-16 09:10 +1\.5M +\$6\.00 +2$/m);
-  assert.match(text, /^agy .* 11-16 09:00 +10:05 .* -$/m);
+  assert.match(text, /에이전트가 기다린 시간 1h23m \(추정\)/);
+  assert.match(text, /^도구 +모델 +프로젝트 +세션 +시작 +끝 +기다림 +토큰 +비용 +파일$/m);
+  assert.match(text, /^claude +claude-opus-5-5 \+1 +app +리포트 \| 작업 +11-15 10:00 +11-16 09:10 +10m00s +1\.5M +\$6\.00 +2$/m);
+  assert.match(text, /^claude +.* web +11-16 12:00 +13:00 +1h12m +2\.0M/m);
+  assert.match(text, /^agy .* 11-16 09:00 +10:05 +- .* -$/m);
+  assert.match(text, /기다림은 .*추정.*자리 비움과 구분하지 못함/);
   assert.doesNotMatch(text, /지시|비밀/);
   const shown = formatSessions(r, { cols: 200, prompts: true });
   assert.match(shown, /첫 지시/);
@@ -184,7 +195,13 @@ test('표: 요약 카드, 머리글, 첫 지시는 --show-prompts 일 때만 (�
   assert.doesNotMatch(shown, /sk-ant-api03-AAAA/);
   assert.doesNotMatch(shown, /지난 지시/, '기간 밖 날의 지시는 쓰지 않는다');
   setLang('en');
-  assert.match(formatSessions(r), /^Tool +Model +Project +Session +Start +End +Tokens +Cost +Files$/m);
+  assert.match(formatSessions(r), /^Tool +Model +Project +Session +Start +End +Waited +Tokens +Cost +Files$/m);
+  assert.match(formatSessions(r), /Agents waited for you 1h23m \(estimate\)/);
+  // 기다린 시간을 아는 세션이 없으면 카드 줄을 두지 않는다.
+  assert.doesNotMatch(formatSessions(buildSessions(books, { since: SINCE, now: NOW })), /Agents waited/);
+  // 좁은 터미널: 세션 이름 칸만 줄고 기다림 칸은 남는다.
+  const narrow = formatSessions(r, { cols: 80 });
+  assert.match(narrow, /^Tool +Model +Project +Session +Start +End +Waited +Tokens +Cost +Files$/m);
   assert.match(formatSessions(buildSessions([], { since: SINCE, now: NOW })), /No session used tokens in this period/);
   setLang('ko');
 });
@@ -199,8 +216,9 @@ test('Markdown: 요약 줄과 표, 칸 안의 | 와 줄바꿈은 이스케이프
   assert.match(lines[0], /^\*\*세션 리포트/);
   assert.ok(lines.some((l) => /^- 합계 \*\*\$29\.00\*\* \(API 정가 환산\)/.test(l)));
   assert.ok(lines.some((l) => /^- 구독료 .*API 정가 환산, 실제 청구액이 아님/.test(l)));
-  assert.ok(lines.includes('| 도구 | 모델 | 프로젝트 | 세션 | 시작 | 끝 | 토큰 | 비용 | 파일 |'));
-  assert.ok(lines.includes('| claude | claude-opus-5-5 +1 | app | 리포트 \\| 작업 | 11-15 10:00 | 11-16 09:10 | 1.5M | $6.00 | 2 |'));
+  assert.ok(lines.some((l) => /^- 에이전트가 기다린 시간 \*\*1h23m\*\* \(추정\)$/.test(l)));
+  assert.ok(lines.includes('| 도구 | 모델 | 프로젝트 | 세션 | 시작 | 끝 | 기다림 | 토큰 | 비용 | 파일 |'));
+  assert.ok(lines.includes('| claude | claude-opus-5-5 +1 | app | 리포트 \\| 작업 | 11-15 10:00 | 11-16 09:10 | 10m00s | 1.5M | $6.00 | 2 |'));
   // 표 줄은 모두 같은 칸 수 (이스케이프한 | 는 세지 않는다).
   const cells = (l) => l.replace(/\\\|/g, '').split('|').length;
   const rows = lines.filter((l) => l.startsWith('|'));
@@ -224,6 +242,9 @@ test('--json: 숫자는 숫자로, 시각은 ISO, 첫 지시는 --show-prompts �
   assert.equal(j.sessions[1].start, '2026-11-15T01:00:00.000Z');
   assert.equal(j.sessions[1].files, 2);
   assert.equal(j.sessions[2].files, null);
+  assert.equal(j.summary.waitedMs, 4_980_000);
+  assert.equal(j.sessions[1].waitedMs, 600_000);
+  assert.equal(j.sessions[2].waitedMs, null);
   assert.ok(j.sessions.every((s) => !('prompt' in s)));
   const p = sessionsJson(r, '9.9.9', { prompts: true, partial: true });
   assert.equal(p.partial, true);
@@ -249,13 +270,100 @@ test('기록 요약(Claude): 날짜별 첫·마지막 활동, 고친 파일, 첫
   s.update();
   assert.equal(s.custom, '나중 이름');
   assert.equal(s.title, '자동 제목');
-  assert.deepEqual(s.days['2026-11-15'], { a: ms('2026-11-15T09:00:00+09:00'), z: ms('2026-11-15T09:04:00+09:00'), f: ['/w/a.mjs'], p: '첫 지시입니다' });
+  // 09:04 도구 결과 뒤 다음 날 10:00 지시: 간격이 길어 앞 2시간만 11-15 에 센다.
+  assert.deepEqual(s.days['2026-11-15'], { a: ms('2026-11-15T09:00:00+09:00'), z: ms('2026-11-15T09:04:00+09:00'), f: ['/w/a.mjs'], p: '첫 지시입니다', w: WAIT_CAP_MS });
   assert.deepEqual(s.days['2026-11-16'].f, ['/w/b.mjs']);
   assert.equal(s.days['2026-11-16'].p, '둘째 날 지시');
   // 서브에이전트 기록의 지시는 세션 첫 지시로 쓰지 않는다.
   const sub = new SessionSheet(p, 'claude', { sub: true });
   sub.update();
   assert.equal(sub.days['2026-11-15'].p, undefined);
+});
+
+test('기다린 시간(Claude): 응답 뒤 지시·허락 답까지, 큐·알림·끊기·사이드체인 제외, 2시간 상한은 날짜별로 나눈다', () => {
+  const at = (iso, row) => ({ ...row, timestamp: new Date(iso).toISOString() });
+  const T = (hm, day = '15') => `2026-11-${day}T${hm}:00+09:00`;
+  const human = (hm, text, extra = {}, day) => at(T(hm, day), { ...user(text), origin: { kind: 'human' }, ...extra });
+  const reply = (hm, day) => at(T(hm, day), assistant(`m${hm}${day ?? ''}`, [], usage(1, 1)));
+  const result = (hm, extra = {}) => at(T(hm), { ...user([{ type: 'tool_result', tool_use_id: 'x', content: 'ok' }]), ...extra });
+  const rows = [
+    human('10:00', '시작'),
+    reply('10:01'),
+    result('10:02'),
+    reply('10:03'),
+    // 허락 창에서 사용자가 고른 결과: 10:03 → 10:08 (5분).
+    result('10:08', { permissionDecision: { decision: 'accept', source: 'user_temporary' } }),
+    // 설정으로 자동 허락된 결과는 에이전트 쪽이다.
+    result('10:09', { permissionDecision: { decision: 'accept', source: 'config' } }),
+    // 백그라운드 작업 알림은 사람 입력이 아니다.
+    at(T('10:10'), { ...user('<task-notification>끝</task-notification>'), origin: { kind: 'task-notification' } }),
+    reply('10:11'),
+    // 10:11 → 10:20 (9분).
+    human('10:20', '다음'),
+    reply('10:21'),
+    // 일하는 동안 넣어 둔 지시는 기다림이 아니다.
+    human('10:25', '큐', { promptSource: 'queued' }),
+    reply('10:26'),
+    // 끊은 때부터 다음 지시까지 (10:30 → 10:32, 2분).
+    at(T('10:30'), user('[Request interrupted by user]')),
+    // 예전 기록의 사이드체인 줄은 세지 않는다.
+    at(T('10:31'), { ...assistant('side', [], usage(1, 1)), isSidechain: true }),
+    human('10:32', '다시'),
+    // 질문 도구의 답 (예전 기록이라 permissionDecision 이 없다): 10:33 → 10:36 (3분).
+    reply('10:33'),
+    result('10:36', { toolUseResult: { questions: [], answers: {} } }),
+    // 23:00 응답, 다음 날 03:00 지시: 2시간 상한, 11-15 에 1시간, 11-16 에 1시간.
+    reply('23:00'),
+    human('03:00', '아침', {}, '16'),
+    // 예전 기록(origin 없음)의 슬래시 명령은 사람 입력이다: 03:01 → 03:05 (4분).
+    reply('03:01', '16'),
+    at(T('03:05', '16'), user('<command-name>/clear</command-name>')),
+  ];
+  const p = fx.transcript('wait0000-1', rows);
+  const s = new SessionSheet(p, 'claude');
+  s.update();
+  const min = 60_000;
+  assert.equal(s.days['2026-11-15'].w, (5 + 9 + 2 + 3 + 60) * min);
+  assert.equal(s.days['2026-11-16'].w, (60 + 4) * min);
+  assert.equal(s.agentAt, null);
+  // 이어 읽기: 응답 뒤에 끊긴 상태(agentAt)를 남겨 두었다가 다음 줄에서 센다.
+  writeFileSync(p, [...rows, reply('04:00', '16')].map((r) => JSON.stringify(r)).join('\n') + '\n');
+  s.update();
+  assert.equal(s.agentAt, ms(T('04:00', '16')));
+  assert.equal(s.snapshot().agentAt, ms(T('04:00', '16')));
+  writeFileSync(p, [...rows, reply('04:00', '16'), human('04:30', '이어서', {}, '16')].map((r) => JSON.stringify(r)).join('\n') + '\n');
+  s.update();
+  assert.equal(s.days['2026-11-16'].w, (60 + 4 + 30) * min);
+  // 서브에이전트 기록은 세지 않는다.
+  const sub = new SessionSheet(p, 'claude', { sub: true });
+  sub.update();
+  assert.ok(Object.values(sub.days).every((d) => d.w == null));
+});
+
+test('기다린 시간(Codex): 에이전트 줄 뒤 user_message 까지, 사용자 메시지 줄은 에이전트 쪽이 아니고 turn_aborted 부터 다시 센다', () => {
+  const p = join(root, 'rollout-wait.jsonl');
+  const ts = (min) => new Date(ms('2026-11-16T10:00:00+09:00') + min * 60_000).toISOString();
+  const ev = (min, payload) => ({ timestamp: ts(min), type: 'event_msg', payload });
+  const item = (min, payload) => ({ timestamp: ts(min), type: 'response_item', payload });
+  const rows = [
+    { timestamp: ts(0), type: 'session_meta', payload: { id: 'cx-w', cwd: '/repo' } },
+    item(0, { type: 'message', role: 'user', content: [] }),
+    ev(0, { type: 'user_message', message: '시작' }),
+    item(1, { type: 'message', role: 'assistant', content: [] }),
+    ev(1, { type: 'agent_message', message: '끝냈어요' }),
+    ev(2, { type: 'token_count' }),
+    // 2분 → 10분 (8분). 사용자 메시지 줄이 먼저 와도 간격은 그대로.
+    item(10, { type: 'message', role: 'user', content: [] }),
+    ev(10, { type: 'user_message', message: '다음' }),
+    item(11, { type: 'function_call', name: 'shell', arguments: '{}', call_id: 'f1' }),
+    ev(12, { type: 'turn_aborted' }),
+    // 12분 → 15분 (3분).
+    ev(15, { type: 'user_message', message: '다시' }),
+  ];
+  writeFileSync(p, rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
+  const s = new SessionSheet(p, 'codex');
+  s.update();
+  assert.equal(s.days['2026-11-16'].w, 11 * 60_000);
 });
 
 test('기록 요약(Codex): 성공한 패치의 파일만, thread_name_updated 이름, user_message 지시', () => {
