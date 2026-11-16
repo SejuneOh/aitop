@@ -4,7 +4,7 @@ process.env.TZ = 'Asia/Seoul';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, normalize } from 'node:path';
 import { tmpdir } from 'node:os';
 import { makeClaudeHome, assistant, user, usage } from './fixture.mjs';
 import { loadSqlite } from '../src/sqlite.mjs';
@@ -59,8 +59,10 @@ test('옵션: sessions 는 --since·--plan·--md·--show-prompts 를 받고, 다
 });
 
 test('Claude 기록 경로: 서브에이전트는 부모 세션 id 와 부모 기록', () => {
-  assert.deepEqual(claudeSession('/c/projects/-w/abc.jsonl'), { sid: 'abc', main: '/c/projects/-w/abc.jsonl', sub: false });
-  assert.deepEqual(claudeSession('/c/projects/-w/abc/subagents/agent-1.jsonl'), { sid: 'abc', main: '/c/projects/-w/abc.jsonl', sub: true });
+  // 경로는 OS 구분자로 만든다 (Windows 에서는 \\).
+  const main = join('/c', 'projects', '-w', 'abc.jsonl');
+  assert.deepEqual(claudeSession(main), { sid: 'abc', main, sub: false });
+  assert.deepEqual(claudeSession(join('/c', 'projects', '-w', 'abc', 'subagents', 'agent-1.jsonl')), { sid: 'abc', main, sub: true });
 });
 
 // 장부 하루 몫.
@@ -276,7 +278,8 @@ test('기록 요약(Codex): 성공한 패치의 파일만, thread_name_updated �
   assert.equal(s.id, 'cx-1');
   assert.equal(s.custom, '코덱스 이름');
   const d = s.days['2026-11-16'];
-  assert.deepEqual(d.f, ['/repo/src/ok.py']);
+  // patch 경로는 Windows 에서 OS 구분자로 바뀐다 (0.28.0).
+  assert.deepEqual(d.f, [normalize('/repo/src/ok.py')]);
   assert.equal(d.p, '코덱스 지시');
   assert.equal(d.a, ms('2026-11-16T10:01:00+09:00'));
   assert.equal(d.z, ms('2026-11-16T10:05:00+09:00'));
