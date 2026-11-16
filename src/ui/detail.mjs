@@ -7,6 +7,7 @@ import { NOW, box, clock, fill, gauge, glyph, hhmm, levelBar, money, rule, segsW
 import { activitySeries } from '../sources/common.mjs';
 import { glyphs } from './glyphs.mjs';
 import { STRINGS, phaseText, t as tr } from '../i18n.mjs';
+import { resumeCmd } from '../resume.mjs';
 
 // 탭 이름: 이번 지시·전체 탭은 turns.mjs 가 ko 이름을 붙이므로 지금 언어로 바꾼다. 지시 탭(T5)은 그대로.
 const tabLabel = (tab, short = false) => (tab.key === 'now' ? tr('detail.tabNow', null, { short }) : tab.key === 'all' ? tr('detail.tabAll') : tab.label);
@@ -318,13 +319,39 @@ export function summaryLines(s, w, frame, view) {
   return [first, [{ t: '  ' }, ...second]];
 }
 
+// 이어 열기 명령을 폭에 맞춰 max 줄로 나눈다. 넘치면 마지막 줄 끝을 … 로 바꾼다 (복사하면 전체가 들어간다).
+export function resumeLines(cmd, w, max) {
+  if (!cmd || max < 1) return [];
+  let lines = wrapText(cmd, Math.max(1, w));
+  if (lines.length > max) {
+    lines = lines.slice(0, max);
+    const mark = ellipsis(w);
+    const last = [...lines[max - 1]];
+    while (last.length && width(last.join('')) + width(mark) > w) last.pop();
+    lines[max - 1] = last.join('') + mark;
+  }
+  return lines;
+}
+
+// 좁은 화면의 셋째 요약 줄: '이어 열기 y  …/repo && claude --resume <id>'. 한 줄을 넘으면 앞을 잘라 세션 id 를 남긴다.
+export function resumeSummary(s, w) {
+  const cmd = resumeCmd(s);
+  if (!cmd) return null;
+  const head = [{ t: '  ' }, { t: tr('detail.resume'), fg: PALETTE.muted }, { t: ' y  ', fg: PALETTE.info }];
+  const room = w - segsWidth(head);
+  if (room < 8) return null;
+  return [...head, { t: truncateLeft(cmd, room), fg: PALETTE.text }];
+}
+
 export function detail(s, W, H, frame, view) {
   const tc = PALETTE.tools[s.tool];
   // 제목: 세션 이름은 진하게, 도구·모델은 도구 색으로.
   const title = [{ t: s.name ?? s.tool, fg: PALETTE.text, bold: true }, { t: `  ${s.tool}${s.model ? ' · ' + s.model : ''}`, fg: tc }];
   if (W < NARROW_W) {
     const inner = W - 4;
-    const top = summaryLines(s, inner, frame, view);
+    // 셋째 줄(이어 열기)은 오른쪽 칸이 넉넉할(ROOMY 줄 이상 남을) 때만 둔다. 낮은 화면의 구획 배치는 그대로다.
+    const resume = H - 5 >= ROOMY ? resumeSummary(s, inner) : null;
+    const top = [...summaryLines(s, inner, frame, view), ...(resume ? [resume] : [])];
     const R = rightColumn(s, inner, H - 2 - top.length, view);
     return box(title, W, H, null, [...top, ...R], 0, tc, Boolean(view?.focus));
   }
@@ -360,6 +387,14 @@ export function detail(s, W, H, frame, view) {
   }
   if (s.context?.window) {
     L.push([INDENT, { t: pad(tr('detail.context'), 9), fg: PALETTE.muted }, { t: pad(`${fmtTokens(s.context.used)}/${fmtTokens(s.context.window)}`, 11) + ' ', fg: PALETTE.text }, ...gauge(s.context.used, s.context.window, Math.max(4, leftW - width(INDENT.t) - 26))]);
+  }
+
+  // 이어 열기: 다른 터미널에서 이 세션을 이어 여는 명령. y 로 복사한다. 맨 아래에 두고, 남는 줄(가로줄 + 적어도 1줄)이 있을 때만 최대 3줄.
+  const cmd = resumeCmd(s);
+  const room = H - 2 - L.length;
+  if (cmd && room >= 2) {
+    L.push(rule([{ t: tr('detail.resume'), fg: PALETTE.text, bold: true }], 'y', leftW));
+    for (const l of resumeLines(cmd, leftW - width(INDENT.t), Math.min(3, room - 1))) L.push([INDENT, { t: l, fg: PALETTE.muted }]);
   }
 
   const R = rightColumn(s, W - leftW - 7, H - 2, view);

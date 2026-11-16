@@ -149,6 +149,8 @@ Total       1.69B $677  26.1M $4.45  1.71B $681
 | `hideIdleTools` | true (기본) · false | 없음. 실행 중 세션이 없고 7일 동안 쓰지 않은 도구를 도구 줄에서 숨긴다 |
 | `ambiguous` | `narrow` (기본) · `wide` | `AITOP_AMBIGUOUS` |
 | `lang` | `ko` · `en` | `--lang`, `AITOP_LANG`. 없으면 로캘로 고른다 (아래 '언어') |
+| `claudeDirs` | 절대 경로(또는 `~/...`) 배열, 1~16개. 기본 `["~/.claude"]` | `AITOP_CLAUDE_DIRS` (설정 파일보다 먼저). 물려받은 `CLAUDE_CONFIG_DIR` 는 설정 파일 다음. 아래 '기록 폴더 여러 개' |
+| `codexHomes` | 같은 모양. 기본 `["~/.codex"]` | `AITOP_CODEX_HOMES` (같은 구분자). 물려받은 `CODEX_HOME` 는 설정 파일 다음 |
 
 잘못된 JSON, 모르는 키, 잘못된 값은 그 키만 무시하고 `aitop --doctor` 에 알린다. `showRequests` 는 설정 파일로도 켤 수 있다 (내 파일이라 권한 검사는 하지 않는다). 켜면 위의 `--show-requests` 주의가 그대로 적용된다. `onWaiting` 은 파일 소유자가 나이고 그룹·다른 사용자가 쓸 수 없을 때(예: `chmod 600`)만 받는다.
 
@@ -162,7 +164,7 @@ Total       1.69B $677  26.1M $4.45  1.71B $681
 
 `C.UTF-8`·`en_US` 로캘에서 화면과 이 문구들을 한국어로 보던 사용자는 언어 선택이 들어온 버전부터 영어로 보게 된다. 한국어로 보려면 `AITOP_LANG=ko` 를 셸 설정에 넣거나 설정 파일에 `"lang": "ko"` 를 둔다. 잘못된 `AITOP_LANG`·`lang` 값은 무시하고 `--doctor` 에 알린다.
 
-`--json` 의 `phase` 와 `--on-waiting` 의 `AITOP_WAITING_FOR` 는 언어와 상관없이 예전처럼 한국어 문구다. 스크립트는 언어와 상관없는 상태 이름 `phaseKind` (`think` · `write` · `tool` · `team` · `waiting` · `idle` · `done` · `ended`, 모르면 `null`) 를 보면 된다. 다른 글 필드는 따로 정해진다: 영어일 때 `--doctor --json` 의 `tools.*.hint` 는 한국어, `config.problems` 는 영어로 섞여 나온다.
+`--json` 의 `phase` 와 `--on-waiting` 의 `AITOP_WAITING_FOR` 는 언어와 상관없이 예전처럼 한국어 문구다. 스크립트는 언어와 상관없는 상태 이름 `phaseKind` (`think` · `write` · `tool` · `team` · `waiting` · `idle` · `done` · `ended`, 모르면 `null`) 를 보면 된다. 세션 `name` 은 표와 같은 이름이라, Codex 세션은 `thread_name` 이 생기면 폴더 이름에서 그 이름으로 바뀐다. 다른 글 필드는 따로 정해진다: 영어일 때 `--doctor --json` 의 `tools.*.hint` 는 한국어, `config.problems` 는 영어로 섞여 나온다.
 
 ### 디버그 로그
 
@@ -205,6 +207,8 @@ aitop --notify=waiting,done,context  알릴 종류를 고른다. --notify 만 �
 | `context` | 컨텍스트 사용률이 90% 를 넘을 때 한 번. 85% 아래로 내려가면(압축 등) 다시 알린다. aitop 을 켰을 때나 새 세션의 기록을 처음 다 읽었을 때 이미 넘어 있으면 알리지 않는다 |
 
 종류는 데스크톱 알림과 `--on-waiting` 명령에 함께 쓴다. 이름은 예전 그대로 `--on-waiting` 이고, 어떤 일인지는 `AITOP_EVENT` 로 가른다 (예: `[ "$AITOP_EVENT" = done ] && say 끝`). 종류는 명령줄 `--notify=<종류>` > 설정 파일 `notify` 배열 > `waiting` 순서로 정한다. 그래서 종류를 따로 정하지 않으면 예전처럼 응답 대기에만 실행된다. `--no-notify` 는 데스크톱 알림만 끄고, `--on-waiting` 명령은 그 종류를 그대로 따른다. 벨(`--bell`)은 늘 응답 대기만 울린다.
+
+알림 본문에는 세션에 붙인 이름(Claude Code `/rename` 이나 다른 세션이 붙인 이름, Codex `thread_name`)이 있으면 그 이름이, 없으면 프로젝트 이름이 들어간다. 데스크톱 알림은 잠금 화면에도 보일 수 있으니 이름도 그대로 보인다.
 
 `--on-waiting` 명령은 **aitop 을 실행한 사용자 권한 그대로** 돈다. 세션 정보는 명령 문자열에 끼워 넣지 않고 환경변수로만 넘긴다 (명령 안에서 쓸 때는 `"$AITOP_PROJECT"` 처럼 따옴표로 감싼다).
 
@@ -267,6 +271,7 @@ end)
 | f / Tab | 변경 파일 목록으로. ←→ 지시 탭, ↑↓ 파일 고르기, Enter diff 보기 |
 | diff 에서 ↑↓ · space · [ ] | 스크롤 · 페이지 · 이전·다음 파일 |
 | d | 상세 열기·닫기 |
+| y | 고른 세션을 이어 여는 명령을 클립보드로 복사 (OSC 52). 상세 패널의 `이어 열기` 에 같은 명령이 보인다: Claude `cd <폴더> && claude --resume <id>`, Codex `cd <폴더> && codex resume <id>`, Antigravity `cd <폴더> && agy --conversation <id>` (Gemini CLI 는 없음). `~/.claude`·`~/.codex` 가 아닌 기록 폴더의 세션(또는 `CLAUDE_CONFIG_DIR`·`CODEX_HOME` 이 설정된 때의 세션)은 도구 앞에 `CLAUDE_CONFIG_DIR=<폴더>`·`CODEX_HOME=<폴더>` 를 붙여 맞는 기록을 찾게 한다. Claude 는 작업 폴더별로 기록을 찾으므로 폴더를 모르면 명령을 만들지 않는다. id 가 UUID 가 아니면 만들지 않는다. 상세 패널이 낮으면 명령 줄을 빼므로 그때는 y 나 `--json` 을 쓴다. 경로·id 는 셸 따옴표로 감싸고 제어 문자는 지운다. Windows Terminal · WezTerm · iTerm2 · kitty 는 받고, tmux 는 `set -g set-clipboard on` 이 있어야 한다. 지원하지 않는 터미널은 조용히 무시하므로 그때는 화면의 명령을 직접 복사한다. 세션에는 아무것도 보내지 않는다. `--json` 에는 세션마다 `resumeCmd` (없으면 `null`) 로 나간다 |
 | e | 종료된 세션 보이기·숨기기 |
 | c | 비용 기준 전환: API 환산(캐시 포함, 기본) ↔ 캐시 제외(입력·출력만). 표·헤더·상세가 같이 바뀐다 |
 | ? | 도움말. 지금 화면(세션 표·검색어가 걸린 표·상세·파일 목록·diff)의 키부터, 다른 화면 · 옵션 · 지금 설정 값 순으로 보인다. 열려 있는 동안은 ↑↓ j k space PgUp PgDn 스크롤, ? · Esc 닫기, q 나가기만 듣는다 |
@@ -302,6 +307,14 @@ end)
 | Codex CLI | `codex` 프로세스와 작업 폴더 (Linux `/proc`, macOS `ps`·`lsof`). Windows 는 10분 안에 바뀐 기록 | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` |
 | Antigravity CLI (`agy`) | `agy` 프로세스가 열어 둔 `presence/<id>.lock` (Linux `/proc/<pid>/fd`). macOS 는 작업 폴더로 짝짓는다 | `~/.gemini/antigravity-cli/conversation_summaries.db`(제목·상태·서브에이전트), `conversations/<id>.db` 의 `gen_metadata`(모델·토큰)·`steps`(지시·답변·도구 호출) |
 | Gemini CLI | `gemini` 프로세스 | 아직 미지원 |
+
+### 기록 폴더 여러 개
+
+Claude Code 프로필을 여럿 쓰면(`CLAUDE_CONFIG_DIR=~/.claude-work claude` 처럼) 기록 폴더도 여럿이다. 설정 파일에 `"claudeDirs": ["~/.claude", "~/.claude-work"]`, `"codexHomes": ["~/.codex", "~/.codex-alt"]` 로 적거나, aitop 전용 환경 변수 `AITOP_CLAUDE_DIRS`·`AITOP_CODEX_HOMES` 에 경로를 `:` 로 이어 준다 (Windows 는 `;`, 예: `AITOP_CLAUDE_DIRS=~/.claude:~/.claude-work aitop`). 순서는 `AITOP_*` > 설정 파일 > 물려받은 `CLAUDE_CONFIG_DIR`·`CODEX_HOME` > 기본값이다. Claude Code·Codex 용으로 export 해 둔 `CLAUDE_CONFIG_DIR` 가 설정 파일 목록을 가리지 않고, 설정 파일 목록이 없을 때만 그 경로를 읽는다. 실제로 쓰는 출처는 `aitop --print-config` 에 `env (AITOP_CLAUDE_DIRS)` 처럼 보인다. 값 전체가 있는 폴더면 나누지 않으므로, 예전에 `:` 가 든 경로 하나를 준 경우도 그대로 동작한다. 기본값은 예전처럼 `~/.claude`, `~/.codex` 하나다.
+
+- 실제 경로(링크 포함)가 같은 폴더는 한 번만 읽는다. 같은 세션 기록(같은 `projects/<폴더>/<id>.jsonl`, 같은 rollout 파일 이름)이 두 폴더에 복사돼 있으면 더 최근에 바뀐 하나만 센다. 실행 중 세션도 세션 id 로 하나로 합친다.
+- 장부 캐시는 파일 전체 경로로 따로 둔다. 월별 리포트의 '일부' 경계는 폴더마다 가장 오래된 기록 중 가장 늦은 날이다. Claude Code 는 폴더마다 따로 지우므로, 옛 기록이 남은 폴더 하나 때문에 다른 폴더에서 이미 지워진 날을 '빠짐없음' 으로 접지 않게 안전한 쪽을 고른다.
+- 비슷한 이름의 폴더를 저절로 읽지는 않는다. 다른 계정·백업을 모르게 섞으면 비용이 두 번 잡히거나 남의 기록이 보일 수 있어서다. 대신 `aitop --doctor` 가 읽는 폴더 전부와, 설정 파일 목록 때문에 쓰지 않게 된 `CLAUDE_CONFIG_DIR`·`CODEX_HOME`, 홈 바로 아래 `~/.claude`·`~/.claude-*`·`~/.claude.*`·`~/.claude_*`·`~/.config/claude`(`projects/` 가 있는 것), `~/.codex`·`~/.codex-*` 등(`sessions/` 가 있는 것) 중 기록이 있는데 읽지 않는 폴더를 넣는 방법과 함께 보인다. 내 소유가 아닌 폴더는 후보로도 보지 않는다. `--doctor --json` 의 `tools.claude`·`tools.codex` 에는 `dirs`(읽는 폴더마다 `path`·`found`·`records`)와 `candidates`(`path`·`records`)가 붙는다. `path` 는 예전처럼 첫 폴더다.
 
 ## 알려진 한계
 

@@ -4,14 +4,12 @@
 // agy 기록은 immutable 로 열어 -wal 에만 있는 막 생긴 대화는 아직 안 보이므로, 그 대화는 (unknown) 으로 나올 수 있다.
 // 장부 캐시 모양은 그대로 두고, 리포트를 낼 때만 파일 앞부분을 조금 읽는다.
 import { openSync, readSync, closeSync, statSync } from 'node:fs';
-import { basename, join, relative, sep } from 'node:path';
-import { homedir } from 'node:os';
+import { basename, isAbsolute, join, relative, sep } from 'node:path';
 import { AGY_ROOT, cwdOf } from './antigravity.mjs';
 import { openReadOnly } from '../sqlite.mjs';
 import { debugIo } from '../log.mjs';
+import { claudeProjectRoots } from './dirs.mjs';
 
-const HOME = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude');
-const PROJECTS = join(HOME, 'projects');
 // 앞부분에서 cwd 를 찾을 때 읽는 최대 크기. Codex 의 첫 줄(session_meta)은 지침 글이 들어 있어 길 수 있다.
 const HEAD_BYTES = 256 * 1024;
 const heads = new Map();
@@ -78,11 +76,15 @@ export function claudeProject(path) {
 export const encodeFolder = (cwd) => cwd.replace(/[^A-Za-z0-9]/g, '-');
 
 // cwd 를 못 찾았을 때 쓰는 projects/ 바로 아래 폴더 이름. 작업 트리 꼴(--claude-worktrees-<이름>)이면 그 부분을 뗀다.
-export function claudeFolder(path, root = PROJECTS) {
-  const rel = relative(root, path);
-  const dir = rel.split(sep)[0];
-  if (!dir || rel.startsWith('..') || dir === rel) return null;
-  return dir.replace(/--claude-worktrees-.*$/, '') || dir;
+// root 를 주지 않으면 설정 폴더 전부의 projects/ 중 path 를 담은 것을 쓴다.
+export function claudeFolder(path, root) {
+  for (const r of root ? [root] : claudeProjectRoots()) {
+    const rel = relative(r, path);
+    const dir = rel.split(sep)[0];
+    if (!dir || rel.startsWith('..') || isAbsolute(rel) || dir === rel) continue;
+    return dir.replace(/--claude-worktrees-.*$/, '') || dir;
+  }
+  return null;
 }
 
 export function codexProject(path) {
@@ -135,7 +137,7 @@ export function projectRoot(cwd) {
 
 // books: collectDaily 의 [{ tool, path, days }]. 각 장부에 project(작업 폴더 경로 또는 null)를 붙여 돌려준다.
 // Claude 기록에서 cwd 를 못 찾으면 폴더 이름을 쓰되, 같은 폴더 이름이 되는 경로를 다른 기록에서 찾았으면 그 경로로 묶는다.
-export function attachProjects(books, root = PROJECTS) {
+export function attachProjects(books, root) {
   let agy = null;
   const folder = new Map();
   const out = books.map((b) => {

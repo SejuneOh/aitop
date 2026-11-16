@@ -151,6 +151,9 @@ export function waitingEnv(s) {
   };
 }
 
+// 알림 본문의 세션 이름: 사용자가 붙인 이름(/rename, thread_name)이 있으면 그것, 없으면 예전처럼 프로젝트.
+const whoOf = (s) => s.customName || s.project || s.id || '';
+
 // 알림 제목·본문은 화면 언어를 따른다 (AITOP_WAITING_FOR 와 달리 사람이 읽는 글이라).
 // kind 가 done·context 면 그 종류의 문구를 쓴다. context 본문에는 사용률(%)을 붙인다.
 export function notifyText(sessions, lang = getLang(), kind = 'waiting') {
@@ -159,12 +162,12 @@ export function notifyText(sessions, lang = getLang(), kind = 'waiting') {
     if (sessions.length !== 1) return { title: t(`notify.${kind}.title`, null, o), body: t(`notify.${kind}.many`, { n: sessions.length }, o) };
     const s = sessions[0];
     const pct = s.context?.window > 0 ? ` · ${Math.round(((s.context.used ?? 0) / s.context.window) * 100)}%` : '';
-    return { title: t(`notify.${kind}.one`, { tool: s.tool ?? '?' }, o), body: stripControl(`${s.project ?? s.id ?? ''}${kind === 'context' ? pct : ''}`) };
+    return { title: t(`notify.${kind}.one`, { tool: s.tool ?? '?' }, o), body: stripControl(`${whoOf(s)}${kind === 'context' ? pct : ''}`) };
   }
   if (sessions.length === 1) {
     const s = sessions[0];
     const label = waitingLabel(s, lang);
-    return { title: t('notify.one', { tool: s.tool ?? '?' }, o), body: stripControl(`${s.project ?? s.id ?? ''}${label ? ' · ' + label : ''}`) };
+    return { title: t('notify.one', { tool: s.tool ?? '?' }, o), body: stripControl(`${whoOf(s)}${label ? ' · ' + label : ''}`) };
   }
   return { title: t('notify.title', null, o), body: t('notify.many', { n: sessions.length }, o) };
 }

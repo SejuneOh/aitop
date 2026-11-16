@@ -1,21 +1,21 @@
 // Codex CLI: 실행 중인 codex 프로세스의 작업 폴더와 ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl 을 짝지어 읽는다.
+// Codex 홈이 여럿이면(dirs.mjs) 모두 보고, 같은 rollout 파일 이름은 하나로 센다.
 import { readdirSync, statSync, existsSync, realpathSync, openSync, readSync, closeSync } from 'node:fs';
 import { join, basename } from 'node:path';
-import { homedir } from 'node:os';
 import { JsonlTail } from '../tail.mjs';
 import { loadCache, markDirty } from '../cache.mjs';
 import { canListProcesses, findProcesses, isCodex, openFiles, processStart } from '../procs.mjs';
-import { addActivity, emptyTokens, parseTs, pushEvent, describeTool, isNoisePrompt } from './common.mjs';
+import { addActivity, emptyTokens, parseTs, pushEvent, describeTool, isNoisePrompt, sessionName } from './common.mjs';
 import { addChange, mergeFiles } from './files.mjs';
 import { codexCost } from '../pricing.mjs';
 import { parsePatch, extractPatch, patchSucceeded } from './patch.mjs';
 import { debug, debugIo } from '../log.mjs';
 import { lastName } from '../paths.mjs';
+import { codexHomes, codexSessionRoots, dedupeBy, homeOf } from './dirs.mjs';
 
 // 지시 탭에 쓰는 지시 목록은 최근 것만 남긴다.
 const MAX_TURNS = 50;
 
-const ROOT = join(process.env.CODEX_HOME ?? join(homedir(), '.codex'), 'sessions');
 const RECENT_MS = 24 * 3600 * 1000;
 // 프로세스 목록을 못 얻는 OS(지금은 Windows)에서는 이 시간 안에 바뀐 기록을 실행 중으로 본다.
 // codex 는 답할 때마다 기록에 쓰므로, 답을 읽고 다음 지시를 쓰는 동안(대개 몇 분)은 남고 닫은 세션은 곧 빠진다.
@@ -27,10 +27,14 @@ const states = new Map();
 export function dayDirs(days = 7) {
   const dirs = [];
   // 며칠 동안 켜 둔 세션도 시작한 날짜 폴더에 기록하므로 일주일치 폴더를 본다.
+  const roots = codexSessionRoots();
   for (let back = 0; back < days; back++) {
     const d = new Date(Date.now() - back * 86400_000);
-    const p = join(ROOT, String(d.getFullYear()), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0'));
-    if (existsSync(p)) dirs.push(p);
+    const ymd = [String(d.getFullYear()), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')];
+    for (const root of roots) {
+      const p = join(root, ...ymd);
+      if (existsSync(p)) dirs.push(p);
+    }
   }
   return dirs;
 }
@@ -45,7 +49,7 @@ export function allDayDirs() {
       return [];
     }
   };
-  for (const y of sub(ROOT)) for (const m of sub(y)) dirs.push(...sub(m));
+  for (const root of codexSessionRoots()) for (const y of sub(root)) for (const m of sub(y)) dirs.push(...sub(m));
   return dirs;
 }
 
@@ -56,7 +60,13 @@ let listed = { at: 0, paths: [] };
 function recentFiles() {
   if (Date.now() - listed.at >= LIST_TTL_MS) {
     const paths = [];
-    for (const dir of dayDirs()) for (const n of readdirSync(dir)) if (n.endsWith('.jsonl')) paths.push(join(dir, n));
+    for (const dir of dayDirs()) {
+      try {
+        for (const n of readdirSync(dir)) if (n.endsWith('.jsonl')) paths.push(join(dir, n));
+      } catch (e) {
+        debugIo('codex', 'day folder read failed', e, dir);
+      }
+    }
     listed = { at: Date.now(), paths };
   }
   const out = [];
@@ -67,9 +77,10 @@ function recentFiles() {
     } catch {
       continue;
     }
-    if (Date.now() - m < RECENT_MS) out.push({ path: p, mtime: m });
+    if (Date.now() - m < RECENT_MS) out.push({ key: basename(p), path: p, mtime: m });
   }
-  return out.sort((a, b) => b.mtime - a.mtime);
+  // 같은 rollout 이 두 홈에 있으면 더 최근 쪽 하나만.
+  return dedupeBy(out).sort((a, b) => b.mtime - a.mtime);
 }
 
 // 하루 넘게 쉰 세션은 최근 파일 목록에 없다. 짝을 못 찾은 codex 프로세스에만 같은 작업 폴더에서 가장 최근에
@@ -102,17 +113,22 @@ function headCwd(path) {
   return cwd;
 }
 
-let realRoot = null;
+// 홈마다 sessions 경로와 그 실제 경로(realpath). 처음 쓸 때 한 번 만든다.
+let prefixes = null;
 
 function isRollout(p) {
-  if (realRoot === null) {
-    try {
-      realRoot = realpathSync(ROOT);
-    } catch (e) {
-      debugIo('codex', 'sessions realpath failed', e);
+  if (prefixes === null) {
+    prefixes = [];
+    for (const root of codexSessionRoots()) {
+      prefixes.push(root + '/');
+      try {
+        prefixes.push(realpathSync(root) + '/');
+      } catch (e) {
+        debugIo('codex', 'sessions realpath failed', e, root);
+      }
     }
   }
-  return (p.startsWith(ROOT + '/') || (realRoot !== null && p.startsWith(realRoot + '/'))) && /\/rollout-[^/]*\.jsonl$/.test(p);
+  return prefixes.some((x) => p.startsWith(x)) && /\/rollout-[^/]*\.jsonl$/.test(p);
 }
 
 // 날짜 폴더에 파일이 생기면 그 폴더의 수정 시각이 바뀐다.
@@ -170,10 +186,46 @@ function searchByCwd(pid, cwd, taken, startOf) {
   return path;
 }
 
-const SAVED = ['id', 'cwd', 'branch', 'model', 'busy', 'tokens', 'context', 'window', 'events', 'lastTool', 'startedAt', 'lastKind', 'files', 'turns', 'turnCount', 'activity'];
+// Codex 홈마다 session_index.jsonl(한 줄에 { id, thread_name, updated_at })을 따라 읽어 id → 이름.
+// 이름을 바꿀 때마다 뒤에 붙으므로 같은 id 는 마지막 줄이 이긴다. 새로 붙은 줄만 읽는다.
+// indexes: 홈 → { tail, names }. 홈끼리 이름을 섞지 않는다.
+const indexes = new Map();
+
+function readIndex(budget) {
+  for (const home of codexHomes()) {
+    let ix = indexes.get(home);
+    if (!ix) {
+      const names = new Map();
+      ix = { tail: new JsonlTail(join(home, 'session_index.jsonl')), names };
+      ix.tail.onReset = () => names.clear();
+      indexes.set(home, ix);
+    }
+    ix.tail.read((x) => {
+      if (typeof x?.id !== 'string') return;
+      const name = sessionName(x.thread_name);
+      if (name) ix.names.set(x.id, name);
+      else ix.names.delete(x.id);
+    }, budget);
+  }
+}
+
+// rollout 이 든 홈의 이름을 먼저, 없으면 다른 홈의 이름 (같은 세션을 다른 홈으로 옮긴 경우).
+function indexName(path, id) {
+  const homes = codexHomes();
+  const own = homeOf(path, homes);
+  const first = own ? indexes.get(own)?.names.get(id) : undefined;
+  if (first) return first;
+  for (const h of homes) {
+    const n = indexes.get(h)?.names.get(id);
+    if (n) return n;
+  }
+  return null;
+}
+
+const SAVED = ['id', 'threadName', 'cwd', 'branch', 'model', 'busy', 'tokens', 'context', 'window', 'events', 'lastTool', 'startedAt', 'lastKind', 'files', 'turns', 'turnCount', 'activity'];
 
 function newState(path) {
-  const st = { tail: new JsonlTail(path), id: basename(path), cwd: null, branch: null, model: null, busy: false, tokens: emptyTokens(), context: 0, window: 0, events: [], lastTool: null, startedAt: null, pending: new Map(), lastKind: null, files: [], turns: [], turnCount: 0, patches: {}, activity: {} };
+  const st = { tail: new JsonlTail(path), id: basename(path), threadName: null, cwd: null, branch: null, model: null, busy: false, tokens: emptyTokens(), context: 0, window: 0, events: [], lastTool: null, startedAt: null, pending: new Map(), lastKind: null, files: [], turns: [], turnCount: 0, patches: {}, activity: {} };
   const c = loadCache(path);
   if (c) {
     st.tail.offset = c.offset;
@@ -241,6 +293,10 @@ function applyLine(st, x) {
         }
         st.lastKind = 'prompt';
         break;
+      // 이름 바꾸기 이벤트 (Codex /rename 등). 빈 이름이면 지운다.
+      case 'thread_name_updated':
+        st.threadName = sessionName(p.thread_name);
+        break;
       case 'agent_message':
         pushEvent(st, x.timestamp, 'reply', p.message);
         st.lastKind = 'reply';
@@ -283,7 +339,7 @@ function applyLine(st, x) {
   }
 }
 
-export const _test = { newState, applyLine, phaseOf, snapshot };
+export const _test = { newState, applyLine, phaseOf, snapshot, readIndex, indexName };
 
 export function collectCodex({ showEnded, budget, filesOf = openFiles, startOf = processStart, canList = canListProcesses }) {
   // 프로세스를 못 세면 숨기지 않고 최근에 바뀐 기록으로 판정한다 (pid 는 null).
@@ -299,6 +355,7 @@ export function collectCodex({ showEnded, budget, filesOf = openFiles, startOf =
     if (st.tail.read((x) => applyLine(st, x), budget)) markDirty(path, () => snapshot(st));
   };
   for (const f of files) read(f.path);
+  readIndex(budget);
 
   const liveByPath = new Map();
   const claim = (path, pid) => {
@@ -358,12 +415,17 @@ export function collectCodex({ showEnded, budget, filesOf = openFiles, startOf =
     // 가격표에 없는 모델은 비용을 ? 로 보인다.
     const cost = codexCost(st.model, st.tokens);
     const used = st.tokens.total > 0;
+    // 기록 안의 이름 바꾸기 이벤트가 먼저, 없으면 session_index.jsonl 의 thread_name.
+    const customName = st.threadName ?? indexName(f.path, st.id);
     out.push({
       tool: 'codex',
       id: st.id,
       pid: pid ?? null,
       kind: 'interactive',
-      name: lastName(st.cwd) || 'codex',
+      name: customName ?? (lastName(st.cwd) || 'codex'),
+      customName,
+      // rollout 이 든 Codex 홈. 기본 홈이 아니면 이어 열기 명령에 CODEX_HOME 을 붙인다.
+      home: homeOf(f.path, codexHomes()),
       cwd: st.cwd,
       project: lastName(st.cwd),
       branch: st.branch,

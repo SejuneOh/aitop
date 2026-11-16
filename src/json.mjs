@@ -1,6 +1,7 @@
 import { projectBudget } from './budget.mjs';
 import { toolsJson } from './doctor.mjs';
 import { phaseText } from './i18n.mjs';
+import { resumeCmd } from './resume.mjs';
 
 // aitop --json 출력. 다른 스크립트나 AI 가 읽기 쉬운 모양으로 세션 목록과 사용량 합계를 담는다.
 // 텍스트는 수집 단계에서 이미 비밀값 가림이 적용돼 있다.
@@ -45,6 +46,8 @@ export function toJson(data, version = null, opts = {}) {
       phase: koPhase(s.phase),
       phaseKind: s.phase?.kind ?? null,
       waitingFor: s.waitingFor ?? null,
+      // 이 세션을 이어 여는 셸 명령 (resume.mjs). 만들 수 없으면 null.
+      resumeCmd: resumeCmd(s),
       // 허락을 기다리는 요청의 전체 내용 (Bash 명령, 파일 경로 등). --show-requests 를 켰을 때만 넣는다. 비밀값 가림은 최선을 다할 뿐이다.
       ...(opts.showRequests ? { waitDetail: s.waitDetail ?? null } : {}),
       now: s.now || null,

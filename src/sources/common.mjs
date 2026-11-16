@@ -192,6 +192,16 @@ function rawDescribeTool(name, input) {
 export const DETAIL_MAX = 2048;
 const ANSI = /\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-Z\\-_])/g;
 
+// 사용자가 붙인 세션 이름 (Claude /rename 의 custom-title, Codex thread_name). 사용자·모델이 쓴 글이라
+// 색 순서·제어문자를 지우고 한 줄로 줄인 뒤 비밀값을 가리고 NAME_MAX 자에서 자른다. 비었으면 null.
+export const NAME_MAX = 80;
+export function sessionName(raw) {
+  if (typeof raw !== 'string') return null;
+  const one = mask(oneLine(raw.replace(ANSI, '')));
+  if (!one) return null;
+  return one.length > NAME_MAX ? one.slice(0, NAME_MAX - 1) + '…' : one;
+}
+
 export function toolDetail(name, input = {}) {
   const raw = rawToolDetail(name, input);
   if (!raw) return null;
