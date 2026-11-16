@@ -4,7 +4,6 @@
 // 세션 화면과 상관없이 끝난 세션까지 세야 해서, 세션 tracker 와 따로 가볍게 읽고 캐시도 따로 둔다.
 import { readdirSync, statSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { homedir } from 'node:os';
 import { JsonlTail } from '../tail.mjs';
 import { loadCache, markDirty } from '../cache.mjs';
 import { claudeCost, claudeVec } from '../pricing.mjs';
@@ -14,11 +13,10 @@ import { collectCodexLedger } from './codex-ledger.mjs';
 import { debugIo } from '../log.mjs';
 import { foldArchive, foldHi } from '../monthly.mjs';
 import { attachProjects } from './projects.mjs';
+import { claudeProjectRoots, dedupeBy } from './dirs.mjs';
 
 export { dayKey };
 
-const HOME = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude');
-const PROJECTS = join(HOME, 'projects');
 // 2: 모델 몫에 사용량 벡터(u, f), 날짜 400일 보관 (#164). 이름을 바꾸면 장부만 다시 센다.
 const KIND = 'ledger2';
 const DAYS = 7;
@@ -92,40 +90,45 @@ export class UsageTracker {
 
 let listed = { at: 0, files: [], days: 0 };
 
-// 최근 days 일(평소 7일) 안에 바뀐 메인 기록과 서브에이전트 기록.
+// 최근 days 일(평소 7일) 안에 바뀐 메인 기록과 서브에이전트 기록. 설정 폴더가 여럿이면 모두 본다.
+// 같은 기록(projects/ 아래 같은 상대 경로)이 두 폴더에 있으면 더 최근에 바뀐 하나만 센다.
 function recentFiles(days = DAYS) {
   if (listed.days === days && Date.now() - listed.at < LIST_TTL_MS) return listed.files;
   const cutoff = Date.now() - days * 86400_000;
-  const files = [];
-  const add = (p) => {
+  const found = [];
+  for (const root of claudeProjectRoots()) {
+    const add = (p, key) => {
+      try {
+        const mtime = statSync(p).mtimeMs;
+        if (mtime >= cutoff) found.push({ key, path: p, mtime });
+      } catch {}
+    };
+    let dirs = [];
     try {
-      if (statSync(p).mtimeMs >= cutoff) files.push(p);
-    } catch {}
-  };
-  let dirs = [];
-  try {
-    dirs = readdirSync(PROJECTS);
-  } catch (e) {
-    debugIo('ledger', 'claude projects read failed', e);
-  }
-  for (const dir of dirs) {
-    let names = [];
-    try {
-      names = readdirSync(join(PROJECTS, dir));
+      dirs = readdirSync(root);
     } catch (e) {
-      debugIo('ledger', 'claude project folder read failed', e, dir);
-      continue;
+      debugIo('ledger', 'claude projects read failed', e, root);
     }
-    for (const n of names) {
-      const p = join(PROJECTS, dir, n);
-      if (n.endsWith('.jsonl')) add(p);
-      else if (existsSync(join(p, 'subagents'))) {
-        try {
-          for (const s of readdirSync(join(p, 'subagents'))) if (s.endsWith('.jsonl')) add(join(p, 'subagents', s));
-        } catch {}
+    for (const dir of dirs) {
+      let names = [];
+      try {
+        names = readdirSync(join(root, dir));
+      } catch (e) {
+        debugIo('ledger', 'claude project folder read failed', e, dir);
+        continue;
+      }
+      for (const n of names) {
+        const p = join(root, dir, n);
+        if (n.endsWith('.jsonl')) add(p, `${dir}/${n}`);
+        else if (existsSync(join(p, 'subagents'))) {
+          try {
+            for (const s of readdirSync(join(p, 'subagents'))) if (s.endsWith('.jsonl')) add(join(p, 'subagents', s), `${dir}/${n}/${s}`);
+          } catch {}
+        }
       }
     }
   }
+  const files = dedupeBy(found).map((f) => f.path);
   listed = { at: Date.now(), files, days };
   return files;
 }
@@ -176,28 +179,35 @@ export function collectSpan({ budget, now = Date.now(), days = KEEP_DAYS } = {})
 
 // 남은 Claude 기록 중 가장 오래된 수정 시각(ms, 없으면 null). Claude Code 는 수정 시각이 오래된 기록부터 지우므로,
 // 이 시각이 든 날까지는 지워진 기록이 있었을 수 있다 (월별 리포트가 '일부' 를 가를 때 쓴다).
+// 설정 폴더가 여럿이면 폴더마다 따로 지우므로, 폴더별 가장 오래된 시각 중 가장 늦은 것이 경계다 (기록 없는 폴더는 빼고).
+// 전체에서 가장 오래된 시각을 쓰면, 오래된 기록이 남은 폴더 하나 때문에 다른 폴더에서 이미 지워진 날까지 '빠짐없음' 으로
+// 잘못 접힌다. 늦은 쪽을 쓰면 빠짐없는 날을 '일부' 로 더 보일 수는 있어도 모자란 합계를 완성본으로 남기지는 않는다.
 export function oldestClaudeMtime() {
-  let oldest = null;
-  const see = (p) => {
+  let edge = null;
+  for (const root of claudeProjectRoots()) {
+    let oldest = null;
+    let dirs = [];
     try {
-      const m = statSync(p).mtimeMs;
-      if (oldest == null || m < oldest) oldest = m;
+      dirs = readdirSync(root);
     } catch {}
-  };
-  let dirs = [];
-  try {
-    dirs = readdirSync(PROJECTS);
-  } catch {}
-  for (const dir of dirs) {
-    let names = [];
-    try {
-      names = readdirSync(join(PROJECTS, dir));
-    } catch {
-      continue;
+    for (const dir of dirs) {
+      let names = [];
+      try {
+        names = readdirSync(join(root, dir));
+      } catch {
+        continue;
+      }
+      for (const n of names) {
+        if (!n.endsWith('.jsonl')) continue;
+        try {
+          const m = statSync(join(root, dir, n)).mtimeMs;
+          if (oldest == null || m < oldest) oldest = m;
+        } catch {}
+      }
     }
-    for (const n of names) if (n.endsWith('.jsonl')) see(join(PROJECTS, dir, n));
+    if (oldest != null && (edge == null || oldest > edge)) edge = oldest;
   }
-  return oldest;
+  return edge;
 }
 
 // 평소 화면이 하루 한 번 지난 날을 월별 보관함(monthly.mjs)에 접는다. 7일 안에 바뀐 기록을 다 읽었을 때만

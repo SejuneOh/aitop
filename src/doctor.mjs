@@ -2,7 +2,7 @@
 // 가장 최근 기록을 읽을 수 있는지. aitop --doctor, 빈 화면, --json 의 tools 가 같은 결과를 쓴다.
 // 기록 내용은 읽어 내보내지 않는다 (Gemini 는 형식 확인용으로 JSON 키 이름만 보인다).
 import { readdirSync, readFileSync, statSync, existsSync, openSync, readSync, closeSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { homedir, platform } from 'node:os';
 import { findProcesses, isCodex, isGemini, isAgy, canListProcesses, isAlive, isSessionAlive } from './procs.mjs';
 import { AGY_ROOT } from './sources/antigravity.mjs';
@@ -12,13 +12,12 @@ import { BRAND } from './brand.mjs';
 import { tildeIn } from './paths.mjs';
 import { findNotifier, isWsl } from './notify.mjs';
 import { getLang, t as tr } from './i18n.mjs';
+import { candidateDirs, claudeDirs, codexHomes } from './sources/dirs.mjs';
 
 const UNIT = { s: '초', m: '분', h: '시간', d: '일' };
 const ago = (ms) => fmtAgo(ms).replace(/[smhd]$/, (u) => UNIT[u]);
 
 const HOME = homedir();
-const CLAUDE = process.env.CLAUDE_CONFIG_DIR ?? join(HOME, '.claude');
-const CODEX = join(process.env.CODEX_HOME ?? join(HOME, '.codex'), 'sessions');
 const GEMINI = join(process.env.GEMINI_HOME ?? join(HOME, '.gemini'), 'tmp');
 
 // Windows 는 \ 와 대소문자를 무시하고 줄인다 (paths.mjs).
@@ -112,23 +111,49 @@ function liveSessionFile(path) {
   }
 }
 
-function claude() {
-  const dir = join(CLAUDE, 'projects');
-  const files = existsSync(dir) ? walk(dir, 1, (n) => n.endsWith('.jsonl')) : null;
-  const last = files && newest(files);
-  const running = canListProcesses()
-    ? ls(join(CLAUDE, 'sessions')).filter((e) => /^\d+\.json$/.test(e.name) && isAlive(Number(e.name.split('.')[0])) && liveSessionFile(join(CLAUDE, 'sessions', e.name))).length
-    : null;
-  if (!files) return { tool: 'claude', state: 'missing', path: tilde(dir), records: 0, lastAt: null, running, readable: null, hint: null };
-  return { tool: 'claude', state: 'ok', path: tilde(dir), records: files.length, lastAt: last?.mtime ?? null, running, readable: last ? firstLineIsJson(last.path) : null, hint: null };
+// 기록 폴더 여러 개(#212)를 한 도구 결과로 모은다. 같은 기록(key 가 같은 파일)은 한 번만 센다.
+// path 는 첫 폴더(예전 모양), dirs 는 읽는 폴더마다 { path, found, records }.
+function gatherDirs(roots, list) {
+  const dirs = [];
+  const byKey = new Map();
+  for (const root of roots) {
+    const files = existsSync(root) ? list(root) : null;
+    dirs.push({ path: tilde(root), found: Boolean(files), records: files?.length ?? 0 });
+    for (const f of files ?? []) if (!byKey.has(f.key)) byKey.set(f.key, f.path);
+  }
+  const found = dirs.some((d) => d.found);
+  const files = [...byKey.values()];
+  const last = found ? newest(files) : null;
+  return { found, path: dirs[0]?.path ?? '', dirs, records: files.length, lastAt: last?.mtime ?? null, readable: last ? firstLineIsJson(last.path) : null };
 }
 
-function codex() {
-  const files = existsSync(CODEX) ? walk(CODEX, 3, (n) => n.startsWith('rollout-') && n.endsWith('.jsonl')) : null;
-  const last = files && newest(files);
+const claudeFiles = (dir) => walk(dir, 1, (n) => n.endsWith('.jsonl')).map((p) => ({ key: p.slice(dir.length), path: p }));
+const codexFiles = (dir) => walk(dir, 3, (n) => n.startsWith('rollout-') && n.endsWith('.jsonl')).map((p) => ({ key: basename(p), path: p }));
+
+// 읽지 않는 폴더 중 기록이 있는 것 (dirs.mjs candidateDirs). 기록 수만 센다.
+function candidatesOf(paths, sub, list) {
+  return paths.map((p) => ({ path: tilde(p), records: list(join(p, sub)).length })).filter((c) => c.records > 0);
+}
+
+function claude(cand) {
+  const homes = claudeDirs();
+  const g = gatherDirs(homes.map((h) => join(h, 'projects')), claudeFiles);
+  let running = null;
+  if (canListProcesses()) {
+    running = 0;
+    for (const h of homes) running += ls(join(h, 'sessions')).filter((e) => /^\d+\.json$/.test(e.name) && isAlive(Number(e.name.split('.')[0])) && liveSessionFile(join(h, 'sessions', e.name))).length;
+  }
+  const candidates = candidatesOf(cand, 'projects', claudeFiles);
+  if (!g.found) return { tool: 'claude', state: 'missing', path: g.path, dirs: g.dirs, candidates, records: 0, lastAt: null, running, readable: null, hint: null };
+  return { tool: 'claude', state: 'ok', path: g.path, dirs: g.dirs, candidates, records: g.records, lastAt: g.lastAt, running, readable: g.readable, hint: null };
+}
+
+function codex(cand) {
+  const g = gatherDirs(codexHomes().map((h) => join(h, 'sessions')), codexFiles);
   const running = canListProcesses() ? findProcesses(isCodex).length : null;
-  if (!files) return { tool: 'codex', state: 'missing', path: tilde(CODEX), records: 0, lastAt: null, running, readable: null, hint: null };
-  return { tool: 'codex', state: 'ok', path: tilde(CODEX), records: files.length, lastAt: last?.mtime ?? null, running, readable: last ? firstLineIsJson(last.path) : null, hint: null };
+  const candidates = candidatesOf(cand, 'sessions', codexFiles);
+  if (!g.found) return { tool: 'codex', state: 'missing', path: g.path, dirs: g.dirs, candidates, records: 0, lastAt: null, running, readable: null, hint: null };
+  return { tool: 'codex', state: 'ok', path: g.path, dirs: g.dirs, candidates, records: g.records, lastAt: g.lastAt, running, readable: g.readable, hint: null };
 }
 
 // Gemini 는 세션 기록 형식을 아직 모른다. 프로세스만 세고, 기록 폴더가 있으면 형식 확인용 키 이름을 남긴다.
@@ -179,10 +204,12 @@ export function hintOf(r, lang = 'ko') {
   return null;
 }
 
-export function checkTools() {
+// home: 후보 폴더를 찾을 홈 폴더 (테스트에서 바꿔 끼운다).
+export function checkTools({ home = HOME } = {}) {
+  const cand = candidateDirs({ home });
   const tools = {};
   for (const fn of [claude, codex, gemini, agy]) {
-    const r = fn();
+    const r = fn === claude ? claude(cand.claude) : fn === codex ? codex(cand.codex) : fn();
     r.hint = hintOf(r, 'ko');
     tools[r.tool] = r;
   }
@@ -232,8 +259,14 @@ export function doctorText(result, version, now = Date.now(), lang = getLang()) 
   for (const t of Object.values(result.tools)) {
     const d = describe(t, now, lang);
     out.push(`${d.mark} ${pad(t.tool, 7)}${pad(d.state, 10)}${d.path}`);
+    // 기록 폴더가 여럿이면 둘째부터 한 줄씩, 읽지 않는 후보 폴더는 넣는 방법과 함께 (#212).
+    for (const x of t.dirs?.slice(1) ?? []) out.push(`  + ${pad('', 15)}${x.path}  ${x.found ? tr('doctor.records', { n: x.records.toLocaleString('en-US') }, o) : tr('doctor.dirMissing', null, o)}`);
     out.push(`         ${d.detail}`);
     if (d.hint) out.push(`         → ${d.hint}`);
+    if (t.candidates?.length) {
+      for (const c of t.candidates) out.push(`         ? ${tr('doctor.candidate', { path: c.path, n: c.records.toLocaleString('en-US') }, o)}`);
+      out.push(`         → ${tr(t.tool === 'claude' ? 'doctor.candidateHintClaude' : 'doctor.candidateHintCodex', null, o)}`);
+    }
   }
   if ('notifier' in result) out.push('', notifierText(result.notifier, result.platform, lang));
   // 설정 파일: 무시한 키와 값, 받지 않은 onWaiting 을 알린다.

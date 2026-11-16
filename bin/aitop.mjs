@@ -83,6 +83,9 @@ process.env.AITOP_COLOR_BLIND = opt.colorBlind ? '1' : '0';
 if (config.values.icons.source === 'file') process.env.AITOP_ICONS = opt.icons;
 // 폭이 모호한 기호를 2칸으로 셀지는 글자 폭 계산(text.mjs)이 쓴다. 화면 모듈은 그릴 때마다 이 값을 본다.
 setAmbiguous(opt.ambiguous);
+// 읽을 Claude·Codex 기록 폴더 목록. 기록을 읽는 모듈을 불러오기 전에 정한다 (#212).
+const { setDataDirs } = await import('../src/sources/dirs.mjs');
+setDataDirs({ claude: opt.claudeDirs, codex: opt.codexHomes });
 const { BRAND, userVarsSeq } = await import('../src/brand.mjs');
 const { keysText } = await import('../src/help.mjs');
 const { debug, initLog, logPath } = await import('../src/log.mjs');

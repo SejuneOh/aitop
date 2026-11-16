@@ -98,6 +98,9 @@ const HELP_KO = `{logo} aitop - 터미널에서 Claude Code · Codex · Antigrav
     예) { "theme": "light", "icons": "plain", "bell": true, "notify": true, "onWaiting": "say 대기", "budgetDay": 50, "ambiguous": "wide", "hideIdleTools": false }
     notify 에 ["waiting", "done", "context"] 처럼 종류를 주면 그 종류만 알린다. doneMinutes: done 알림 기준 작업 시간(분, 기본 3)
     hideIdleTools: 실행 중 세션이 없고 7일 동안 쓰지 않은 도구를 헤더 아래 도구 줄에서 숨긴다 (기본 true, false 면 늘 셋 다)
+    claudeDirs, codexHomes: 읽을 Claude 설정 폴더·Codex 홈 목록 (예: ["~/.claude", "~/.claude-work"], 기본 ~/.claude, ~/.codex).
+      AITOP_CLAUDE_DIRS, AITOP_CODEX_HOMES 에 경로를 : (Windows 는 ;) 로 이어 주면 설정 파일보다 먼저 쓴다.
+      설정 파일 목록이 있으면 물려받은 CLAUDE_CONFIG_DIR, CODEX_HOME 은 쓰지 않는다 (없으면 그 경로를 읽는다)
     onWaiting 은 파일 소유자가 나이고 그룹·다른 사용자가 쓸 수 없을 때(chmod 600)만 받는다.
     옵션 > 환경 변수 > 설정 파일 순서로 정한다. 잘못된 값은 무시하고 --doctor 에 알린다.
 
@@ -147,6 +150,9 @@ const HELP_EN = `{logo} aitop - watch Claude Code, Codex, Antigravity and Gemini
     e.g. { "theme": "light", "icons": "plain", "bell": true, "notify": true, "onWaiting": "say waiting", "budgetDay": 50, "ambiguous": "wide", "hideIdleTools": false, "lang": "en" }
     notify can also be a list like ["waiting", "done", "context"] to pick the kinds. doneMinutes: busy time (minutes, default 3) before a done notice
     hideIdleTools: hide tools with no running session and no use in 7 days from the tool line under the header (default true, false always shows all)
+    claudeDirs, codexHomes: Claude config folders and Codex homes to read (e.g. ["~/.claude", "~/.claude-work"], default ~/.claude, ~/.codex).
+      AITOP_CLAUDE_DIRS and AITOP_CODEX_HOMES take paths joined with : (; on Windows) and win over the config file.
+      With a config list, an inherited CLAUDE_CONFIG_DIR or CODEX_HOME is not used (without one, that path is read)
     onWaiting is accepted only when you own the file and no group or other user can write it (chmod 600).
     Order: option > env var > config file. Bad values are ignored and reported by --doctor.
 
@@ -258,6 +264,7 @@ export const STRINGS = {
     'cfg.command': '실행할 명령 문자열',
     'cfg.notify': 'true, false 또는 waiting·done·context 배열',
     'cfg.positive': '0 보다 큰 수',
+    'cfg.paths': '절대 경로(또는 ~/...) 문자열 배열, 1~16개',
     'cfg.file': '설정 파일: {path} ({state})',
     'cfg.exists': '있음',
     'cfg.missing': '없음',
@@ -271,6 +278,10 @@ export const STRINGS = {
     'doctor.state.limited': '일부 지원',
     'doctor.noFolder': '기록 폴더 없음',
     'doctor.records': '기록 {n}개',
+    'doctor.dirMissing': '폴더 없음',
+    'doctor.candidate': '읽지 않는 기록 폴더 {path} (기록 {n}개)',
+    'doctor.candidateHintClaude': '읽으려면 설정 파일 claudeDirs 배열에 넣거나 AITOP_CLAUDE_DIRS 로 주세요 (예: ["~/.claude", "~/.claude-work"])',
+    'doctor.candidateHintCodex': '읽으려면 설정 파일 codexHomes 배열에 넣거나 AITOP_CODEX_HOMES 로 주세요 (예: ["~/.codex", "~/.codex-alt"])',
     'doctor.last': '마지막 {ago} 전',
     'doctor.runningUnknown': '실행 수 확인 불가 (Linux·WSL·macOS 만 지원)',
     'doctor.running': '실행 {n}',
@@ -623,6 +634,7 @@ export const STRINGS = {
     'cfg.command': 'a command string',
     'cfg.notify': 'true, false or a list of waiting, done, context',
     'cfg.positive': 'a number above 0',
+    'cfg.paths': 'a list of 1 to 16 absolute paths (or ~/...)',
     'cfg.file': 'Config file: {path} ({state})',
     'cfg.exists': 'found',
     'cfg.missing': 'not found',
@@ -636,6 +648,10 @@ export const STRINGS = {
     'doctor.state.limited': { long: 'partial support', short: 'partial' },
     'doctor.noFolder': 'no log folder',
     'doctor.records': { one: '{n} log', other: '{n} logs' },
+    'doctor.dirMissing': 'folder not found',
+    'doctor.candidate': { one: 'not read: {path} ({n} log)', other: 'not read: {path} ({n} logs)' },
+    'doctor.candidateHintClaude': 'to read it, add it to claudeDirs in the config file or AITOP_CLAUDE_DIRS (e.g. ["~/.claude", "~/.claude-work"])',
+    'doctor.candidateHintCodex': 'to read it, add it to codexHomes in the config file or AITOP_CODEX_HOMES (e.g. ["~/.codex", "~/.codex-alt"])',
     'doctor.last': 'last {ago} ago',
     'doctor.runningUnknown': 'cannot count running (Linux, WSL and macOS only)',
     'doctor.running': 'running {n}',

@@ -4,11 +4,12 @@
 // 화면 모듈은 불러올 때 테마·아이콘을 고르므로, 이 모듈은 화면 모듈을 불러오지 않는다 (notify.mjs 는 text·i18n 만 쓴다).
 import { closeSync, constants, fstatSync, openSync, readSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { posix, win32 } from 'node:path';
+import { join, posix, win32 } from 'node:path';
 import { appDir } from './paths.mjs';
 import { stripControl } from './text.mjs';
 import { langValue, localeLang, t } from './i18n.mjs';
 import { EVENT_KINDS } from './notify.mjs';
+import { DIR_ENV, pathLike, splitPaths } from './sources/dirs.mjs';
 
 const bool = (v) => typeof v === 'boolean';
 const oneOf = (...xs) => (v) => xs.includes(v);
@@ -47,6 +48,8 @@ export function budgetDayOption(argv) {
 }
 
 const BOOL = ['true', 'false'];
+// 기록 폴더 목록: 절대 경로(또는 ~ 로 시작) 문자열 배열, 1~16개.
+const pathList = (v) => Array.isArray(v) && v.length > 0 && v.length <= 16 && v.every(pathLike);
 // expect, envExpect: 둘 중 하나면 [a, b], 아니면 i18n 키. 문구는 쓸 때 지금 언어로 만든다.
 const expectText = (x) => (Array.isArray(x) ? t('cfg.either', { a: x[0], b: x[1] }) : t(x));
 
@@ -74,6 +77,10 @@ export const KEYS = {
   ambiguous: { ok: oneOf('narrow', 'wide'), expect: ['narrow', 'wide'], def: 'narrow', env: ['AITOP_AMBIGUOUS', (v) => (v === 'narrow' || v === 'wide' ? v : undefined)], envProblem: true },
   // --help·--doctor·오류 문구의 언어(i18n.mjs). 기본값은 로캘(LC_ALL > LC_MESSAGES > LANG)이 ko 로 시작하면 ko, 아니면 en.
   lang: { ok: oneOf('ko', 'en'), expect: ['ko', 'en'], def: localeLang, env: ['AITOP_LANG', langValue], envProblem: true },
+  // 읽을 Claude 설정 폴더·Codex 홈 폴더 목록 (#212, sources/dirs.mjs). 환경 변수는 path.delimiter(: 또는 ;)로 여러 개를 잇는다.
+  // AITOP_CLAUDE_DIRS > 설정 파일 > 물려받은 CLAUDE_CONFIG_DIR (inherit, Claude Code 용 변수라 설정 파일보다 낮다) > ~/.claude.
+  claudeDirs: { ok: pathList, expect: 'cfg.paths', def: () => [join(homedir(), DIR_ENV.claude.home)], env: [DIR_ENV.claude.own, (v) => splitPaths(v)], inherit: [DIR_ENV.claude.inherited, (v) => splitPaths(v)] },
+  codexHomes: { ok: pathList, expect: 'cfg.paths', def: () => [join(homedir(), DIR_ENV.codex.home)], env: [DIR_ENV.codex.own, (v) => splitPaths(v)], inherit: [DIR_ENV.codex.inherited, (v) => splitPaths(v)] },
 };
 
 // Windows 는 XDG_CONFIG_HOME 이 없으면 %APPDATA%\aitop\config.json.
@@ -159,8 +166,10 @@ export function resolveConfig({ flags = {}, env = process.env, file } = {}) {
     const fromEnv = spec.env && env[spec.env[0]] != null ? spec.env[1](env[spec.env[0]]) : undefined;
     if (spec.envProblem && env[spec.env[0]] != null && fromEnv === undefined) problems.push(t('cfg.badEnv', { name: spec.env[0], value: show(env[spec.env[0]]), expect: expectText(spec.envExpect ?? spec.expect) }));
     if (flags[key] !== undefined) values[key] = { value: flags[key], source: 'flag' };
-    else if (fromEnv !== undefined) values[key] = { value: fromEnv, source: 'env' };
+    else if (fromEnv !== undefined) values[key] = spec.inherit ? { value: fromEnv, source: 'env', env: spec.env[0] } : { value: fromEnv, source: 'env' };
     else if (key in file.values) values[key] = { value: file.values[key], source: 'file' };
+    // 물려받은 변수(CLAUDE_CONFIG_DIR 등)는 설정 파일 다음. 어느 변수에서 왔는지 env 에 남긴다.
+    else if (spec.inherit && spec.inherit[1](env[spec.inherit[0]]) !== undefined) values[key] = { value: spec.inherit[1](env[spec.inherit[0]]), source: 'env', env: spec.inherit[0] };
     // 기본값이 함수면 환경에서 고른다 (lang 은 로캘).
     else values[key] = { value: typeof spec.def === 'function' ? spec.def(env) : spec.def, source: 'default' };
   }
@@ -171,9 +180,9 @@ export function resolveConfig({ flags = {}, env = process.env, file } = {}) {
 export function configText(cfg) {
   const out = [t('cfg.file', { path: stripControl(cfg.path), state: t(cfg.exists ? 'cfg.exists' : 'cfg.missing') }), ''];
   for (const [key, { value, source }] of Object.entries(cfg.values)) {
-    // 배열(notify 의 종류)은 waiting,done 처럼 쉼표로 잇는다.
-    const v = value == null ? (key === 'theme' ? 'auto' : '-') : typeof value === 'string' ? JSON.stringify(value) : Array.isArray(value) ? value.join(',') : String(value);
-    out.push(`${key.padEnd(14)}${v.padEnd(12)} ${source}`);
+    // 배열(notify 의 종류, 기록 폴더)은 waiting,done 처럼 쉼표로 잇는다.
+    const v = value == null ? (key === 'theme' ? 'auto' : '-') : typeof value === 'string' ? JSON.stringify(value) : Array.isArray(value) ? stripControl(value.join(',')) : String(value);
+    out.push(`${key.padEnd(14)}${v.padEnd(12)} ${source}${cfg.values[key].env ? ` (${cfg.values[key].env})` : ''}`);
   }
   if (cfg.problems.length) out.push('', ...cfg.problems.map((p) => `! ${stripControl(p)}`));
   return out.join('\n');
