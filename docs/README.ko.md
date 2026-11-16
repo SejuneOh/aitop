@@ -162,7 +162,7 @@ Total       1.69B $677  26.1M $4.45  1.71B $681
 
 `C.UTF-8`·`en_US` 로캘에서 화면과 이 문구들을 한국어로 보던 사용자는 언어 선택이 들어온 버전부터 영어로 보게 된다. 한국어로 보려면 `AITOP_LANG=ko` 를 셸 설정에 넣거나 설정 파일에 `"lang": "ko"` 를 둔다. 잘못된 `AITOP_LANG`·`lang` 값은 무시하고 `--doctor` 에 알린다.
 
-`--json` 의 `phase` 와 `--on-waiting` 의 `AITOP_WAITING_FOR` 는 언어와 상관없이 예전처럼 한국어 문구다. 스크립트는 언어와 상관없는 상태 이름 `phaseKind` (`think` · `write` · `tool` · `team` · `waiting` · `idle` · `done` · `ended`, 모르면 `null`) 를 보면 된다. 다른 글 필드는 따로 정해진다: 영어일 때 `--doctor --json` 의 `tools.*.hint` 는 한국어, `config.problems` 는 영어로 섞여 나온다.
+`--json` 의 `phase` 와 `--on-waiting` 의 `AITOP_WAITING_FOR` 는 언어와 상관없이 예전처럼 한국어 문구다. 스크립트는 언어와 상관없는 상태 이름 `phaseKind` (`think` · `write` · `tool` · `team` · `waiting` · `idle` · `done` · `ended`, 모르면 `null`) 를 보면 된다. 세션 `name` 은 표와 같은 이름이라, Codex 세션은 `thread_name` 이 생기면 폴더 이름에서 그 이름으로 바뀐다. 다른 글 필드는 따로 정해진다: 영어일 때 `--doctor --json` 의 `tools.*.hint` 는 한국어, `config.problems` 는 영어로 섞여 나온다.
 
 ### 디버그 로그
 
@@ -205,6 +205,8 @@ aitop --notify=waiting,done,context  알릴 종류를 고른다. --notify 만 �
 | `context` | 컨텍스트 사용률이 90% 를 넘을 때 한 번. 85% 아래로 내려가면(압축 등) 다시 알린다. aitop 을 켰을 때나 새 세션의 기록을 처음 다 읽었을 때 이미 넘어 있으면 알리지 않는다 |
 
 종류는 데스크톱 알림과 `--on-waiting` 명령에 함께 쓴다. 이름은 예전 그대로 `--on-waiting` 이고, 어떤 일인지는 `AITOP_EVENT` 로 가른다 (예: `[ "$AITOP_EVENT" = done ] && say 끝`). 종류는 명령줄 `--notify=<종류>` > 설정 파일 `notify` 배열 > `waiting` 순서로 정한다. 그래서 종류를 따로 정하지 않으면 예전처럼 응답 대기에만 실행된다. `--no-notify` 는 데스크톱 알림만 끄고, `--on-waiting` 명령은 그 종류를 그대로 따른다. 벨(`--bell`)은 늘 응답 대기만 울린다.
+
+알림 본문에는 세션에 붙인 이름(Claude Code `/rename` 이나 다른 세션이 붙인 이름, Codex `thread_name`)이 있으면 그 이름이, 없으면 프로젝트 이름이 들어간다. 데스크톱 알림은 잠금 화면에도 보일 수 있으니 이름도 그대로 보인다.
 
 `--on-waiting` 명령은 **aitop 을 실행한 사용자 권한 그대로** 돈다. 세션 정보는 명령 문자열에 끼워 넣지 않고 환경변수로만 넘긴다 (명령 안에서 쓸 때는 `"$AITOP_PROJECT"` 처럼 따옴표로 감싼다).
 

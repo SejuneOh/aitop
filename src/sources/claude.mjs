@@ -6,8 +6,8 @@ import { contextWindow } from '../pricing.mjs';
 import { join, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { isSessionAlive } from '../procs.mjs';
-import { ClaudeTracker } from './claude-tracker.mjs';
-import { emptyTokens, mergeActivity, MEMBER_FADE_MS } from './common.mjs';
+import { ClaudeTracker, tailCustomTitle } from './claude-tracker.mjs';
+import { emptyTokens, mergeActivity, MEMBER_FADE_MS, sessionName } from './common.mjs';
 import { mergeFiles } from './files.mjs';
 import { debug, debugIo } from '../log.mjs';
 
@@ -212,11 +212,12 @@ function recentTranscripts() {
   return list;
 }
 
-// 기록이 바뀌었으면(mtime) 앞부분을 다시 읽어 뒤늦게 붙은 제목도 반영한다.
+// 기록이 바뀌었으면(mtime) 앞부분을 다시 읽어 뒤늦게 붙은 제목도 반영한다. /rename 이름은 끝부분에서 먼저 찾는다.
 function readHead(path, mtime) {
   const cached = heads.get(path);
   if (cached && cached.mtime === mtime) return cached;
-  const head = { mtime, cwd: null, title: null, branch: null, startedAt: null };
+  const head = { mtime, cwd: null, title: null, customTitle: null, branch: null, startedAt: null };
+  let headCustom;
   try {
     const fd = openSync(path, 'r');
     const buf = Buffer.alloc(HEAD_BYTES);
@@ -235,10 +236,13 @@ function readHead(path, mtime) {
       head.branch ??= x.gitBranch ?? null;
       if (x.timestamp) head.startedAt ??= Date.parse(x.timestamp) || null;
       if (x.type === 'ai-title' && x.aiTitle) head.title = x.aiTitle;
+      if (x.type === 'custom-title') headCustom = sessionName(x.customTitle);
     }
   } catch (e) {
     debugIo('claude', 'transcript head read failed', e, path);
   }
+  const tail = tailCustomTitle(path);
+  head.customTitle = (tail === undefined ? headCustom : tail) ?? null;
   heads.set(path, head);
   return head;
 }
@@ -273,7 +277,8 @@ function endedFromTranscripts(known, selectedId, budget) {
       id: f.sessionId,
       pid: null,
       kind: '-',
-      name: t?.title ?? head.title ?? `${basename(head.cwd ?? '')} · ${f.sessionId.slice(0, 8)}`,
+      name: (t ? t.customTitle : head.customTitle) ?? t?.title ?? head.title ?? `${basename(head.cwd ?? '')} · ${f.sessionId.slice(0, 8)}`,
+      customName: (t ? t.customTitle : head.customTitle) ?? null,
       cwd: head.cwd,
       project: basename(head.cwd ?? ''),
       branch: t?.branch ?? head.branch,
@@ -361,16 +366,36 @@ function sessionEntries() {
   return latest;
 }
 
-// 응답 대기 중인 Claude 세션들 [{ tool, name, since }]. 세션 파일과 pid 만 보므로 대화 기록·프로세스 목록을 읽지 않는다 (aitop --line 용).
-// 이름은 세션 파일의 이름, 자동 이름(id 앞 8자)이면 대화 제목 대신 작업 폴더 이름을 쓴다 (제목은 기록을 읽어야 안다).
+// 세션 파일 이름이 비었거나 id 앞 8자(이름을 아직 안 붙인 자리표시)인지.
+const isAutoName = (e) => !e.name || e.name === e.sessionId.slice(0, 8);
+// 세션 파일 이름 가운데 사람이 정한 것: nameSource 가 user(/rename) 또는 peer(다른 세션이 이름을 붙여 띄움).
+// auto(모델이 지은 이름)·derived(폴더에서 만든 이름)·없음은 화면 이름으로만 쓰고 사용자 이름(customName)으로 치지 않는다.
+const GIVEN_SOURCES = new Set(['user', 'peer']);
+const givenFileName = (e) => (!isAutoName(e) && GIVEN_SOURCES.has(e.nameSource) ? sessionName(String(e.name)) : null);
+
+// 사용자가 정한 이름: 기록의 마지막 custom-title, 없으면 세션 파일의 user/peer 이름. 알림 본문에 쓴다.
+// custom-title 은 /rename 할 때 기록 순서대로 남으므로 마지막 것이 맞고, 세션 파일 이름도 그때 같은 값으로 맞춰진다.
+function givenName(e, custom) {
+  return custom ?? givenFileName(e);
+}
+
+// 살아 있는 세션 화면 이름. 순서: 사용자 이름(givenName) > 그 밖의 세션 파일 이름(자리표시 제외, auto·derived 포함) > 대화 제목 > 폴더 · id.
+function sessionLabel(e, t) {
+  const fileName = isAutoName(e) ? null : sessionName(String(e.name));
+  return givenName(e, t?.customTitle) ?? fileName ?? t?.title ?? `${basename(e.cwd ?? '')} · ${e.sessionId.slice(0, 8)}`;
+}
+
+// 응답 대기 중인 Claude 세션들 [{ tool, name, since }]. 세션 파일과 pid 만 보고 프로세스 목록·대화 기록 본문은 읽지 않는다 (aitop --line 용).
+// 이름은 표와 같은 순서: 기록 끝부분의 /rename 이름, 세션 파일 이름, 자리표시 이름이면 작업 폴더 이름 (대화 제목은 기록을 다 읽어야 안다).
 // 대기 시작은 상태가 바뀐 시각(statusUpdatedAt), 없으면 세션 파일이 바뀐 시각.
 export function claudeWaiting() {
   const out = [];
   for (const e of sessionEntries()?.values() ?? []) {
     if (!e.alive || !e.waitingFor) continue;
-    const autoName = !e.name || e.name === e.sessionId.slice(0, 8);
+    const transcript = findTranscript(e.sessionId);
+    const custom = transcript ? tailCustomTitle(transcript) : undefined;
     const since = [e.statusUpdatedAt, e.updatedAt, e.startedAt].find(Number.isFinite) ?? null;
-    out.push({ tool: 'claude', name: autoName ? basename(e.cwd ?? '') : String(e.name), since });
+    out.push({ tool: 'claude', name: givenName(e, custom) ?? (isAutoName(e) ? basename(e.cwd ?? '') : String(e.name)), since });
   }
   return out;
 }
@@ -392,14 +417,14 @@ export function collectClaude({ showEnded, budget, selectedId }) {
     const { members, sub } = transcript ? readMembers(transcript, t, budget) : { members: [], sub: emptySub() };
     const mtime = Math.max(t?.mtimeMs ?? 0, touched);
     const status = statusOf(e, e.alive, mtime);
-    const autoName = !e.name || e.name === e.sessionId.slice(0, 8);
 
     out.push({
       tool: 'claude',
       id: e.sessionId,
       pid: e.pid,
       kind: e.kind === 'bg' ? 'background' : e.kind ?? 'interactive',
-      name: (autoName ? t?.title : e.name) ?? `${basename(e.cwd ?? '')} · ${e.sessionId.slice(0, 8)}`,
+      name: sessionLabel(e, t),
+      customName: givenName(e, t?.customTitle) ?? null,
       cwd: e.cwd,
       project: basename(e.cwd ?? ''),
       branch: t?.branch,
