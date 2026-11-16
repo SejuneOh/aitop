@@ -1,19 +1,17 @@
 // Claude Code: ~/.claude/sessions/<pid>.json 으로 살아 있는 세션을 찾고,
 // ~/.claude/projects/*/<sessionId>.jsonl 대화 기록에서 진행 단계·토큰·비용을 읽는다.
+// 설정 폴더가 여럿이면(dirs.mjs) 모두 보고, 같은 세션 id 는 하나로 합친다.
 import { readdirSync, readFileSync, existsSync, statSync, openSync, readSync, closeSync } from 'node:fs';
 import { loadCache } from '../cache.mjs';
 import { contextWindow } from '../pricing.mjs';
 import { join, basename } from 'node:path';
-import { homedir } from 'node:os';
 import { isSessionAlive } from '../procs.mjs';
 import { ClaudeTracker, tailCustomTitle } from './claude-tracker.mjs';
 import { emptyTokens, mergeActivity, MEMBER_FADE_MS, sessionName } from './common.mjs';
 import { mergeFiles } from './files.mjs';
 import { debug, debugIo } from '../log.mjs';
+import { claudeDirs, claudeProjectRoots, dedupeBy } from './dirs.mjs';
 
-const HOME = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude');
-const SESSIONS = join(HOME, 'sessions');
-const PROJECTS = join(HOME, 'projects');
 const ENDED_WINDOW_MS = 24 * 3600 * 1000;
 // finished 표시 없이 중간에 끊긴 팀원 기록이 남기 때문에, 이 시간 넘게 기록이 없으면 실행 중으로 보지 않는다.
 const MEMBER_STALE_MS = 15 * 60_000;
@@ -34,17 +32,28 @@ function readJson(p) {
 function findTranscript(sessionId) {
   const cached = pathCache.get(sessionId);
   if (cached && (cached.path ? existsSync(cached.path) : Date.now() - cached.at < 5000)) return cached.path;
+  // 같은 세션 기록이 두 폴더에 있으면 더 최근에 바뀐 쪽 (끝난 세션 목록과 같은 기준). 폴더 하나에서는 처음 찾은 것.
   let path = null;
-  try {
-    for (const dir of readdirSync(PROJECTS)) {
-      const p = join(PROJECTS, dir, `${sessionId}.jsonl`);
-      if (existsSync(p)) {
-        path = p;
+  let best = -Infinity;
+  for (const root of claudeProjectRoots()) {
+    try {
+      for (const dir of readdirSync(root)) {
+        const p = join(root, dir, `${sessionId}.jsonl`);
+        let m;
+        try {
+          m = statSync(p).mtimeMs;
+        } catch {
+          continue;
+        }
+        if (m > best) {
+          path = p;
+          best = m;
+        }
         break;
       }
+    } catch (e) {
+      debugIo('claude', 'projects read failed', e, root);
     }
-  } catch (e) {
-    debugIo('claude', 'projects read failed', e);
   }
   pathCache.set(sessionId, { path, at: Date.now() });
   return path;
@@ -185,31 +194,35 @@ const heads = new Map();
 function recentTranscripts() {
   if (Date.now() - discovered.at < DISCOVER_TTL_MS) return discovered.list;
   const list = [];
-  let dirs = [];
-  try {
-    dirs = readdirSync(PROJECTS);
-  } catch (e) {
-    debugIo('claude', 'projects read failed', e);
-  }
-  for (const dir of dirs) {
-    let names;
+  for (const root of claudeProjectRoots()) {
+    let dirs = [];
     try {
-      names = readdirSync(join(PROJECTS, dir));
+      dirs = readdirSync(root);
     } catch (e) {
-      debugIo('claude', 'project folder read failed', e, dir);
-      continue;
+      debugIo('claude', 'projects read failed', e, root);
     }
-    for (const n of names) {
-      if (!n.endsWith('.jsonl')) continue;
-      const path = join(PROJECTS, dir, n);
+    for (const dir of dirs) {
+      let names;
       try {
-        const mtime = statSync(path).mtimeMs;
-        if (Date.now() - mtime < ENDED_WINDOW_MS) list.push({ sessionId: n.slice(0, -'.jsonl'.length), path, mtime });
-      } catch {}
+        names = readdirSync(join(root, dir));
+      } catch (e) {
+        debugIo('claude', 'project folder read failed', e, dir);
+        continue;
+      }
+      for (const n of names) {
+        if (!n.endsWith('.jsonl')) continue;
+        const path = join(root, dir, n);
+        try {
+          const mtime = statSync(path).mtimeMs;
+          const sessionId = n.slice(0, -'.jsonl'.length);
+          if (Date.now() - mtime < ENDED_WINDOW_MS) list.push({ key: sessionId, sessionId, path, mtime });
+        } catch {}
+      }
     }
   }
-  discovered = { at: Date.now(), list };
-  return list;
+  // 같은 세션 기록이 두 폴더에 있으면 하나만 (더 최근 쪽).
+  discovered = { at: Date.now(), list: dedupeBy(list) };
+  return discovered.list;
 }
 
 // 기록이 바뀌었으면(mtime) 앞부분을 다시 읽어 뒤늦게 붙은 제목도 반영한다. /rename 이름은 끝부분에서 먼저 찾는다.
@@ -304,7 +317,8 @@ function endedFromTranscripts(known, selectedId, budget) {
 // 그래서 수정된 지 RACY_MS 안에 읽은 결과는 믿지 않고 다음 갱신에 다시 읽는다 (git 의 racy 검사와 같다).
 const RACY_MS = 2000;
 const LIST_MAX_AGE_MS = 10_000;
-let listing = { mtime: -1, at: 0, files: [] };
+// 폴더(sessions 경로)마다 목록을 따로 둔다.
+const listings = new Map();
 // 파일별로 읽은 내용. 수정 시각·크기가 그대로면 다시 읽지 않는다.
 // 한 번 죽은 것으로 본 pid 는 살아나지 않으므로(같은 pid 는 다른 프로세스), 파일이 바뀌기 전까지 다시 확인하지 않는다.
 const fileCache = new Map();
@@ -314,30 +328,31 @@ export function _sessionReads() {
   return sessionReads;
 }
 
-function listSessionFiles() {
-  const mtime = statSync(SESSIONS).mtimeMs;
-  if (mtime === listing.mtime && listing.at - mtime > RACY_MS && Date.now() - listing.at < LIST_MAX_AGE_MS) return listing.files;
-  const files = readdirSync(SESSIONS).filter((n) => n.endsWith('.json'));
-  listing = { mtime, at: Date.now(), files };
+// 돌려주는 것은 파일 전체 경로다 (fileCache 열쇠도 전체 경로라 폴더끼리 섞이지 않는다).
+function listSessionFiles(dir) {
+  const mtime = statSync(dir).mtimeMs;
+  const listing = listings.get(dir);
+  if (listing && mtime === listing.mtime && listing.at - mtime > RACY_MS && Date.now() - listing.at < LIST_MAX_AGE_MS) return listing.files;
+  const files = readdirSync(dir).filter((n) => n.endsWith('.json')).map((n) => join(dir, n));
+  listings.set(dir, { mtime, at: Date.now(), files });
   return files;
 }
 
-function sessionFile(name) {
-  const path = join(SESSIONS, name);
+function sessionFile(path) {
   let st;
   try {
     st = statSync(path);
   } catch (e) {
     debugIo('claude', 'session file stat failed', e, path);
-    fileCache.delete(name);
+    fileCache.delete(path);
     return null;
   }
-  let c = fileCache.get(name);
+  let c = fileCache.get(path);
   if (!c || c.mtime !== st.mtimeMs || c.size !== st.size || c.at - c.mtime <= RACY_MS) {
     sessionReads++;
     const at = Date.now();
     c = { mtime: st.mtimeMs, size: st.size, at, entry: readJson(path), dead: false };
-    fileCache.set(name, c);
+    fileCache.set(path, c);
   }
   // 미리 띄워 둔 대기 프로세스(claude bg-spare)는 아직 세션이 아니다. 작업을 맡으면 spare 가 빠진 파일로 다시 쓰인다.
   if (!c.entry?.sessionId || c.entry.spare) return null;
@@ -345,21 +360,52 @@ function sessionFile(name) {
   return { ...c.entry, alive: !c.dead };
 }
 
-// ~/.claude/sessions/*.json 을 세션 id 마다 하나로 (살아 있는 쪽, 그다음 최근에 바뀐 쪽). 폴더를 읽지 못하면 null.
+// 모든 설정 폴더의 sessions/*.json 을 세션 id 마다 하나로 (살아 있는 쪽, 그다음 최근에 바뀐 쪽). 어느 폴더도 읽지 못하면 null.
+// 폴더마다 마지막으로 읽은 세션 목록 { at, files, entries }.
+// 폴더나 sessions/ 가 사라지면(ENOENT) 그 폴더 세션은 바로 뺀다. 그 밖의 오류(EACCES, EIO 등)는 잠깐일 수 있어
+// STALE_KEEP_MS 동안만 직전 결과를 쓰고, 그동안에도 pid 가 살아 있는지는 다시 본다. 그 뒤에는 뺀다.
+const entriesByDir = new Map();
+let STALE_KEEP_MS = 30_000;
+export const _setStaleKeepMs = (ms) => (STALE_KEEP_MS = ms);
+
 function sessionEntries() {
-  let files;
-  try {
-    files = listSessionFiles();
-  } catch (e) {
-    debugIo('claude', 'sessions read failed', e);
-    return null;
+  const dirs = claudeDirs().map((h) => join(h, 'sessions'));
+  const all = [];
+  const keep = new Set();
+  let ok = false;
+  for (const dir of dirs) {
+    let files;
+    try {
+      files = listSessionFiles(dir);
+    } catch (e) {
+      debugIo('claude', 'sessions read failed', e, dir);
+      const prev = entriesByDir.get(dir);
+      const gone = e.code === 'ENOENT' || e.code === 'ENOTDIR';
+      if (gone || !prev || Date.now() - prev.at > STALE_KEEP_MS) {
+        entriesByDir.delete(dir);
+        listings.delete(dir);
+        continue;
+      }
+      ok = true;
+      for (const f of prev.files) keep.add(f);
+      for (const x of prev.entries) all.push(x.alive && !isSessionAlive(x.pid, x.procStart) ? { ...x, alive: false } : x);
+      continue;
+    }
+    ok = true;
+    const entries = [];
+    for (const f of files) {
+      keep.add(f);
+      const e = sessionFile(f);
+      if (e) entries.push(e);
+    }
+    entriesByDir.set(dir, { at: Date.now(), files, entries });
+    all.push(...entries);
   }
-  const names = new Set(files);
-  for (const n of fileCache.keys()) if (!names.has(n)) fileCache.delete(n);
+  // 읽은 폴더도, 잠깐 직전 결과를 쓰는 폴더도 없으면 예전처럼 null (폴더가 하나면 동작이 그대로다).
+  if (!ok) return null;
+  for (const n of fileCache.keys()) if (!keep.has(n)) fileCache.delete(n);
   const latest = new Map();
-  for (const f of files) {
-    const e = sessionFile(f);
-    if (!e) continue;
+  for (const e of all) {
     const prev = latest.get(e.sessionId);
     if (!prev || (e.alive && !prev.alive) || (e.updatedAt ?? e.startedAt) > (prev.updatedAt ?? prev.startedAt)) latest.set(e.sessionId, e);
   }

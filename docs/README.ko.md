@@ -149,6 +149,8 @@ Total       1.69B $677  26.1M $4.45  1.71B $681
 | `hideIdleTools` | true (기본) · false | 없음. 실행 중 세션이 없고 7일 동안 쓰지 않은 도구를 도구 줄에서 숨긴다 |
 | `ambiguous` | `narrow` (기본) · `wide` | `AITOP_AMBIGUOUS` |
 | `lang` | `ko` · `en` | `--lang`, `AITOP_LANG`. 없으면 로캘로 고른다 (아래 '언어') |
+| `claudeDirs` | 절대 경로(또는 `~/...`) 배열, 1~16개. 기본 `["~/.claude"]` | `AITOP_CLAUDE_DIRS` (설정 파일보다 먼저). 물려받은 `CLAUDE_CONFIG_DIR` 는 설정 파일 다음. 아래 '기록 폴더 여러 개' |
+| `codexHomes` | 같은 모양. 기본 `["~/.codex"]` | `AITOP_CODEX_HOMES` (같은 구분자). 물려받은 `CODEX_HOME` 는 설정 파일 다음 |
 
 잘못된 JSON, 모르는 키, 잘못된 값은 그 키만 무시하고 `aitop --doctor` 에 알린다. `showRequests` 는 설정 파일로도 켤 수 있다 (내 파일이라 권한 검사는 하지 않는다). 켜면 위의 `--show-requests` 주의가 그대로 적용된다. `onWaiting` 은 파일 소유자가 나이고 그룹·다른 사용자가 쓸 수 없을 때(예: `chmod 600`)만 받는다.
 
@@ -304,6 +306,14 @@ end)
 | Codex CLI | `codex` 프로세스와 작업 폴더 (Linux `/proc`, macOS `ps`·`lsof`). Windows 는 10분 안에 바뀐 기록 | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` |
 | Antigravity CLI (`agy`) | `agy` 프로세스가 열어 둔 `presence/<id>.lock` (Linux `/proc/<pid>/fd`). macOS 는 작업 폴더로 짝짓는다 | `~/.gemini/antigravity-cli/conversation_summaries.db`(제목·상태·서브에이전트), `conversations/<id>.db` 의 `gen_metadata`(모델·토큰)·`steps`(지시·답변·도구 호출) |
 | Gemini CLI | `gemini` 프로세스 | 아직 미지원 |
+
+### 기록 폴더 여러 개
+
+Claude Code 프로필을 여럿 쓰면(`CLAUDE_CONFIG_DIR=~/.claude-work claude` 처럼) 기록 폴더도 여럿이다. 설정 파일에 `"claudeDirs": ["~/.claude", "~/.claude-work"]`, `"codexHomes": ["~/.codex", "~/.codex-alt"]` 로 적거나, aitop 전용 환경 변수 `AITOP_CLAUDE_DIRS`·`AITOP_CODEX_HOMES` 에 경로를 `:` 로 이어 준다 (Windows 는 `;`, 예: `AITOP_CLAUDE_DIRS=~/.claude:~/.claude-work aitop`). 순서는 `AITOP_*` > 설정 파일 > 물려받은 `CLAUDE_CONFIG_DIR`·`CODEX_HOME` > 기본값이다. Claude Code·Codex 용으로 export 해 둔 `CLAUDE_CONFIG_DIR` 가 설정 파일 목록을 가리지 않고, 설정 파일 목록이 없을 때만 그 경로를 읽는다. 실제로 쓰는 출처는 `aitop --print-config` 에 `env (AITOP_CLAUDE_DIRS)` 처럼 보인다. 값 전체가 있는 폴더면 나누지 않으므로, 예전에 `:` 가 든 경로 하나를 준 경우도 그대로 동작한다. 기본값은 예전처럼 `~/.claude`, `~/.codex` 하나다.
+
+- 실제 경로(링크 포함)가 같은 폴더는 한 번만 읽는다. 같은 세션 기록(같은 `projects/<폴더>/<id>.jsonl`, 같은 rollout 파일 이름)이 두 폴더에 복사돼 있으면 더 최근에 바뀐 하나만 센다. 실행 중 세션도 세션 id 로 하나로 합친다.
+- 장부 캐시는 파일 전체 경로로 따로 둔다. 월별 리포트의 '일부' 경계는 폴더마다 가장 오래된 기록 중 가장 늦은 날이다. Claude Code 는 폴더마다 따로 지우므로, 옛 기록이 남은 폴더 하나 때문에 다른 폴더에서 이미 지워진 날을 '빠짐없음' 으로 접지 않게 안전한 쪽을 고른다.
+- 비슷한 이름의 폴더를 저절로 읽지는 않는다. 다른 계정·백업을 모르게 섞으면 비용이 두 번 잡히거나 남의 기록이 보일 수 있어서다. 대신 `aitop --doctor` 가 읽는 폴더 전부와, 설정 파일 목록 때문에 쓰지 않게 된 `CLAUDE_CONFIG_DIR`·`CODEX_HOME`, 홈 바로 아래 `~/.claude`·`~/.claude-*`·`~/.claude.*`·`~/.claude_*`·`~/.config/claude`(`projects/` 가 있는 것), `~/.codex`·`~/.codex-*` 등(`sessions/` 가 있는 것) 중 기록이 있는데 읽지 않는 폴더를 넣는 방법과 함께 보인다. 내 소유가 아닌 폴더는 후보로도 보지 않는다. `--doctor --json` 의 `tools.claude`·`tools.codex` 에는 `dirs`(읽는 폴더마다 `path`·`found`·`records`)와 `candidates`(`path`·`records`)가 붙는다. `path` 는 예전처럼 첫 폴더다.
 
 ## 알려진 한계
 

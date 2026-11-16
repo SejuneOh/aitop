@@ -8,6 +8,7 @@ import { JsonlTail } from '../tail.mjs';
 import { loadCache, markDirty } from '../cache.mjs';
 import { codexCost } from '../pricing.mjs';
 import { allDayDirs } from './codex.mjs';
+import { dedupeBy } from './dirs.mjs';
 import { dayKey, addSlot, addModel, recentDays } from './common.mjs';
 import { debugIo } from '../log.mjs';
 
@@ -96,7 +97,7 @@ let listed = { at: 0, files: [], days: 0 };
 function recentFiles(days = DAYS) {
   if (listed.days === days && Date.now() - listed.at < LIST_TTL_MS) return listed.files;
   const cutoff = Date.now() - days * 86400_000;
-  const files = [];
+  const found = [];
   for (const dir of allDayDirs()) {
     let names = [];
     try {
@@ -108,10 +109,13 @@ function recentFiles(days = DAYS) {
       if (!n.startsWith('rollout-') || !n.endsWith('.jsonl')) continue;
       const p = join(dir, n);
       try {
-        if (statSync(p).mtimeMs >= cutoff) files.push(p);
+        const mtime = statSync(p).mtimeMs;
+        if (mtime >= cutoff) found.push({ key: n, path: p, mtime });
       } catch {}
     }
   }
+  // Codex 홈이 여럿이고 같은 rollout 이 두 곳에 있으면 더 최근 쪽 하나만 센다.
+  const files = dedupeBy(found).map((f) => f.path);
   listed = { at: Date.now(), files, days };
   return files;
 }

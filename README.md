@@ -92,6 +92,10 @@ Keys: `↑↓` select · `n` next session to check · `/` search · `s` sort · 
 
 Settings can also go in `~/.config/aitop/config.json` (`%APPDATA%\aitop\config.json` on Windows). See `aitop --help` or the [detailed manual (Korean)](https://github.com/SejuneOh/aitop/blob/main/docs/README.ko.md).
 
+### Several Claude or Codex profiles
+
+aitop reads `~/.claude` and `~/.codex` by default. To read more profiles, list them in the config file, `"claudeDirs": ["~/.claude", "~/.claude-work"]` and `"codexHomes": ["~/.codex", "~/.codex-alt"]`, or set `AITOP_CLAUDE_DIRS` / `AITOP_CODEX_HOMES` with paths joined by `:` (`;` on Windows), for example `AITOP_CLAUDE_DIRS=~/.claude:~/.claude-work aitop`. Order: `AITOP_*` > config file > an inherited `CLAUDE_CONFIG_DIR` / `CODEX_HOME` > default, so a `CLAUDE_CONFIG_DIR` exported for Claude Code does not hide your config list; `aitop --print-config` shows which source is used. A value that is itself an existing folder is never split, so an old single path containing `:` keeps working. The same folder listed twice (also through a link) is read once, and a session log copied into two folders is counted once. For monthly reports, a month counts as complete only from the day after the oldest remaining log of the folder that was cleaned most recently, so a folder with old logs cannot make a month look complete when another folder already lost logs for it. aitop does not read look-alike folders on its own; `aitop --doctor` lists every folder it reads plus folders that hold logs but are not read (`~/.claude-*`, `~/.config/claude`, `~/.codex-*` and similar owned by you, and a `CLAUDE_CONFIG_DIR` / `CODEX_HOME` the config list left out), with how to add them.
+
 ## License
 
 [MIT](https://github.com/SejuneOh/aitop/blob/main/LICENSE)
