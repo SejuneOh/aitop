@@ -3,7 +3,7 @@ import { ellipsis, fmtAgo, fmtTokens, pad, truncateLeft, width } from '../text.m
 import { currentTab, filesForTab, turnTabs } from '../turns.mjs';
 import { isAbsolute, relative } from 'node:path';
 import { PALETTE, PHASE_COLOR } from './theme.mjs';
-import { NOW, box, clock, fill, gauge, glyph, hhmm, levelBar, money, rule, segsWidth, tilde } from './draw.mjs';
+import { NOW, box, cacheState, clock, fill, gauge, glyph, hhmm, levelBar, money, rule, segsWidth, tilde } from './draw.mjs';
 import { activitySeries } from '../sources/common.mjs';
 import { glyphs } from './glyphs.mjs';
 import { STRINGS, phaseText, t as tr } from '../i18n.mjs';
@@ -287,10 +287,13 @@ export function summaryLines(s, w, frame, view) {
   const g = glyph(s, frame);
   const phase = [{ ...g, t: g.t + ' ' }, { t: phaseText(s.phase) || s.status, fg: PHASE_COLOR[s.phase?.kind] ?? PALETTE.text, bold: true }];
   const sep = { t: ' · ', fg: PALETTE.info };
+  const cache = cacheState(s);
   const optional = [
     s.branch && [sep, { t: s.branch, fg: PALETTE.info }],
     s.kind && [sep, { t: s.kind, fg: PALETTE.info }],
     s.startedAt && [sep, { t: tr('detail.startedAgo', { at: hhmm(s.startedAt), ago: fmtAgo(NOW - s.startedAt) }), fg: PALETTE.info }],
+    // 캐시 남은 시간은 표의 STATUS 칸과 같은 짧은 글로, 가장 먼저 뺀다.
+    cache && [sep, { t: cache.text, fg: cache.fg, bold: cache.bold }],
   ].filter(Boolean);
   // 폴더가 FOLDER_MIN 칸(짧으면 제 길이)을 얻을 때까지 시작 → 종류 → 브랜치 순으로 뺀다. 폴더는 왼쪽부터 줄여 끝 이름을 남긴다.
   const path = tilde(s.cwd ?? '');
@@ -364,6 +367,8 @@ export function detail(s, W, H, frame, view) {
 
   const g = glyph(s, frame);
   L.push([{ ...g, t: g.t + ' ' }, { t: phaseText(s.phase) || s.status, fg: PHASE_COLOR[s.phase?.kind] ?? PALETTE.text, bold: true }]);
+  const cache = cacheState(s);
+  if (cache) L.push([{ t: '  ' }, { t: cache.expired ? tr('detail.cacheExpired', { ttl: cache.ttl }) : tr('detail.cacheLeft', { t: cache.left, ttl: cache.ttl }), fg: cache.expired ? PALETTE.info : cache.fg, bold: cache.bold }]);
   section(tr('detail.session'));
   kv(tr('detail.folder'), tilde(s.cwd));
   if (s.branch) kv(tr('detail.branch'), s.branch);

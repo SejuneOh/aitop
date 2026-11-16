@@ -48,6 +48,8 @@ export function toJson(data, version = null, opts = {}) {
       phaseKind: s.phase?.kind ?? null,
       // 오류로 멈춘 이유 { kind: 'auth'|'network'|'api' } (phaseKind 가 stopped 일 때만), 아니면 null.
       stopReason: s.stopReason ?? null,
+      // 프롬프트 캐시가 만료되는 시각 (Claude 의 응답 대기·다음 지시 대기 세션만, 마지막 요청 시작 기준 추정). 이미 지난 시각일 수 있다.
+      cacheExpiresAt: iso(s.cacheExpiresAt),
       waitingFor: s.waitingFor ?? null,
       // 이 세션을 이어 여는 셸 명령 (resume.mjs). 만들 수 없으면 null.
       resumeCmd: resumeCmd(s),
