@@ -4,6 +4,9 @@
 // 대기 세션이 제 프로젝트 묶음 안에 흩어지면 맨 위라는 약속이 깨지고, 묶음 머리 위에 따로 두면 어느 묶음 소속인지 헷갈린다.
 // 고정(p)한 세션은 응답 대기 바로 아래에 고정한 순서대로 둔다. 정렬을 바꿔도 그 순서는 바뀌지 않고, 묶을 때는 '고정' 묶음 하나로 모은다.
 // 응답 대기를 고정보다 위에 두는 것은 사람이 할 일이 고정 목록에 가려지지 않게 하려는 것이다. 고정한 세션이 응답 대기가 되면 대기 쪽으로 올라간다.
+// 오류로 멈춘 세션(phase stopped: 로그인 필요·연결 끊김 등)은 고정 바로 아래, 나머지 세션의 맨 위에 둔다 (#240).
+// 끝난 줄 알고 지나치지 않게 올리되, 지금 바로 답해야 하는 응답 대기와 사람이 정한 고정 순서보다는 아래다.
+// 묶을 때는 따로 모으지 않고 제 묶음의 맨 위에 두므로, 그 묶음도 앞으로 온다.
 import { costOf } from './ui/draw.mjs';
 import { lastName } from './paths.mjs';
 
@@ -54,7 +57,8 @@ export function arrange(sessions, { sort = 'default', group = 'none', costMode =
   const rank = new Map((pins ?? []).map((id, i) => [id, i]));
   const waiting = sessions.filter((s) => s.status === 'waiting').sort(cmp);
   const pinned = sessions.filter((s) => s.status !== 'waiting' && rank.has(s.id)).sort((a, b) => rank.get(a.id) - rank.get(b.id));
-  const rest = sessions.filter((s) => s.status !== 'waiting' && !rank.has(s.id)).sort(cmp);
+  const stopped = (s) => (s.phase?.kind === 'stopped' ? 0 : 1);
+  const rest = sessions.filter((s) => s.status !== 'waiting' && !rank.has(s.id)).sort((a, b) => stopped(a) - stopped(b) || cmp(a, b));
   const keyOf = GROUP_KEY[group];
   if (!keyOf) return { sessions: [...waiting, ...pinned, ...rest], groups: null };
   const byName = new Map();

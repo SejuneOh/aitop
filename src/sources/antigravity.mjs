@@ -677,6 +677,18 @@ export function phaseOf(live, r, g, runningMembers = 0, kidWait = null) {
   return runningMembers ? { ...p, args: { ...p.args, ...extra } } : p;
 }
 
+// phaseOf 가 '도구 실행' 으로 보이는 단계가 아직 바뀌는 중인 도구 단계(steps status 2)면 그 단계를 만든 시각(ms), 아니면 null.
+// 답변이 낸 도구 호출만 있고 도구 단계가 아직 없을 때(실행할 차례)는 시작 시각을 모르므로 null.
+// 허락 대기(status 9)를 본 단계면(g.resume, collectAgy 가 적는다) 대기를 마지막으로 본 시각부터 잰다.
+export function toolStartOf(phase, g) {
+  if (phase?.kind !== 'tool') return null;
+  const s = g.open;
+  const open = s && (!g.last || (s.idx ?? Infinity) > (g.last.idx ?? -1));
+  if (!open || s.type !== STEP.TOOL || !Number.isFinite(s.at)) return null;
+  const resumed = g.resume?.idx === s.idx ? g.resume.at : null;
+  return Number.isFinite(resumed) ? Math.max(s.at, resumed) : s.at;
+}
+
 function placeholder(p, msg) {
   return {
     tool: 'gemini',
@@ -753,6 +765,8 @@ export function collectAgy({ showEnded, budget }) {
     //    나머지 서브에이전트의 대기는 각자의 팀원 행에 보인다.
     // 대기 정렬·--notify·--line·summary.json 은 세션의 status·waitingFor·waitSince 를 쓰므로 이것으로 함께 바뀐다.
     const own = isLive ? waitingFor(g) : null;
+    // 허락 대기를 본 도구 단계와 그 시각. 허락한 뒤의 실행 경과 시간은 여기서부터 잰다 (toolStartOf).
+    if (own) g.resume = { idx: g.wait.idx, at: Date.now() };
     let kidIdx = -1;
     if (!own) {
       for (let i = 0; i < kids.length; i++) {
@@ -761,6 +775,7 @@ export function collectAgy({ showEnded, budget }) {
     }
     const kidWait = kidIdx >= 0 ? `${kids[kidIdx].agent || 'agent'}: ${kidWaits[kidIdx]}` : null;
     const wait = own ?? kidWait;
+    const phase = phaseOf(isLive, r, g, running, kidWait);
     const waitDetail = own ? (g.wait.detail ?? own) : kidWait ? (kidUsage[kidIdx].wait?.detail ?? kidWaits[kidIdx]) : null;
     out.push({
       tool: 'gemini',
@@ -774,7 +789,9 @@ export function collectAgy({ showEnded, budget }) {
       model: g.model,
       live: isLive,
       status: !isLive ? 'ended' : wait ? 'waiting' : r.running ? 'busy' : 'idle',
-      phase: phaseOf(isLive, r, g, running, kidWait),
+      phase,
+      // 지금 도는 도구 단계가 시작된 시각(ms) 또는 null (toolStartOf).
+      toolStartedAt: wait ? null : toolStartOf(phase, g),
       cost,
       costNoCache,
       costUnknown,

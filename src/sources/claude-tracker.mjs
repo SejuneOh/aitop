@@ -15,8 +15,8 @@ const LOADING_MIN_BYTES = 4 * 1024 * 1024;
 const TAIL_BYTES = 256 * 1024;
 const CUSTOM_TITLE = '"type":"custom-title"';
 
-// 기록 끝 TAIL_BYTES 에서 마지막 custom-title 이름. 줄이 없으면 undefined, 이름이 비었으면 null.
-export function tailCustomTitle(path) {
+// 기록 끝 TAIL_BYTES 의 줄들. 읽지 못하면 null.
+function tailLines(path) {
   let text;
   try {
     const fd = openSync(path, 'r');
@@ -30,9 +30,15 @@ export function tailCustomTitle(path) {
     }
   } catch (e) {
     debugIo('claude', 'transcript tail read failed', e, path);
-    return undefined;
+    return null;
   }
-  const lines = text.split('\n');
+  return text.split('\n');
+}
+
+// 기록 끝 TAIL_BYTES 에서 마지막 custom-title 이름. 줄이 없으면 undefined, 이름이 비었으면 null.
+export function tailCustomTitle(path) {
+  const lines = tailLines(path);
+  if (!lines) return undefined;
   for (let i = lines.length - 1; i >= 0; i--) {
     if (!lines[i].includes(CUSTOM_TITLE)) continue;
     try {
@@ -41,6 +47,106 @@ export function tailCustomTitle(path) {
     } catch {}
   }
   return undefined;
+}
+
+// API 오류 줄(isApiErrorMessage)이 말하는 멈춘 이유. 이 PC 기록 표본에서 확인한 형식만 가른다.
+//   error: 'authentication_failed' (본문 'Login expired · Please run /login', 'OAuth session expired ...') → auth
+//   apiError: 'connection_failed' (error: 'server_error', 본문 'API Error: Connection lost mid-response ...') → network
+// 사용 한도 줄은 표본이 없어 따로 가르지 않고(재개 시각도 읽지 않는다) 그 밖의 오류와 함께 api 로 둔다.
+export function stopReasonOf(x) {
+  if (x?.type !== 'assistant' || x.isApiErrorMessage !== true) return null;
+  if (x.error === 'authentication_failed') return { kind: 'auth' };
+  if (x.apiError === 'connection_failed') return { kind: 'network' };
+  return { kind: 'api' };
+}
+
+// 기록 끝에서 멈춘 이유를 다시 찾는다: 마지막 대화 줄(assistant·user, isMeta 제외)이 API 오류면 그 이유, 아니면 null.
+// 이 필드가 생기기 전 캐시를 위해서다. 오류 뒤에는 대화가 아닌 줄(last-prompt, turn_duration 등)만 붙는다.
+export function tailStopReason(path) {
+  const lines = tailLines(path);
+  if (!lines) return null;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const l = lines[i];
+    if (!l.includes('"type":"assistant"') && !l.includes('"type":"user"')) continue;
+    try {
+      const x = JSON.parse(l);
+      if ((x.type === 'assistant' || x.type === 'user') && x.message && !x.isMeta) return stopReasonOf(x);
+    } catch {}
+  }
+  return null;
+}
+
+// 프롬프트 캐시 수명. 공식 문서(https://platform.claude.com/docs/en/build-with-claude/prompt-caching) 기준:
+//   기본 5분, 1시간은 선택. 캐시를 쓰거나 읽을 때마다 수명이 새로 시작되고, 수명은 응답 끝이 아니라 그 요청이 시작된 때부터 잰다.
+// 요청 시작 시각은 기록에 없으므로 그 응답 바로 앞의 사용자 줄(지시·도구 결과) 시각으로 잡는다. 없으면 응답 줄 시각.
+export const CACHE_TTL_5M = 300;
+export const CACHE_TTL_1H = 3600;
+
+// 응답 한 줄의 usage 로 캐시 상태를 갱신한다. st: { cacheAt, cacheTtl, inputAt, inputFor }. 바꾸면 true.
+// inputAt 은 한 요청(message.id)에만 쓴다. 사용자 줄 없이 다른 응답이 이어지면 그 응답 줄 시각을 쓴다.
+//   1시간 쓰기 토큰이 있으면 1시간, 5분 쓰기 토큰(또는 쪼갠 값이 없는 쓰기)이 있으면 5분.
+//   읽기만 있으면 읽은 항목의 수명이 다시 시작되므로 앞서 정한 TTL 을 그대로 쓴다 (모르면 기본 5분).
+//   캐시를 쓰지도 읽지도 않은 응답은 캐시를 건드리지 않는다.
+export function applyCacheUsage(st, u, at, id = null) {
+  if (!u || !Number.isFinite(at)) return false;
+  const cc = u.cache_creation;
+  const h1 = cc?.ephemeral_1h_input_tokens ?? 0;
+  const m5 = cc?.ephemeral_5m_input_tokens ?? 0;
+  const write = u.cache_creation_input_tokens ?? 0;
+  const read = u.cache_read_input_tokens ?? 0;
+  let ttl;
+  if (h1 > 0) ttl = CACHE_TTL_1H;
+  else if (m5 > 0 || write > 0) ttl = CACHE_TTL_5M;
+  else if (read > 0) ttl = st.cacheTtl ?? CACHE_TTL_5M;
+  else return false;
+  const fresh = Number.isFinite(st.inputAt) && st.inputAt <= at && (st.inputFor == null || st.inputFor === id);
+  st.cacheAt = fresh ? st.inputAt : at;
+  st.inputFor = fresh ? id : null;
+  if (!fresh) st.inputAt = null;
+  st.cacheTtl = ttl;
+  return true;
+}
+
+// 기록 끝 TAIL_BYTES 를 앞에서부터 다시 읽어 캐시 상태를 만든다. 이 필드가 생기기 전 캐시를 위해서다.
+export function tailCacheState(path) {
+  const st = { cacheAt: null, cacheTtl: null, inputAt: null, inputFor: null };
+  for (const l of tailLines(path) ?? []) {
+    if (!l.includes('"type":"assistant"') && !l.includes('"type":"user"')) continue;
+    try {
+      cacheStep(st, JSON.parse(l));
+    } catch {}
+  }
+  return st;
+}
+
+// 대화 줄 하나를 캐시 상태에 반영한다 (apply 와 tailCacheState 가 같이 쓴다).
+function cacheStep(st, x) {
+  if (x.isMeta || !x.message) return;
+  if (x.type === 'user') {
+    st.inputAt = parseTs(x.timestamp);
+    st.inputFor = null;
+  }
+  // API 오류 줄은 사용량이 0 이라 캐시를 건드리지 않는다.
+  else if (x.type === 'assistant' && x.message.usage) applyCacheUsage(st, x.message.usage, parseTs(x.timestamp), x.message.id ?? null);
+}
+
+// 결과가 아직 없는 tool_use 의 시작 시각(at)을 기록 끝에서 찾아 채운다. at 필드가 생기기 전 캐시를 위해서다.
+// pending: Map(tool_use id → 열린 호출). at 이 없는 것만 고치고, 고친 것이 있으면 true.
+export function tailToolStarts(path, pending) {
+  const want = [...pending].filter(([, p]) => !('at' in p));
+  if (!want.length) return false;
+  for (const [, p] of want) p.at = null;
+  const ids = new Map(want);
+  for (const l of tailLines(path) ?? []) {
+    if (!l.includes('"tool_use"')) continue;
+    try {
+      const x = JSON.parse(l);
+      for (const c of Array.isArray(x.message?.content) ? x.message.content : []) {
+        if (c.type === 'tool_use' && ids.has(c.id)) ids.get(c.id).at = parseTs(x.timestamp);
+      }
+    } catch {}
+  }
+  return true;
 }
 
 export class ClaudeTracker {
@@ -56,7 +162,7 @@ export class ClaudeTracker {
     const c = loadCache(path);
     if (c) {
       this.tail.offset = c.offset;
-      Object.assign(this, { tokens: c.tokens, cost: c.cost, costNoCache: c.costNoCache, costUnknown: c.costUnknown, context: c.context, model: c.model, title: c.title, customTitle: c.customTitle ?? null, branch: c.branch, events: c.events, lastTool: c.lastTool, lastKind: c.lastKind, files: c.files ?? [], turns: c.turns ?? [], turnCount: c.turnCount ?? 0, firstAt: c.firstAt ?? null, activity: c.activity ?? {} });
+      Object.assign(this, { tokens: c.tokens, cost: c.cost, costNoCache: c.costNoCache, costUnknown: c.costUnknown, context: c.context, model: c.model, title: c.title, customTitle: c.customTitle ?? null, branch: c.branch, events: c.events, lastTool: c.lastTool, lastKind: c.lastKind, files: c.files ?? [], turns: c.turns ?? [], turnCount: c.turnCount ?? 0, firstAt: c.firstAt ?? null, activity: c.activity ?? {}, stopReason: c.stopReason ?? null, cacheAt: c.cacheAt ?? null, cacheTtl: c.cacheTtl ?? null, inputAt: c.inputAt ?? null, inputFor: c.inputFor ?? null });
       this.recent = new Map(c.recent);
       this.pending = new Map(c.pending);
       // 이 필드가 생기기 전 캐시는 이미 지나간 custom-title 을 모른다. 끝부분을 한 번 훑어 채우고 캐시에 다시 적어
@@ -65,6 +171,19 @@ export class ClaudeTracker {
         this.customTitle = tailCustomTitle(path) ?? null;
         markDirty(path, () => this.snapshot());
       }
+      // 멈춘 이유도 같은 방식으로 한 번만 채운다 (캐시 버전은 그대로).
+      if (!('stopReason' in c)) {
+        this.stopReason = tailStopReason(path);
+        markDirty(path, () => this.snapshot());
+      }
+      // 프롬프트 캐시 상태도 같은 방식으로 한 번만 채운다 (캐시 버전은 그대로).
+      if (!('cacheAt' in c)) {
+        const { cacheAt, cacheTtl } = tailCacheState(path);
+        Object.assign(this, { cacheAt, cacheTtl });
+        markDirty(path, () => this.snapshot());
+      }
+      // 열린 도구 호출의 시작 시각도 같은 방식으로 한 번만 채운다 (캐시 버전은 그대로).
+      if (tailToolStarts(path, this.pending)) markDirty(path, () => this.snapshot());
     }
   }
 
@@ -91,6 +210,19 @@ export class ClaudeTracker {
     this.firstAt = null;
     // 시간별 토큰 (common.mjs addActivity)
     this.activity = {};
+    // 마지막 대화 줄이 API 오류면 멈춘 이유 { kind: 'auth'|'network'|'api' } (stopReasonOf), 아니면 null.
+    // 그 뒤 정상 assistant 줄이나 사용자 줄이 오면 지운다.
+    this.stopReason = null;
+    // 프롬프트 캐시 (applyCacheUsage): 수명이 시작된 시각(ms), TTL(초), 마지막 사용자 줄 시각(다음 요청 시작으로 본다).
+    this.cacheAt = null;
+    this.cacheTtl = null;
+    this.inputAt = null;
+    this.inputFor = null;
+  }
+
+  // 프롬프트 캐시가 만료되는 시각(ms). 캐시를 쓴 응답이 없으면 null.
+  get cacheExpiresAt() {
+    return Number.isFinite(this.cacheAt) && this.cacheTtl ? this.cacheAt + this.cacheTtl * 1000 : null;
   }
 
   get path() {
@@ -135,6 +267,11 @@ export class ClaudeTracker {
       turnCount: this.turnCount,
       firstAt: this.firstAt,
       activity: this.activity,
+      stopReason: this.stopReason,
+      cacheAt: this.cacheAt,
+      cacheTtl: this.cacheTtl,
+      inputAt: this.inputAt,
+      inputFor: this.inputFor,
     };
   }
 
@@ -167,6 +304,11 @@ export class ClaudeTracker {
     if (this.firstAt == null && x.timestamp) this.firstAt = parseTs(x.timestamp);
     if (x.isMeta) return;
 
+    if ((x.type === 'assistant' || x.type === 'user') && x.message) {
+      this.stopReason = stopReasonOf(x);
+      cacheStep(this, x);
+    }
+
     if (x.type === 'assistant' && x.message) {
       const m = x.message;
       if (m.model && !m.model.startsWith('<')) this.model = m.model;
@@ -177,7 +319,8 @@ export class ClaudeTracker {
       for (const c of Array.isArray(m.content) ? m.content : []) {
         if (c.type === 'tool_use') {
           this.lastTool = describeTool(c.name, c.input);
-          this.pending.set(c.id, { name: c.name, what: this.lastTool, detail: toolDetail(c.name, c.input), agent: c.input?.subagent_type ?? null });
+          // at: 호출을 낸 줄의 시각 (도구 실행 경과 시간의 기준). resumeAt: 허락 대기를 마지막으로 본 시각 (markWaiting).
+          this.pending.set(c.id, { name: c.name, what: this.lastTool, detail: toolDetail(c.name, c.input), agent: c.input?.subagent_type ?? null, at: parseTs(x.timestamp) });
           pushEvent(this, x.timestamp, 'tool', this.lastTool);
           this.lastKind = 'tool';
         } else if (c.type === 'text' && c.text?.trim()) {
@@ -211,6 +354,19 @@ export class ClaudeTracker {
     const words = new Set(String(waitingFor ?? '').split(/[^A-Za-z0-9_]+/).filter(Boolean));
     const named = tools.filter((p) => words.has(p.name));
     return (named.at(-1) ?? tools.at(-1))?.detail ?? null;
+  }
+
+  // 허락 대기를 보는 동안 열린 도구 호출마다 그 시각을 적는다. 허락한 뒤의 경과 시간은 여기서부터 잰다 (toolStartedAt).
+  // 기록에는 허락한 시각이 없으므로 대기를 마지막으로 본 시각(갱신 1초 간격)으로 갈음한다. 기록이 바뀐 것은 아니라 캐시에 따로 적지 않는다.
+  markWaiting(now = Date.now()) {
+    for (const p of this.pending.values()) if (p.name !== 'Agent' && p.name !== 'Task') p.resumeAt = now;
+  }
+
+  // phase() 가 보이는 도구(열린 도구 호출 가운데 마지막 것)가 돌기 시작한 시각(ms). 허락을 기다렸으면 대기가 끝난 뒤부터. 모르면 null.
+  toolStartedAt() {
+    const p = [...this.pending.values()].filter((p) => p.name !== 'Agent' && p.name !== 'Task').at(-1);
+    if (!p || !Number.isFinite(p.at)) return null;
+    return Number.isFinite(p.resumeAt) ? Math.max(p.at, p.resumeAt) : p.at;
   }
 
   // 지금 무엇을 하는 단계인지: 도구 실행 / 팀원 대기 / 생각 중 / 답변 작성 중.

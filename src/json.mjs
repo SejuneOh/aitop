@@ -46,6 +46,12 @@ export function toJson(data, version = null, opts = {}) {
       // phase 는 화면 언어와 상관없이 늘 한국어 문구(예전과 같은 글)로 두고, 언어와 상관없는 상태 이름은 phaseKind 로 준다.
       phase: koPhase(s.phase),
       phaseKind: s.phase?.kind ?? null,
+      // 오류로 멈춘 이유 { kind: 'auth'|'network'|'api' } (phaseKind 가 stopped 일 때만), 아니면 null.
+      stopReason: s.stopReason ?? null,
+      // 프롬프트 캐시가 만료되는 시각 (Claude 의 응답 대기·다음 지시 대기 세션만, 마지막 요청 시작 기준 추정). 이미 지난 시각일 수 있다.
+      cacheExpiresAt: iso(s.cacheExpiresAt),
+      // 지금 도는 도구가 시작된 시각 (작업 중이고 진행 단계가 도구 실행일 때만, 허락 대기 중이면 null). 화면과 달리 1분 미만도 나간다.
+      toolStartedAt: iso(s.toolStartedAt),
       waitingFor: s.waitingFor ?? null,
       // 이 세션을 이어 여는 셸 명령 (resume.mjs). 만들 수 없으면 null.
       resumeCmd: resumeCmd(s),
