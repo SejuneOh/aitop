@@ -567,6 +567,49 @@ test('서브에이전트가 허락을 기다리면 부모 행도 응답 대기�
   }
 });
 
+test('허락을 기다리는 서브에이전트와 그 부모 아래 팀원은 오래 조용해도 멈춘 듯이 아니다 (#233)', { skip: noSqlite || (!canListProcesses() && '프로세스 목록 미지원') || (process.platform !== 'linux' && '/proc 필요') }, async () => {
+  const { toJson } = await import('../src/json.mjs');
+  const now = Date.now();
+  const old = now - 5 * 60_000;
+  makeConversation('st-1', [{ input: 10, output: 1 }]);
+  makeSteps('st-1', [prompt('글 써 줘', old - 5000)]);
+  makeSteps('st-a', [prompt('하위', old - 4000), toolStep(['call_mcp_tool', { ServerName: 'cms', ToolName: 'create' }], 9, old)]);
+  makeSteps('st-b', [prompt('하위 2', old - 4000), reply('생각 중', null, old)]);
+  makeSummaries([
+    { id: 'st-1', title: '부모', modified: ts(old), ws: ['file:///work/st'], status: 'CASCADE_RUN_STATUS_RUNNING' },
+    { id: 'st-a', title: '허락 대기', modified: ts(old), agent: 'writer', parent: 'st-1', status: 'CASCADE_RUN_STATUS_RUNNING' },
+    { id: 'st-b', title: '조용함', modified: ts(old), agent: 'checker', parent: 'st-1', status: 'CASCADE_RUN_STATUS_RUNNING' },
+  ]);
+  const lock = join(root, 'presence', 'st-1.lock');
+  writeFileSync(lock, '');
+  const script = `require('fs').openSync(${JSON.stringify(lock)}, 'r'); setInterval(() => {}, 1000);`;
+  const child = spawn(process.execPath, ['-e', script], { argv0: 'agy', stdio: 'ignore' });
+  const stalledOf = (s) => Object.fromEntries(toJson({ at: Date.now(), sessions: [s], errors: [] }).sessions[0].members.map((m) => [m.task, m.stalled]));
+  try {
+    let s;
+    for (let i = 0; i < 40 && !s; i++) {
+      await sleep(100);
+      s = collectAgy({ showEnded: false, budget: createBudget() }).find((x) => x.id === 'st-1');
+    }
+    assert.ok(s, 'agy 세션을 찾는다');
+    assert.equal(s.status, 'waiting');
+    assert.equal(s.members.find((m) => m.task === '허락 대기').status, 'waiting');
+    assert.deepEqual(stalledOf(s), { '허락 대기': false, '조용함': false }, '부모가 응답 대기면 둘 다 멈춘 듯이 아니다');
+
+    // 허락에 답하면(-wal 이 바뀌면) 부모는 다시 작업 중: 조용한 팀원은 3분 기준으로 멈춘 듯,
+    // MCP 도구가 도는 팀원은 오래 걸리는 단계라 10분 기준이므로 아직 아니다.
+    const pa = join(root, 'conversations', 'st-a.db');
+    writeFileSync(`${pa}-wal`, 'x');
+    s = collectAgy({ showEnded: false, budget: createBudget() }).find((x) => x.id === 'st-1');
+    assert.equal(s.status, 'busy');
+    assert.equal(s.members.find((m) => m.task === '허락 대기').longStep, true);
+    assert.deepEqual(stalledOf(s), { '허락 대기': false, '조용함': true });
+    rmSync(`${pa}-wal`);
+  } finally {
+    child.kill();
+  }
+});
+
 test('비용은 호출 직전 단계의 시각에 쓰던 가격으로 센다', { skip: noSqlite }, () => {
   const dec = Date.UTC(2026, 11, 1, 0, 0, 5);
   makeSteps('cost-1', [prompt('a', T0), reply('b', null, T0 + 1000), prompt('c', dec)]);
@@ -707,4 +750,9 @@ test('agy 장부의 시작(a): 예전 캐시에서 온 날(a 없음)에는 채�
   assert.equal(book.days[k].z, t3, '끝은 마지막 호출');
   rmSync(path);
   agyLedger.reset();
+});
+
+test('서브에이전트 경과 시간의 기준: 읽은 단계 가운데 가장 이른 만든 시각 (#233)', { skip: noSqlite }, () => {
+  makeSteps('first-at', [prompt('나중 단계', T0 + 5000), reply('먼저 만든 단계', null, T0 + 1000), toolStep(['run_command', { CommandLine: 'ls' }], 3, T0 + 7000)]);
+  assert.equal(readConversation('first-at', createBudget()).firstAt, T0 + 1000);
 });

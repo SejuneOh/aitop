@@ -9,7 +9,7 @@ import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { openReadOnly, loadSqlite } from '../sqlite.mjs';
 import { findProcesses, isAgy, openFiles } from '../procs.mjs';
-import { addActivity, emptyTokens, mergeActivity, pushEvent, describeTool, toolDetail, isNoisePrompt, MEMBER_FADE_MS } from './common.mjs';
+import { addActivity, emptyTokens, mergeActivity, pushEvent, describeTool, toolDetail, isNoisePrompt, isLongTool, MEMBER_FADE_MS } from './common.mjs';
 import { contextWindow, geminiCost } from '../pricing.mjs';
 import { debug, debugIo } from '../log.mjs';
 
@@ -245,6 +245,8 @@ const fresh = () => ({
   events: [],
   turns: [],
   turnCount: 0,
+  // 읽은 단계 가운데 가장 이른 만든 시각 (서브에이전트 경과 시간의 기준).
+  firstAt: null,
   lastTool: null,
   last: null,
   // 아직 바뀌는 중인 단계 가운데 가장 뒤의 것 (지금 무엇을 하는지 보이는 데 쓴다).
@@ -426,6 +428,7 @@ function addEvent(n, at, kind, text) {
 
 function applyStep(n, s, idx) {
   if (!s) return;
+  if (s.at && (n.firstAt == null || s.at < n.firstAt)) n.firstAt = s.at;
   const at = s.at ? new Date(s.at).toISOString() : null;
   if (s.type === STEP.PROMPT) {
     if (s.text && !isNoisePrompt(s.text)) {
@@ -614,8 +617,13 @@ function member(r, g, wait = null) {
     cost: g.cost,
     costNoCache: g.costNoCache,
     costUnknown: g.costUnknown,
-    // 기록에 시작 시각이 없어 마지막으로 바뀐 시각을 둔다 (정렬용).
+    // 대화 목록에는 시작 시각이 없어 마지막으로 바뀐 시각을 둔다 (정렬용).
     updatedAt: r.updatedAt,
+    // 경과 시간의 기준은 읽은 단계 가운데 가장 이른 만든 시각, 멈춘 듯 판단은 대화 목록의 마지막 수정 시각이다.
+    startedAt: g.firstAt ?? null,
+    lastActivityAt: r.updatedAt ?? null,
+    // 실행 중인 단계가 run_command 처럼 오래 걸릴 수 있는 도구면 멈춘 듯 기준을 길게 잡는다 (common.mjs).
+    longStep: Boolean(r.running && g.open?.type === STEP.TOOL && isLongTool(g.open.tool?.name)),
   };
 }
 

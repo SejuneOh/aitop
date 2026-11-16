@@ -2,6 +2,7 @@ import { projectBudget } from './budget.mjs';
 import { toolsJson } from './doctor.mjs';
 import { phaseText } from './i18n.mjs';
 import { resumeCmd } from './resume.mjs';
+import { memberStalled } from './sources/common.mjs';
 
 // aitop --json 출력. 다른 스크립트나 AI 가 읽기 쉬운 모양으로 세션 목록과 사용량 합계를 담는다.
 // 텍스트는 수집 단계에서 이미 비밀값 가림이 적용돼 있다.
@@ -60,7 +61,9 @@ export function toJson(data, version = null, opts = {}) {
       context: { used: s.context?.used ?? 0, window: s.context?.window ?? null },
       // 변경 내용(diff)은 넣지 않고 파일별 통계만 넣는다. 줄 수는 편집마다 더한 누적값이다 (git diff 아님).
       files: (s.files ?? []).map((f) => ({ path: f.path, created: Boolean(f.created), edits: f.edits, writtenLines: f.add, deletedLines: f.del, updatedAt: iso(f.at), agents: f.agents ?? [] })),
-      members: (s.members ?? []).map((m) => ({ name: m.name, task: m.task ?? null, model: m.model ?? null, status: m.status, phase: koPhase(m.phase), phaseKind: m.phase?.kind ?? null, tokens: m.tokens ?? 0, cost: money(m.cost) })),
+      // startedAt·lastActivityAt 은 세션의 startedAt·updatedAt 과 같은 ISO 시각이다 (모르면 null).
+      // stalled 는 화면의 '멈춘 듯' 과 같은 짐작(common.mjs memberStalled)을 data.at 기준으로 본 값이다.
+      members: (s.members ?? []).map((m) => ({ name: m.name, task: m.task ?? null, model: m.model ?? null, status: m.status, phase: koPhase(m.phase), phaseKind: m.phase?.kind ?? null, tokens: m.tokens ?? 0, cost: money(m.cost), startedAt: iso(m.startedAt), lastActivityAt: iso(m.lastActivityAt), stalled: memberStalled(m, data.at ?? Date.now(), s.status) })),
     })),
   };
 }
