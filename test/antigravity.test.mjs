@@ -18,7 +18,7 @@ process.env.CODEX_HOME = join(root, 'codex-missing');
 mkdirSync(join(root, 'conversations'));
 mkdirSync(join(root, 'presence'));
 
-const { pbFields, readGeneration, readConversation, readStep, describeAgyTool, phaseOf, waitingFor, STEP, idFromPath, matchLive, agyRoot, parseTime, cwdOf, collectAgy } = await import('../src/sources/antigravity.mjs');
+const { pbFields, readGeneration, readConversation, readStep, describeAgyTool, phaseOf, waitingFor, subWait, STEP, idFromPath, matchLive, agyRoot, parseTime, cwdOf, collectAgy } = await import('../src/sources/antigravity.mjs');
 const { createBudget } = await import('../src/tail.mjs');
 const { stepTime } = await import('../src/sources/antigravity.mjs');
 const { collectAgyLedger, _test: agyLedger } = await import('../src/sources/agy-ledger.mjs');
@@ -492,6 +492,76 @@ test('끝난 서브에이전트는 6초 동안만 행으로 보이고, 합계에
     const k = 2;
     assert.equal(Math.round(s.cost * 1e8), Math.round((100 * 2 + 10 * 10 + 7 * (2 + 10)) * k * 100), '숨긴 서브에이전트 비용도 더한다');
     assert.equal(phaseText(s.phase), '작업 중 · 1단계 · 에이전트 1개 실행 중');
+  } finally {
+    child.kill();
+  }
+});
+
+test('서브에이전트 허락 대기: 끝난 서브·죽은 부모는 무시하고, 부모와 같은 -wal 규칙을 쓴다', { skip: noSqlite }, () => {
+  const p = join(root, 'conversations', 'sw-1.db');
+  makeSteps('sw-1', [prompt('지워'), toolStep(['run_command', { CommandLine: 'rm y' }], 9)]);
+  const g = readConversation('sw-1', createBudget());
+  assert.equal(subWait(true, { running: true }, g), '$ rm y');
+  assert.equal(subWait(true, { running: false }, g), null, '끝난 서브에이전트의 9 는 무시');
+  assert.equal(subWait(false, { running: true }, g), null, '부모가 끝났으면 무시');
+  writeFileSync(`${p}-wal`, 'x');
+  readConversation('sw-1', createBudget());
+  assert.equal(subWait(true, { running: true }, g), null, '-wal 이 바뀌면 이미 답한 것');
+  rmSync(`${p}-wal`);
+  // 부모가 기다리지 않을 때 서브 대기 문구로 응답 대기가 된다.
+  assert.equal(phaseText(phaseOf(true, { running: true, steps: 2 }, { wait: null, open: null, last: null }, 1, 'writer: $ rm y')), '응답 대기 · writer: $ rm y · 에이전트 1개 실행 중');
+});
+
+test('서브에이전트가 허락을 기다리면 부모 행도 응답 대기가 되고, 부모 대기가 먼저다', { skip: noSqlite || (!canListProcesses() && '프로세스 목록 미지원') || (process.platform !== 'linux' && '/proc 필요') }, async () => {
+  const now = Date.now();
+  makeConversation('pw-1', [{ input: 10, output: 1 }]);
+  makeSteps('pw-1', [prompt('글 써 줘', now - 5000)]);
+  makeSteps('pw-a', [prompt('하위', now - 4000), toolStep(['call_mcp_tool', { ServerName: 'cms', ToolName: 'create' }], 9, now - 3000)]);
+  makeSteps('pw-b', [prompt('하위 2', now - 4000), toolStep(['run_command', { CommandLine: 'rm z' }], 9, now - 2000)]);
+  makeSteps('pw-done', [prompt('끝난 하위', now - 4000), toolStep(['run_command', { CommandLine: 'rm old' }], 9, now - 3500)]);
+  makeSummaries([
+    { id: 'pw-1', title: '부모', modified: ts(now - 1000), ws: ['file:///work/pw'], status: 'CASCADE_RUN_STATUS_RUNNING' },
+    { id: 'pw-a', title: '먼저 기다림', modified: ts(now - 3000), agent: 'writer', parent: 'pw-1', status: 'CASCADE_RUN_STATUS_RUNNING' },
+    { id: 'pw-b', title: '나중 기다림', modified: ts(now - 2000), agent: 'checker', parent: 'pw-1', busy: true },
+    { id: 'pw-done', title: '끝남', modified: ts(now - 500), agent: 'old', parent: 'pw-1' },
+  ]);
+  const lock = join(root, 'presence', 'pw-1.lock');
+  writeFileSync(lock, '');
+  const script = `require('fs').openSync(${JSON.stringify(lock)}, 'r'); setInterval(() => {}, 1000);`;
+  const child = spawn(process.execPath, ['-e', script], { argv0: 'agy', stdio: 'ignore' });
+  try {
+    let s;
+    for (let i = 0; i < 40 && !s; i++) {
+      await sleep(100);
+      s = collectAgy({ showEnded: false, budget: createBudget() }).find((x) => x.id === 'pw-1');
+    }
+    assert.ok(s, 'agy 세션을 찾는다');
+    assert.equal(s.status, 'waiting');
+    assert.equal(s.waitingFor, 'writer: mcp cms/create', '가장 오래 기다린 서브에이전트');
+    assert.equal(s.waitDetail, 'cms/create');
+    assert.equal(s.waitSince, Date.parse(ts(now - 3000)));
+    assert.equal(phaseText(s.phase), '응답 대기 · writer: mcp cms/create · 에이전트 2개 실행 중');
+    assert.deepEqual(s.members.map((m) => [m.task, m.status, m.phase.args?.what ?? null]), [
+      ['먼저 기다림', 'waiting', 'mcp cms/create'],
+      ['나중 기다림', 'waiting', '$ rm z'],
+      ['끝남', 'done', null],
+    ], '끝난 서브에이전트의 9 는 대기가 아니다');
+
+    // -wal 이 바뀐 서브에이전트는 이미 답한 것이라 다음 서브에이전트로 넘어간다.
+    const pa = join(root, 'conversations', 'pw-a.db');
+    writeFileSync(`${pa}-wal`, 'x');
+    s = collectAgy({ showEnded: false, budget: createBudget() }).find((x) => x.id === 'pw-1');
+    assert.equal(s.waitingFor, 'checker: $ rm z');
+    assert.equal(s.members[0].status, 'busy');
+    rmSync(`${pa}-wal`);
+
+    // 부모와 서브가 함께 기다리면 부모 것을 보인다.
+    makeSteps('pw-1', [toolStep(['run_command', { CommandLine: 'ls' }], 9, now - 100)]);
+    s = collectAgy({ showEnded: false, budget: createBudget() }).find((x) => x.id === 'pw-1');
+    assert.equal(s.waitingFor, '$ ls');
+    assert.equal(s.waitDetail, 'ls');
+    assert.equal(s.waitSince, Date.parse(ts(now - 1000)));
+    assert.equal(s.members.find((m) => m.task === '나중 기다림').status, 'waiting', '서브 행은 자기 대기를 그대로 보인다');
   } finally {
     child.kill();
   }
