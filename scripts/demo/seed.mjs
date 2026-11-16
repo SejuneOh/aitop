@@ -93,11 +93,14 @@ const dirs = {
   config: join(HOME, '.config'),
   state: join(HOME, '.local', 'state'),
 };
+// 기록 폴더는 가짜 홈의 ~/.claude, ~/.codex 다. AITOP_CLAUDE_DIRS·AITOP_CODEX_HOMES 가 가장 앞서므로 셸에 남은 값이 실제 폴더를 가리켜도 덮는다.
+// CLAUDE_CONFIG_DIR·CODEX_HOME 은 지운다. 남아 있으면 상세 패널의 이어 열기 명령 앞에 긴 임시 경로가 붙는다.
+const { CLAUDE_CONFIG_DIR: _c, CODEX_HOME: _x, ...baseEnv } = process.env;
 const env = {
-  ...process.env,
+  ...baseEnv,
   HOME,
-  CLAUDE_CONFIG_DIR: dirs.claude,
-  CODEX_HOME: dirs.codex,
+  AITOP_CLAUDE_DIRS: dirs.claude,
+  AITOP_CODEX_HOMES: dirs.codex,
   GEMINI_HOME: join(HOME, '.gemini'),
   AITOP_AGY_HOME: dirs.agy,
   XDG_CACHE_HOME: dirs.cache,
@@ -296,7 +299,9 @@ const busyTranscript = claudeSession({
 // 2) 허락 대기
 const waitRows = claudeHistory({ cwd: infra, branch: 'chore/k8s-limits', model: opus, startMin: 95, steps: ['Tighten memory limits on workers', 'Roll it out to staging'], files: ['k8s/worker.yaml', 'k8s/values-staging.yaml'] });
 waitRows.push(cl.tool(ago(0.6), opus, 'tu_wait', 'Bash', { command: 'kubectl apply -f k8s/ --context staging' }, usage(1900, 220, 88_000, 500)));
-claudeSession({ pid: live ? dummy('claude', infra) : null, id: 'd1a2b3c4-0000-4000-8000-000000000002', name: 'k8s limits', cwd: infra, status: 'busy', waitingFor: 'approve Bash', rows: waitRows });
+// 화면에서는 처음엔 일하는 중이다가 몇 초 뒤 허락을 기다리며 맨 위로 올라온다 (아래 waitTimer). --keep 은 처음부터 대기.
+const waitSession = { pid: live ? dummy('claude', infra) : null, id: 'd1a2b3c4-0000-4000-8000-000000000002', name: 'k8s limits', cwd: infra, status: 'busy', waitingFor: live ? undefined : 'approve Bash', rows: waitRows };
+claudeSession(waitSession);
 
 // 3) 답변 작성 중
 const webRows = claudeHistory({ cwd: web, branch: 'fix/cart-badge', model: sonnet, startMin: 60, steps: ['Cart badge shows stale count', 'Also fix it on mobile'], files: ['src/components/CartBadge.tsx', 'src/hooks/useCart.ts'] });
@@ -323,7 +328,7 @@ write(join(dirs.config, 'aitop', 'config.json'), JSON.stringify({ lang: 'en', bu
 if (keep) {
   keepRoot = true;
   console.log(`demo home: ${HOME}`);
-  for (const k of ['HOME', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'AITOP_AGY_HOME', 'XDG_CACHE_HOME', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME']) console.log(`export ${k}=${env[k]}`);
+  for (const k of ['HOME', 'AITOP_CLAUDE_DIRS', 'AITOP_CODEX_HOMES', 'AITOP_AGY_HOME', 'XDG_CACHE_HOME', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME']) console.log(`export ${k}=${env[k]}`);
   process.exit(0);
 }
 
@@ -338,6 +343,13 @@ timer = setInterval(() => {
   appendFileSync(webTranscript, jsonl([cl.say(t, sonnet, webLines[tick % webLines.length], usage(800, 300 + tick * 20, 70_000 + tick * 3000, 800))]));
   appendFileSync(codex.path, jsonl([codex.tokens(t, 486_000 + tick * 9_000, 118_000 + tick * 1500)]));
 }, 2000);
+
+// 몇 초 뒤 k8s limits 세션이 허락을 기다리기 시작한다. 지연은 AITOP_DEMO_WAIT_MS (기본 4000).
+const waitMs = Number(process.env.AITOP_DEMO_WAIT_MS ?? 4000);
+setTimeout(() => {
+  if (cleaned) return;
+  write(join(dirs.claude, 'sessions', `${waitSession.pid}.json`), JSON.stringify({ pid: waitSession.pid, sessionId: waitSession.id, cwd: infra, kind: 'interactive', status: 'busy', waitingFor: 'approve Bash', name: waitSession.name, startedAt: ago(180), updatedAt: Date.now() }));
+}, waitMs).unref();
 
 app = spawn(process.execPath, [BIN, ...aitopArgs], { stdio: 'inherit', env });
 app.on('exit', (code, signal) => {

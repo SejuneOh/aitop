@@ -3,9 +3,38 @@
 [![npm](https://img.shields.io/npm/v/@sejuneoh/aitop)](https://www.npmjs.com/package/@sejuneoh/aitop)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](https://github.com/SejuneOh/aitop/blob/main/LICENSE)
 
-**`top` for your AI coding agents.** A read-only terminal monitor that shows every Claude Code, Codex CLI and Antigravity CLI session on your machine in one live screen: what each one is doing, which ones are waiting for you, and how many tokens they used.
+**`top` for your AI coding agents.** One live terminal screen for every Claude Code, Codex CLI and Antigravity CLI session on your machine. Read-only.
 
-![aitop showing Claude Code, Codex and Antigravity sessions (demo data)](https://raw.githubusercontent.com/SejuneOh/aitop/main/docs/demo.gif)
+```bash
+npx @sejuneoh/aitop          # try it, no install
+npm i -g @sejuneoh/aitop     # then just run: aitop
+```
+
+![aitop: a session starts waiting, jumps to the top, and its resume command shows in the detail panel (demo data)](https://raw.githubusercontent.com/SejuneOh/aitop/main/docs/demo.gif)
+
+- **See who needs you.** A waiting session jumps to the top and `n` takes you there. Add `--notify=waiting,done,context` for desktop alerts, or `aitop --line` for a tmux status line.
+- **Know which session is which.** Every row shows the session name (your `/rename` or the tool's title). `y` copies a resume command, and `--report sessions` prints yesterday's sessions with cost for your standup.
+- **All agents, all profiles, nothing sent.** Claude Code, Codex and Antigravity side by side, from [several history folders](#several-claude-or-codex-profiles) (`~/.claude`, `~/.claude-work`, ...). No network, no ports, no dependencies.
+
+**How it differs from similar tools**
+
+- [ccusage](https://github.com/ryoppippi/ccusage) reports token usage and cost from local logs (daily, monthly, session, 5-hour blocks). aitop is a live session monitor first, with smaller cost reports on the side.
+- [abtop](https://github.com/graykode/abtop) is a Rust live dashboard for Claude Code, Codex CLI and OpenCode, with rate limits, ports and keys to kill sessions. aitop installs with npm, also covers Antigravity, and only watches.
+- [claude-code-monitor](https://github.com/onikan27/claude-code-monitor) watches Claude Code on macOS through hooks it adds to `~/.claude/settings.json`, with a phone web view. aitop adds no hooks and only reads existing logs, on Linux, macOS, WSL and Windows.
+
+## Install
+
+Requires Node.js 22+ on Linux, macOS, WSL or Windows.
+
+```bash
+npx @sejuneoh/aitop              # run the latest version without installing
+npm install -g @sejuneoh/aitop   # or install it
+aitop
+```
+
+Native Windows support is early (Windows Terminal recommended): Claude Code and Codex sessions, `--once`, `--json`, `--report` and `--doctor` work, but process detection, desktop notifications and `--on-waiting` are not there yet ([#195](https://github.com/SejuneOh/aitop/issues/195)-[#197](https://github.com/SejuneOh/aitop/issues/197)). Until then a Codex session counts as running while its log was written in the last 10 minutes, so it drops out during a long step that writes nothing for over 10 minutes, and a crashed session can stay up to 10 minutes. Cache, log and config live in `%LOCALAPPDATA%\aitop\cache`, `%LOCALAPPDATA%\aitop\state` and `%APPDATA%\aitop` unless `XDG_*` is set.
+
+## Features
 
 - **Live status** of every session and its subagents: thinking, running a tool, waiting for you, idle
 - **Waiting alerts**: blocked sessions jump to the top, with optional bell, desktop notification or hook command
@@ -14,17 +43,6 @@
 - **Read-only**: no network, no ports, no dependencies. It only reads the session logs each CLI already writes
 
 > The UI follows your locale: English by default, Korean when the locale starts with `ko`. Set `AITOP_LANG=ko|en` (or `--lang`) to pick one. This covers the live screen, `--once`, `--help`, `--doctor`, error messages and desktop notifications. Keys and options work the same in both.
-
-## Install
-
-Requires Node.js 22+ on Linux, macOS, WSL or Windows.
-
-Native Windows support is early (Windows Terminal recommended): Claude Code and Codex sessions, `--once`, `--json`, `--report` and `--doctor` work, but process detection, desktop notifications and `--on-waiting` are not there yet ([#195](https://github.com/SejuneOh/aitop/issues/195)-[#197](https://github.com/SejuneOh/aitop/issues/197)). Until then a Codex session counts as running while its log was written in the last 10 minutes, so it drops out during a long step that writes nothing for over 10 minutes, and a crashed session can stay up to 10 minutes. Cache, log and config live in `%LOCALAPPDATA%\aitop\cache`, `%LOCALAPPDATA%\aitop\state` and `%APPDATA%\aitop` unless `XDG_*` is set.
-
-```bash
-npm install -g @sejuneoh/aitop
-aitop
-```
 
 ## Usage
 
