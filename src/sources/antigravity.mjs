@@ -9,7 +9,7 @@ import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { openReadOnly, loadSqlite } from '../sqlite.mjs';
 import { findProcesses, isAgy, openFiles } from '../procs.mjs';
-import { addActivity, emptyTokens, mergeActivity, pushEvent, describeTool, toolDetail, isNoisePrompt, MEMBER_FADE_MS } from './common.mjs';
+import { addActivity, emptyTokens, mergeActivity, pushEvent, describeTool, toolDetail, isNoisePrompt, isLongTool, MEMBER_FADE_MS } from './common.mjs';
 import { contextWindow, geminiCost } from '../pricing.mjs';
 import { debug, debugIo } from '../log.mjs';
 
@@ -245,6 +245,8 @@ const fresh = () => ({
   events: [],
   turns: [],
   turnCount: 0,
+  // 읽은 단계 가운데 가장 이른 만든 시각 (서브에이전트 경과 시간의 기준).
+  firstAt: null,
   lastTool: null,
   last: null,
   // 아직 바뀌는 중인 단계 가운데 가장 뒤의 것 (지금 무엇을 하는지 보이는 데 쓴다).
@@ -426,6 +428,7 @@ function addEvent(n, at, kind, text) {
 
 function applyStep(n, s, idx) {
   if (!s) return;
+  if (s.at && (n.firstAt == null || s.at < n.firstAt)) n.firstAt = s.at;
   const at = s.at ? new Date(s.at).toISOString() : null;
   if (s.type === STEP.PROMPT) {
     if (s.text && !isNoisePrompt(s.text)) {
@@ -599,22 +602,28 @@ export function matchLive(procs, rows, filesOf = openFiles, dir = AGY_ROOT) {
   return { live, loose };
 }
 
-function member(r, g) {
+// wait: 이 서브에이전트가 허락을 기다리는 도구 (subWait 가 정한다). 기다리면 상태를 'waiting' 으로 두고 무엇을 기다리는지 보인다.
+function member(r, g, wait = null) {
   return {
     id: r.id,
     name: r.agent || 'agent',
     model: g.model,
     task: r.title ?? '',
-    status: r.running ? 'busy' : 'done',
+    status: wait ? 'waiting' : r.running ? 'busy' : 'done',
     started: g.tokens.total > 0,
-    phase: r.running ? { kind: 'think', msg: 'steps', args: { n: r.steps } } : { kind: 'done' },
+    phase: wait ? { kind: 'waiting', args: { what: wait } } : r.running ? { kind: 'think', msg: 'steps', args: { n: r.steps } } : { kind: 'done' },
     now: '',
     tokens: g.tokens.total,
     cost: g.cost,
     costNoCache: g.costNoCache,
     costUnknown: g.costUnknown,
-    // 기록에 시작 시각이 없어 마지막으로 바뀐 시각을 둔다 (정렬용).
+    // 대화 목록에는 시작 시각이 없어 마지막으로 바뀐 시각을 둔다 (정렬용).
     updatedAt: r.updatedAt,
+    // 경과 시간의 기준은 읽은 단계 가운데 가장 이른 만든 시각, 멈춘 듯 판단은 대화 목록의 마지막 수정 시각이다.
+    startedAt: g.firstAt ?? null,
+    lastActivityAt: r.updatedAt ?? null,
+    // 실행 중인 단계가 run_command 처럼 오래 걸릴 수 있는 도구면 멈춘 듯 기준을 길게 잡는다 (common.mjs).
+    longStep: Boolean(r.running && g.open?.type === STEP.TOOL && isLongTool(g.open.tool?.name)),
   };
 }
 
@@ -638,13 +647,22 @@ export function waitingFor(g) {
   return w.what;
 }
 
+// 서브에이전트가 허락을 기다리는지. 부모와 같은 규칙(waitingFor: steps status 9, 본 뒤 -wal 이 바뀌면 대기 아님)을 쓴다.
+// 부모 세션이 살아 있고 서브에이전트 자신도 아직 실행 중(r.running)일 때만 센다. 끝난 서브에이전트에 남은 9 는
+// 허락 없이 끝난 흔적이라 무시한다.
+export function subWait(parentLive, r, g) {
+  if (!parentLive || !r.running) return null;
+  return waitingFor(g);
+}
+
 // 실행 중일 때는 아직 바뀌는 중인 단계, 없으면 마지막으로 끝난 단계로 지금 할 일을 짐작한다.
 // 끝난 답변이 도구 호출을 냈으면 그 도구를 실행할 차례이고, 끝난 도구 호출 뒤에는 모델이 결과를 읽고 생각한다.
-export function phaseOf(live, r, g, runningMembers = 0) {
+// kidWait: 부모가 기다리지 않을 때 대신 보일 서브에이전트의 허락 대기 문구 (collectAgy 가 정한다).
+export function phaseOf(live, r, g, runningMembers = 0, kidWait = null) {
   if (!live) return { kind: 'ended' };
   // 같이 도는 에이전트 수는 args.agents 로 보내고, 화면이 문구 뒤에 붙인다.
   const extra = runningMembers ? { agents: runningMembers } : {};
-  const wait = waitingFor(g);
+  const wait = waitingFor(g) ?? kidWait;
   if (wait) return { kind: 'waiting', args: { what: wait, ...extra } };
   if (!r.running) return { kind: 'idle' };
   // 바뀌는 중인 단계와 끝난 단계 가운데 더 뒤의 것이 지금 하는 일이다 (앞의 명령이 오래 도는 동안 뒤 단계가 이어질 수 있다).
@@ -708,10 +726,11 @@ export function collectAgy({ showEnded, budget }) {
     const kids = children.get(r.id) ?? [];
     // 서브에이전트 기록은 한 번만 읽어 행과 합계가 같은 값을 쓰게 한다.
     const kidUsage = kids.map((c) => readConversation(c.id, budget));
+    const kidWaits = kids.map((c, i) => subWait(isLive, c, kidUsage[i]));
     // 끝난 서브에이전트는 Claude 팀원처럼 잠시 "완료"로 보였다가 행에서 빠진다. 합계에는 그대로 남는다.
     const members = kids
-      .map((c, i) => member(c, kidUsage[i]))
-      .filter((m) => m.status === 'busy' || (m.updatedAt != null && Date.now() - m.updatedAt <= MEMBER_FADE_MS))
+      .map((c, i) => member(c, kidUsage[i], kidWaits[i]))
+      .filter((m) => m.status !== 'done' || (m.updatedAt != null && Date.now() - m.updatedAt <= MEMBER_FADE_MS))
       .sort((a, b) => (a.updatedAt ?? 0) - (b.updatedAt ?? 0));
     // 메인과 서브에이전트를 항목별로 더한다 (Claude 세션과 같은 방식).
     const tokens = { ...g.tokens, main: g.tokens.total, sub: 0, subCount: kids.length };
@@ -726,8 +745,23 @@ export function collectAgy({ showEnded, budget }) {
       costNoCache += u.costNoCache;
       costUnknown ||= u.costUnknown;
     }
-    const running = members.filter((m) => m.status === 'busy').length;
-    const wait = isLive ? waitingFor(g) : null;
+    // 허락을 기다리는 서브에이전트도 아직 끝나지 않았으니 같이 도는 에이전트로 센다.
+    const running = members.filter((m) => m.status !== 'done').length;
+    // 부모 행의 대기 규칙:
+    // 1. 부모 대화가 허락을 기다리면 그것을 보인다. 부모와 서브가 함께 기다려도 부모 것이 먼저다.
+    // 2. 아니면 기다리는 서브에이전트 가운데 가장 오래 기다린 것(마지막으로 바뀐 시각이 가장 이른 것)을 '이름: 도구' 로 보인다.
+    //    나머지 서브에이전트의 대기는 각자의 팀원 행에 보인다.
+    // 대기 정렬·--notify·--line·summary.json 은 세션의 status·waitingFor·waitSince 를 쓰므로 이것으로 함께 바뀐다.
+    const own = isLive ? waitingFor(g) : null;
+    let kidIdx = -1;
+    if (!own) {
+      for (let i = 0; i < kids.length; i++) {
+        if (kidWaits[i] && (kidIdx < 0 || (kids[i].updatedAt ?? Infinity) < (kids[kidIdx].updatedAt ?? Infinity))) kidIdx = i;
+      }
+    }
+    const kidWait = kidIdx >= 0 ? `${kids[kidIdx].agent || 'agent'}: ${kidWaits[kidIdx]}` : null;
+    const wait = own ?? kidWait;
+    const waitDetail = own ? (g.wait.detail ?? own) : kidWait ? (kidUsage[kidIdx].wait?.detail ?? kidWaits[kidIdx]) : null;
     out.push({
       tool: 'gemini',
       id: r.id,
@@ -740,17 +774,17 @@ export function collectAgy({ showEnded, budget }) {
       model: g.model,
       live: isLive,
       status: !isLive ? 'ended' : wait ? 'waiting' : r.running ? 'busy' : 'idle',
-      phase: phaseOf(isLive, r, g, running),
+      phase: phaseOf(isLive, r, g, running, kidWait),
       cost,
       costNoCache,
       costUnknown,
       waitingFor: wait,
-      waitDetail: wait ? (g.wait.detail ?? wait) : null,
+      waitDetail,
       now: g.lastTool ?? g.events.at(-1)?.text ?? '',
       startedAt: null,
       updatedAt: r.updatedAt ?? Date.now(),
       // 대기 시작 시각 (--line 요약용). 기록에 시각이 없으면 지금 시각으로 메우지 않고 null.
-      waitSince: wait ? (r.updatedAt ?? null) : null,
+      waitSince: own ? (r.updatedAt ?? null) : kidWait ? (kids[kidIdx].updatedAt ?? null) : null,
       tokens,
       context: { used: g.prompt, window: contextWindow(g.model, g.prompt) },
       events: g.events,

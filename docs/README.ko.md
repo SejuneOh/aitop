@@ -1,6 +1,6 @@
 # ⣠⣴⣾ aitop
 
-AI 코딩 에이전트를 위한 `top`. 내 PC 의 Claude Code · Codex CLI · Antigravity CLI 세션과 진행 내용, 토큰을 터미널 한 화면에서 실시간으로 보는 읽기 전용 모니터 (Gemini CLI 는 프로세스만).
+AI 코딩 에이전트를 위한 `top`. 내 PC 의 Claude Code · Codex CLI · Antigravity CLI 세션과 진행 내용, 토큰을 터미널 한 화면에서 실시간으로 보는 읽기 전용 모니터 (Gemini CLI 는 프로세스만). 훅을 넣지 않는다.
 
 ```bash
 npx @sejuneoh/aitop          # 설치 없이 바로 실행
@@ -11,13 +11,14 @@ npm i -g @sejuneoh/aitop     # 설치한 뒤에는 aitop
 
 - **나를 기다리는 세션이 먼저 보인다.** 기다리는 세션은 맨 위로 올라오고 `n` 으로 바로 간다. `--notify=waiting,done,context` 로 데스크톱 알림을, `aitop --line` 으로 tmux 상태줄을 쓴다.
 - **어느 세션이 무엇인지 안다.** 모든 행에 세션 이름(`/rename` 이름이나 도구가 붙인 제목)이 보인다. `y` 는 이어 열기 명령을 복사하고, `--report sessions` 는 어제 세션과 비용을 스탠드업용으로 정리한다.
-- **모든 에이전트, 모든 프로필, 밖으로 보내는 것 없음.** Claude Code · Codex · Antigravity 를 나란히, [여러 기록 폴더](#기록-폴더-여러-개)(`~/.claude`, `~/.claude-work` ...)에서 읽는다. 네트워크·포트·외부 라이브러리 없음.
+- **훅 없음, 밖으로 보내는 것 없음.** Claude Code · Codex CLI · Antigravity CLI 를 나란히, [여러 기록 폴더](#기록-폴더-여러-개)(`~/.claude`, `~/.claude-work` ...)에서 읽는다. 각 도구가 이미 쓰는 기록만 읽고 설정은 건드리지 않는다. 네트워크·포트·외부 라이브러리 없음.
 
 **비슷한 도구와 다른 점**
 
 - [ccusage](https://github.com/ryoppippi/ccusage) 는 로컬 기록으로 토큰 사용량과 비용을 리포트한다 (일·월·세션·5시간 블록). aitop 은 실시간 세션 모니터가 중심이고 비용 리포트는 곁들임이다.
 - [abtop](https://github.com/graykode/abtop) 은 Claude Code · Codex CLI · OpenCode 를 보는 Rust 실시간 대시보드로, 사용 한도·포트와 세션 종료 키가 있다. aitop 은 npm 으로 설치하고 Antigravity 도 보며, 보기만 한다.
 - [claude-code-monitor](https://github.com/onikan27/claude-code-monitor) 는 macOS 에서 `~/.claude/settings.json` 에 훅을 넣어 Claude Code 를 보고, 휴대폰 웹 화면이 있다. aitop 은 훅을 넣지 않고 이미 있는 기록만 읽으며 Linux · macOS · WSL · Windows 에서 돈다.
+- [Agents Stack](https://marketplace.visualstudio.com/items?itemName=MykD.agents-stack) 은 Claude Code · Antigravity · Codex · Gemini CLI 를 보는 VS Code 확장이다. 각 에이전트 설정에 훅을 넣는데, Antigravity 에는 허락 대기 훅이 없어 그 대기는 보이지 않는다. aitop 은 아무 터미널에서 돌고, 훅을 넣지 않으며, Antigravity 세션의 허락 대기도 보인다.
 
 ## 설치
 
@@ -43,6 +44,7 @@ npm config delete //npm.pkg.github.com/:_authToken
 - 포트를 열지 않고, 네트워크 요청을 하지 않는다. 각 CLI 가 내 PC 에 남기는 세션 파일만 읽는다.
 - 세션 파일은 읽기 전용으로만 연다. 디스크에 쓰는 곳은 읽은 위치·합계를 기억하는 `~/.cache/aitop` 뿐이다 (지워도 된다). `--debug` 를 켰을 때만 디버그 로그를 따로 쓴다.
 - 화면에 표시되는 텍스트 중 API 키·토큰처럼 보이는 값은 `••••` 로 가린다.
+- 비용은 API 정가로 환산한 추정값이며 실제 청구액이 아니다.
 - 외부 라이브러리 없음 (Node 22 이상). Antigravity CLI 의 세부 정보는 Node 내장 `node:sqlite` 로 기록을 immutable(파일을 하나도 만들거나 고치지 않는 열기)로 열 수 있는 Node 22.15 이상에서만 읽는다.
 
 ## 릴리스
@@ -326,6 +328,9 @@ end)
 - STATUS: 지금 단계 (`도구 실행 · Bash`, `생각 중`, `답변 작성 중`, `팀원 N명 작업 중`, `응답 대기`, `다음 지시 대기`). 큰 기록을 처음 읽는 동안은 `기록 읽는 중 N%`
 - 응답 대기 세션은 맨 위에 배경색으로 보인다. 화면이 작아 표가 잘리면 마지막 줄에 `… +N 세션` 이 나온다.
 - 서브에이전트는 메인 세션 아래 `├─` 행으로 붙고, 하는 일(description) 뒤에 타입이 흐리게 붙는다. 첫 응답 전에는 `시작 중`, 끝나면 6초간 `완료`로 보였다가 사라진다.
+- 작업 중인 서브에이전트 행에는 시작한 뒤 지난 시간이 보인다 (`42s`, `3m12s`, `1h05m`).
+- 작업 중인 서브에이전트의 기록이 3분 동안 바뀌지 않으면 흐린 `멈춘 듯` 이 붙는다. 오래 걸릴 수 있는 도구(Bash, PowerShell, 서브에이전트 안의 에이전트, 웹 가져오기·검색, MCP 도구, agy `run_command`)가 도는 중이면 10분을 기다린다. 짐작일 뿐이라 세션이 응답 대기 중이면 붙지 않고, 정렬·알림·창 제목·`--line` 에는 쓰지 않는다. 화면이 좁으면 경과 시간 뒤의 `?` 하나로 줄어든다. `--json` 에는 팀원마다 `stalled`, `startedAt`, `lastActivityAt` 으로 나간다.
+- Antigravity 서브에이전트가 허락을 기다리면 부모 행도 `<에이전트>: <도구>` 로 응답 대기가 된다. 그래서 맨 위로 올라오고 `n`·`--notify`·`--line` 에도 잡힌다. 부모 자신이 기다리면 부모 것이 먼저 보이고, 다른 서브에이전트의 대기는 각자의 행에 보인다.
 - COST: Claude API 정가로 환산한 비용. 구독 요금제 사용분도 같은 기준으로 계산한다 (`src/pricing.mjs`). 가격표에 없는 모델은 추측하지 않고 비용에서 뺀다 (`--json` 은 `unpriced` 로 알린다). Codex 는 OpenAI API 정가로 환산한다 (gpt-5.6-sol/terra/luna, gpt-5.5, gpt-5.4(-mini), gpt-5.3-codex, gpt-5.2, gpt-5.1-codex(-max, -mini), gpt-5(-mini, -codex), codex-mini, gpt-4o-mini). 값은 OpenAI 공식 가격표(https://developers.openai.com/api/docs/pricing)와 모델별 문서(2026-11-11 확인) 기준이며, 세션 중 모델이 바뀌면 마지막 모델 가격으로 계산한다. 모델 이름이 표와 똑같을 때(끝의 `-latest` 나 날짜는 떼고 본다)만 가격을 매기고, gpt-5.5-pro 처럼 앞부분만 같은 모델은 비용에서 빠진다. 입력 272K 초과 요청의 긴 컨텍스트 단가(입력 2배·출력 1.5배)는 반영하지 않고 기본 단가로 계산한다. gpt-5.6-sol 은 2026-11-30 까지의 프로모션 가격이다. Antigravity CLI 는 Google 공식 Gemini API 가격표(유료 등급 standard, https://aistudio.google.com/docs/pricing, 2026-11-06 확인)로 호출마다 그 호출 시각의 가격으로 환산한다: gemini-4-argon 은 2026-12-01 부터, gemini-3.8-flash·gemini-3.6-flash 는 2027-01-01 부터 두 배 가격이다 (UTC 기준). gemini-3.5-flash-lite, gemini-3.1-flash-lite 도 표에 있다. 모델 이름이 표와 똑같을 때만 가격을 매기고, 그 밖의 모델(gemini-3.5-flash, gemini-3-flash-preview 등)은 추측하지 않고 비용에서 뺀다. 서브에이전트 비용은 부모 세션에 더한다.
 - IDLE: 마지막 활동 후 지난 시간. 작업 중이면 `now`.
 - 상세 패널의 토큰 합계 = 메인 + 서브에이전트 = 입력 + 출력 + 캐시 읽기 + 캐시 쓰기. 비용은 캐시 제외 금액도 함께 보인다.
@@ -365,3 +370,7 @@ Claude Code 프로필을 여럿 쓰면(`CLAUDE_CONFIG_DIR=~/.claude-work claude`
 - 캐시 폴더 이름에 가격표 지문이 들어가서, 가격표를 바꾼 버전으로 올리면 첫 실행 때 비용을 다시 계산한다.
 - 변경 파일은 Edit/Write 도구 결과와 Codex 의 성공한 apply_patch 만 본다. Codex 패치에는 줄 번호가 없어 diff 에 `@@ 문맥` 만 보인다. Bash(`sed`, `git checkout` 등)로 바꾼 파일과 사람이 직접 고친 내용은 빠진다. 파일 60개, 파일당 변경 조각 8개, 세션당 1500줄까지만 보관하고, 넘치면 오래된 조각부터 버린다 (줄 수 통계는 남는다).
 - 서브에이전트는 `finished` 표시 없이 끊긴 기록이 남기 때문에, 메인이 결과를 기다리는 중이거나 15분 안에 기록이 바뀐 경우만 실행 중으로 본다.
+
+---
+
+Anthropic, OpenAI, Google 과 관계가 없고 이들의 보증을 받지 않았다. 제품 이름은 각 소유자의 상표다.

@@ -254,3 +254,12 @@ export function fmtAgo(ms) {
   if (s < 86400) return Math.floor(s / 3600) + 'h';
   return Math.floor(s / 86400) + 'd';
 }
+
+// 서브에이전트 경과 시간. 1분 아래는 42s, 1시간 아래는 3m12s, 그 위는 1h05m (초는 버린다).
+export function fmtElapsed(ms) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const two = (n) => String(n).padStart(2, '0');
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m${two(s % 60)}s`;
+  return `${Math.floor(s / 3600)}h${two(Math.floor(s / 60) % 60)}m`;
+}
