@@ -3,7 +3,7 @@
 [![npm](https://img.shields.io/npm/v/@sejuneoh/aitop)](https://www.npmjs.com/package/@sejuneoh/aitop)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](https://github.com/SejuneOh/aitop/blob/main/LICENSE)
 
-**`top` for your AI coding agents.** One live terminal screen for every Claude Code, Codex CLI and Antigravity CLI session on your machine. Read-only.
+**`top` for your AI coding agents.** One live terminal screen for every Claude Code, Codex CLI and Antigravity CLI session on your machine. No hooks, read-only.
 
 ```bash
 npx @sejuneoh/aitop          # try it, no install
@@ -14,13 +14,14 @@ npm i -g @sejuneoh/aitop     # then just run: aitop
 
 - **See who needs you.** A waiting session jumps to the top and `n` takes you there. Add `--notify=waiting,done,context` for desktop alerts, or `aitop --line` for a tmux status line.
 - **Know which session is which.** Every row shows the session name (your `/rename` or the tool's title). `y` copies a resume command, and `--report sessions` prints yesterday's sessions with cost for your standup.
-- **All agents, all profiles, nothing sent.** Claude Code, Codex and Antigravity side by side, from [several history folders](#several-claude-or-codex-profiles) (`~/.claude`, `~/.claude-work`, ...). No network, no ports, no dependencies.
+- **No hooks, nothing sent.** Claude Code, Codex CLI and Antigravity CLI side by side, from [several history folders](#several-claude-or-codex-profiles) (`~/.claude`, `~/.claude-work`, ...). aitop only reads the logs they already write. It changes no settings and needs no network, ports or dependencies.
 
 **How it differs from similar tools**
 
 - [ccusage](https://github.com/ryoppippi/ccusage) reports token usage and cost from local logs (daily, monthly, session, 5-hour blocks). aitop is a live session monitor first, with smaller cost reports on the side.
 - [abtop](https://github.com/graykode/abtop) is a Rust live dashboard for Claude Code, Codex CLI and OpenCode, with rate limits, ports and keys to kill sessions. aitop installs with npm, also covers Antigravity, and only watches.
 - [claude-code-monitor](https://github.com/onikan27/claude-code-monitor) watches Claude Code on macOS through hooks it adds to `~/.claude/settings.json`, with a phone web view. aitop adds no hooks and only reads existing logs, on Linux, macOS, WSL and Windows.
+- [Agents Stack](https://marketplace.visualstudio.com/items?itemName=MykD.agents-stack) is a VS Code extension for Claude Code, Antigravity, Codex and Gemini CLI. It adds hooks to each agent's config, and Antigravity has no hook for approval waits, so those do not show. aitop runs in any terminal, adds no hooks and shows Antigravity sessions waiting for approval.
 
 ## Install
 
@@ -36,9 +37,9 @@ Native Windows support is early (Windows Terminal recommended): Claude Code and 
 
 ## Features
 
-- **Live status** of every session and its subagents: thinking, running a tool, waiting for you, idle
+- **Live status** of every session and its subagents: thinking, running a tool, waiting for you, idle. Subagent rows show how long they have run ([details](#subagents))
 - **Waiting alerts**: blocked sessions jump to the top, with optional bell, desktop notification or hook command
-- **Tokens and cost** per session and for today / last 7 days, at public API list prices
+- **Tokens and cost** per session and for today / last 7 days, estimated at public API list prices. This is not your bill
 - **Changed files and diffs** per session and per prompt
 - **Read-only**: no network, no ports, no dependencies. It only reads the session logs each CLI already writes
 
@@ -64,6 +65,14 @@ The language is picked from `--lang`, then `AITOP_LANG`, then `lang` in the conf
 To continue a session elsewhere (for example when you cannot jump to its tab, as in Windows Terminal with WSL), the detail panel shows a `Resume` command and `y` copies it to the clipboard with OSC 52: Claude `cd <dir> && claude --resume <id>`, Codex `cd <dir> && codex resume <id>`, Antigravity `cd <dir> && agy --conversation <id>` (none for Gemini CLI). A session from a data folder other than `~/.claude` / `~/.codex` (or any session while `CLAUDE_CONFIG_DIR` / `CODEX_HOME` is set) gets `CLAUDE_CONFIG_DIR=<dir>` / `CODEX_HOME=<dir>` before the tool so it finds the right history. Claude finds sessions per folder, so without a known folder no command is made; ids that are not UUIDs make none either. A short detail panel leaves the command out; use `y` or `--json` then. Paths and ids are shell quoted and control characters are stripped. Windows Terminal, WezTerm, iTerm2 and kitty accept OSC 52; tmux needs `set -g set-clipboard on`; other terminals ignore it silently, so copy the command from the panel. Nothing is sent to the session. `--json` has the same command as `resumeCmd` per session (`null` if none).
 
 In `--json`, `phase` stays the Korean status text in every language (as does `AITOP_WAITING_FOR` for `--on-waiting`). Session `name` uses the same user-given names as the table: a Codex session's `name` changes from the folder name to its `thread_name` once it has one. For scripts, use `phaseKind`, a stable state name: `think`, `write`, `tool`, `team`, `waiting`, `idle`, `done`, `ended` (or `null`). Other text fields follow their own rules: with English selected, `--doctor --json` has Korean `tools.*.hint` but English `config.problems`.
+
+### Subagents
+
+Subagents show as `├─` rows under their session. While one works, its row shows how long it has run (`42s`, `3m12s`, `1h05m`).
+
+A dim `stalled?` appears when a working subagent's log has not changed for 3 minutes. While it runs a tool that can be slow (Bash, PowerShell, a nested agent, web fetch or search, an MCP tool, agy `run_command`), the limit is 10 minutes. It is only a guess. It never shows while the session waits for you, and it does not change sorting, alerts, the window title or `--line`. `--json` has it per member as `stalled`, with `startedAt` and `lastActivityAt`.
+
+When an Antigravity subagent waits for your approval, its parent row waits too, as `<agent>: <tool>`. So the session jumps to the top and counts for `n`, `--notify` and `--line`. If the parent waits itself, its own wait shows first. Other waiting subagents show on their own rows.
 
 ### Daily report
 
@@ -129,3 +138,5 @@ aitop reads `~/.claude` and `~/.codex` by default. To read more profiles, list t
 ## License
 
 [MIT](https://github.com/SejuneOh/aitop/blob/main/LICENSE)
+
+Not affiliated with or endorsed by Anthropic, OpenAI or Google. Product names are trademarks of their owners.
