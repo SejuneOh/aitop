@@ -222,10 +222,10 @@ function indexName(path, id) {
   return null;
 }
 
-const SAVED = ['id', 'threadName', 'cwd', 'branch', 'model', 'busy', 'tokens', 'context', 'window', 'events', 'lastTool', 'startedAt', 'lastKind', 'files', 'turns', 'turnCount', 'activity'];
+const SAVED = ['id', 'threadName', 'cwd', 'branch', 'model', 'busy', 'tokens', 'context', 'window', 'events', 'lastTool', 'startedAt', 'lastKind', 'files', 'turns', 'turnCount', 'activity', 'pendingAt'];
 
 function newState(path) {
-  const st = { tail: new JsonlTail(path), id: basename(path), threadName: null, cwd: null, branch: null, model: null, busy: false, tokens: emptyTokens(), context: 0, window: 0, events: [], lastTool: null, startedAt: null, pending: new Map(), lastKind: null, files: [], turns: [], turnCount: 0, patches: {}, activity: {} };
+  const st = { tail: new JsonlTail(path), id: basename(path), threadName: null, cwd: null, branch: null, model: null, busy: false, tokens: emptyTokens(), context: 0, window: 0, events: [], lastTool: null, startedAt: null, pending: new Map(), lastKind: null, files: [], turns: [], turnCount: 0, patches: {}, activity: {}, pendingAt: {} };
   const c = loadCache(path);
   if (c) {
     st.tail.offset = c.offset;
@@ -249,6 +249,14 @@ function phaseOf(st, live) {
   return st.lastKind === 'reply' ? { kind: 'write' } : { kind: 'think' };
 }
 
+// phaseOf 가 보이는 도구(열린 호출 가운데 마지막 것)가 시작된 시각(ms). function_call·custom_tool_call 줄의 시각이다.
+// pendingAt 이 생기기 전 캐시에서 이어 읽는 호출은 시각을 몰라 null. Codex 기록에는 허락 대기 상태가 없어 따로 빼지 않는다.
+function toolStartOf(st, phase) {
+  if (phase.kind !== 'tool') return null;
+  const at = st.pendingAt?.[[...st.pending.keys()].at(-1)];
+  return Number.isFinite(at) ? at : null;
+}
+
 function applyLine(st, x) {
   const p = x.payload ?? {};
   if (x.type === 'session_meta') {
@@ -269,6 +277,7 @@ function applyLine(st, x) {
       case 'turn_aborted':
         st.busy = false;
         st.pending.clear();
+        st.pendingAt = {};
         st.patches = {};
         break;
       case 'token_count': {
@@ -328,11 +337,15 @@ function applyLine(st, x) {
         if (patchSucceeded(p.output)) for (const r of parsePatch(patch.text, st.cwd)) addChange(st.files, r, patch.at);
       }
       st.pending.delete(p.call_id);
+      if (st.pendingAt) delete st.pendingAt[p.call_id];
       st.lastKind = 'result';
     }
     if (what) {
       st.lastTool = what;
-      if (p.call_id && p.type !== 'web_search_call') st.pending.set(p.call_id, p.name);
+      if (p.call_id && p.type !== 'web_search_call') {
+        st.pending.set(p.call_id, p.name);
+        (st.pendingAt ??= {})[p.call_id] = parseTs(x.timestamp);
+      }
       pushEvent(st, x.timestamp, 'tool', what);
       st.lastKind = 'tool';
     }
@@ -346,7 +359,7 @@ export function codexIndexName(path, id) {
   return indexName(path, id);
 }
 
-export const _test = { newState, applyLine, phaseOf, snapshot, readIndex, indexName };
+export const _test = { newState, applyLine, phaseOf, toolStartOf, snapshot, readIndex, indexName };
 
 export function collectCodex({ showEnded, budget, filesOf = openFiles, startOf = processStart, canList = canListProcesses }) {
   // 프로세스를 못 세면 숨기지 않고 최근에 바뀐 기록으로 판정한다 (pid 는 null).
@@ -424,6 +437,7 @@ export function collectCodex({ showEnded, budget, filesOf = openFiles, startOf =
     const used = st.tokens.total > 0;
     // 기록 안의 이름 바꾸기 이벤트가 먼저, 없으면 session_index.jsonl 의 thread_name.
     const customName = st.threadName ?? indexName(f.path, st.id);
+    const phase = phaseOf(st, live);
     out.push({
       tool: 'codex',
       id: st.id,
@@ -439,7 +453,9 @@ export function collectCodex({ showEnded, budget, filesOf = openFiles, startOf =
       model: st.model,
       live,
       status: !live ? 'ended' : st.busy ? 'busy' : 'idle',
-      phase: phaseOf(st, live),
+      phase,
+      // 지금 도는 도구가 시작된 시각(ms) 또는 null (toolStartOf).
+      toolStartedAt: toolStartOf(st, phase),
       cost: cost?.total ?? (used ? 0 : null),
       costNoCache: cost?.noCache ?? null,
       costUnknown: used && !cost,

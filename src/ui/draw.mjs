@@ -1,10 +1,11 @@
 // 그리기 기본: 조각(segment) 줄 만들기·자르기·채우기, 상자, 가로줄, 게이지, 시각·금액 표기.
-import { pad, stripControl, truncate, width } from '../text.mjs';
+import { fmtElapsed, pad, stripControl, truncate, width } from '../text.mjs';
 import { homedir } from 'node:os';
 import { tildeIn } from '../paths.mjs';
 import { NO_COLOR, PALETTE, PHASE_COLOR, RESET, style } from './theme.mjs';
 import { glyphs } from './glyphs.mjs';
 import { t as tr } from '../i18n.mjs';
+import { MEMBER_STALL_LONG_MS } from '../sources/common.mjs';
 
 // segs: [{ t: 텍스트, ...style }]. 폭 W 에 맞춰 자르고, 남는 칸은 bg 로 채운다.
 // 화면에 나가는 글자는 모두 여기를 지나므로, 기록에서 온 제어문자도 여기서 한 번 더 지운다.
@@ -169,4 +170,18 @@ export function cacheState(s, now = NOW) {
   const sec = Math.ceil(left / 1000);
   const t = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
   return { expired: false, ttl, left: t, text: tr('cache.left', { t }), fg: left < CACHE_WARN_MS ? PALETTE.alert : PALETTE.info, bold: left < CACHE_WARN_MS };
+}
+
+// 지금 도는 도구의 경과 시간 (수집기의 toolStartedAt). 작업 중이고 진행 단계가 도구 실행인 세션만 본다.
+// 1분 미만은 대부분의 도구 호출이 끝나는 시간이라 보이지 않는다 (짧은 도구마다 숫자가 깜빡이지 않게).
+// TOOL_LONG_MS(10분) 이상이면 흐린 경고색: Claude Code 의 Bash 시간 제한이 최대 10분이라 #233 의 '멈춘 듯' 긴 기준과 같은 값을 쓴다.
+// 형식은 팀원 행 경과 시간과 같은 fmtElapsed 다. 이 세션은 작업 중이라 스피너가 돌고(animating) 그 틱에 실려 바뀌므로 타이머를 따로 두지 않는다.
+export const TOOL_SHOW_MS = 60_000;
+export const TOOL_LONG_MS = MEMBER_STALL_LONG_MS;
+export function toolElapsed(s, now = NOW) {
+  if (!Number.isFinite(s?.toolStartedAt) || s.status !== 'busy' || s.phase?.kind !== 'tool') return null;
+  const ms = now - s.toolStartedAt;
+  if (ms < TOOL_SHOW_MS) return null;
+  const long = ms >= TOOL_LONG_MS;
+  return { text: fmtElapsed(ms), fg: long ? PALETTE.alert : PALETTE.info, dim: long, long };
 }

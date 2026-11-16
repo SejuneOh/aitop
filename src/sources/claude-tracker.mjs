@@ -130,6 +130,25 @@ function cacheStep(st, x) {
   else if (x.type === 'assistant' && x.message.usage) applyCacheUsage(st, x.message.usage, parseTs(x.timestamp), x.message.id ?? null);
 }
 
+// 결과가 아직 없는 tool_use 의 시작 시각(at)을 기록 끝에서 찾아 채운다. at 필드가 생기기 전 캐시를 위해서다.
+// pending: Map(tool_use id → 열린 호출). at 이 없는 것만 고치고, 고친 것이 있으면 true.
+export function tailToolStarts(path, pending) {
+  const want = [...pending].filter(([, p]) => !('at' in p));
+  if (!want.length) return false;
+  for (const [, p] of want) p.at = null;
+  const ids = new Map(want);
+  for (const l of tailLines(path) ?? []) {
+    if (!l.includes('"tool_use"')) continue;
+    try {
+      const x = JSON.parse(l);
+      for (const c of Array.isArray(x.message?.content) ? x.message.content : []) {
+        if (c.type === 'tool_use' && ids.has(c.id)) ids.get(c.id).at = parseTs(x.timestamp);
+      }
+    } catch {}
+  }
+  return true;
+}
+
 export class ClaudeTracker {
   constructor(path) {
     this.tail = new JsonlTail(path);
@@ -163,6 +182,8 @@ export class ClaudeTracker {
         Object.assign(this, { cacheAt, cacheTtl });
         markDirty(path, () => this.snapshot());
       }
+      // 열린 도구 호출의 시작 시각도 같은 방식으로 한 번만 채운다 (캐시 버전은 그대로).
+      if (tailToolStarts(path, this.pending)) markDirty(path, () => this.snapshot());
     }
   }
 
@@ -298,7 +319,8 @@ export class ClaudeTracker {
       for (const c of Array.isArray(m.content) ? m.content : []) {
         if (c.type === 'tool_use') {
           this.lastTool = describeTool(c.name, c.input);
-          this.pending.set(c.id, { name: c.name, what: this.lastTool, detail: toolDetail(c.name, c.input), agent: c.input?.subagent_type ?? null });
+          // at: 호출을 낸 줄의 시각 (도구 실행 경과 시간의 기준). resumeAt: 허락 대기를 마지막으로 본 시각 (markWaiting).
+          this.pending.set(c.id, { name: c.name, what: this.lastTool, detail: toolDetail(c.name, c.input), agent: c.input?.subagent_type ?? null, at: parseTs(x.timestamp) });
           pushEvent(this, x.timestamp, 'tool', this.lastTool);
           this.lastKind = 'tool';
         } else if (c.type === 'text' && c.text?.trim()) {
@@ -332,6 +354,19 @@ export class ClaudeTracker {
     const words = new Set(String(waitingFor ?? '').split(/[^A-Za-z0-9_]+/).filter(Boolean));
     const named = tools.filter((p) => words.has(p.name));
     return (named.at(-1) ?? tools.at(-1))?.detail ?? null;
+  }
+
+  // 허락 대기를 보는 동안 열린 도구 호출마다 그 시각을 적는다. 허락한 뒤의 경과 시간은 여기서부터 잰다 (toolStartedAt).
+  // 기록에는 허락한 시각이 없으므로 대기를 마지막으로 본 시각(갱신 1초 간격)으로 갈음한다. 기록이 바뀐 것은 아니라 캐시에 따로 적지 않는다.
+  markWaiting(now = Date.now()) {
+    for (const p of this.pending.values()) if (p.name !== 'Agent' && p.name !== 'Task') p.resumeAt = now;
+  }
+
+  // phase() 가 보이는 도구(열린 도구 호출 가운데 마지막 것)가 돌기 시작한 시각(ms). 허락을 기다렸으면 대기가 끝난 뒤부터. 모르면 null.
+  toolStartedAt() {
+    const p = [...this.pending.values()].filter((p) => p.name !== 'Agent' && p.name !== 'Task').at(-1);
+    if (!p || !Number.isFinite(p.at)) return null;
+    return Number.isFinite(p.resumeAt) ? Math.max(p.at, p.resumeAt) : p.at;
   }
 
   // 지금 무엇을 하는 단계인지: 도구 실행 / 팀원 대기 / 생각 중 / 답변 작성 중.
