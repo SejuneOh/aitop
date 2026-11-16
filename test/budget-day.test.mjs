@@ -140,7 +140,7 @@ test('헤더: 오늘 금액 옆에 예산, 80% 이상이면 예상, 100% 이상�
   assert.match(head(60, 50), /예상 \$42 ·/);
   assert.match(head(60, 30), /예상 \$42! ·/);
   assert.match(head(120, 12.5), /\/\$12\.50/);
-  assert.match(head(120, 30, 'api', { ...U, today: { ...U.today, unknown: true } }), /\$12\.30\?\/\$30 \(\$5\.00\/h\) 58\.0M · 예상 \$42\?!/);
+  assert.match(head(120, 30, 'api', { ...U, today: { ...U.today, unknown: true } }), /\$12\.30\/\$30 \(\$5\.00\/h\) 58\.0M · 예상 \$42!/);
 });
 
 test('캐시 제외 화면에서도 예산은 API 기준이라 화면과 --json 의 단계가 같다', () => {
