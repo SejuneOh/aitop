@@ -50,6 +50,8 @@ export function toJson(data, version = null, opts = {}) {
       stopReason: s.stopReason ?? null,
       // 프롬프트 캐시가 만료되는 시각 (Claude 의 응답 대기·다음 지시 대기 세션만, 마지막 요청 시작 기준 추정). 이미 지난 시각일 수 있다.
       cacheExpiresAt: iso(s.cacheExpiresAt),
+      // 지금 도는 도구가 시작된 시각 (작업 중이고 진행 단계가 도구 실행일 때만, 허락 대기 중이면 null). 화면과 달리 1분 미만도 나간다.
+      toolStartedAt: iso(s.toolStartedAt),
       waitingFor: s.waitingFor ?? null,
       // 이 세션을 이어 여는 셸 명령 (resume.mjs). 만들 수 없으면 null.
       resumeCmd: resumeCmd(s),

@@ -5,7 +5,7 @@ import { projectBudget } from '../budget.mjs';
 import { fmtAgo, fmtElapsed, fmtTokens, pad, truncate, width } from '../text.mjs';
 import { memberStalled } from '../sources/common.mjs';
 import { BUDGET_COLOR, PALETTE, PHASE_COLOR, RESET, style } from './theme.mjs';
-import { NOW, SPIN, cacheState, clock, costOf, gauge, glyph, levelBar, line, money, segsWidth, shortModel } from './draw.mjs';
+import { NOW, SPIN, cacheState, clock, toolElapsed, costOf, gauge, glyph, levelBar, line, money, segsWidth, shortModel } from './draw.mjs';
 import { glyphs } from './glyphs.mjs';
 import { phaseText, t } from '../i18n.mjs';
 import { NO_FOLDER } from '../order.mjs';
@@ -350,7 +350,7 @@ export function sessionRow(s, c, W, selected, frame, hot, costMode = 'api', pinn
   segs.push(...pin, { t: pad(s.name ?? '', c.name - segsWidth(pin)) + ' ', fg: ended ? PALETTE.ended : PALETTE.text, bold: selected });
   if (c.showProject) segs.push({ t: pad(s.project ?? '', c.project) + ' ', fg: ended ? PALETTE.ended : PALETTE.muted });
   segs.push(
-    ...statusCell(status, cacheState(s), c.status, { fg: pc, bold: s.status === 'waiting' }),
+    ...statusCell(status, cacheState(s) ?? toolElapsed(s), c.status, { fg: pc, bold: s.status === 'waiting' }),
     { t: pad(partial ? '…' : blank ? '' : fmtTokens(s.tokens.total), c.tokens, 'right') + ' ', fg: ended ? PALETTE.ended : partial ? PALETTE.info : PALETTE.muted },
   );
   if (c.showCost) segs.push(partial ? { t: pad('…', c.cost, 'right') + ' ', fg: PALETTE.info } : { t: pad(blank ? '' : (hot?.has(s.id) ? glyphs().hot : '') + money(costOf(s, costMode), s.costUnknown), c.cost, 'right') + ' ', fg: s.cost == null || ended ? PALETTE.info : hot?.has(s.id) ? PALETTE.money : PALETTE.muted, bold: Boolean(hot?.has(s.id)) });
@@ -359,17 +359,18 @@ export function sessionRow(s, c, W, selected, frame, hot, costMode = 'api', pinn
   return line(ended ? segs.map((x) => ({ ...x, italic: true })) : segs, W, bg);
 }
 
-// 세션 행의 STATUS 칸 (뒤 공백 포함). 캐시 남은 시간(cache)이 있으면 상태 글 뒤에 ' · 캐시 3:12' 로 붙인다.
-// 캐시 표시가 먼저 빠지는 정보다: 다 들어가면 그대로, 상태 글을 CACHE_STATUS_MIN 칸까지 줄여 들어가면 줄여서 붙이고, 아니면 뺀다.
-const CACHE_STATUS_MIN = 12;
-export function statusCell(status, cache, w, look) {
+// 세션 행의 STATUS 칸 (뒤 공백 포함). 덧붙일 짧은 글(tag)이 있으면 상태 글 뒤에 ' · 캐시 3:12' 처럼 붙인다.
+// tag 는 기다리는 세션의 캐시 남은 시간(cacheState) 또는 작업 중 세션의 도구 경과 시간(toolElapsed)이다. 두 상태가 달라 함께 붙지 않는다.
+// 덧붙인 글이 먼저 빠지는 정보다: 다 들어가면 그대로, 상태 글을 TAG_STATUS_MIN 칸까지 줄여 들어가면 줄여서 붙이고, 아니면 뺀다.
+const TAG_STATUS_MIN = 12;
+export function statusCell(status, tag, w, look) {
   const plain = [{ t: pad(status, w) + ' ', ...look }];
-  if (!cache) return plain;
-  const tag = [{ t: ' · ', fg: PALETTE.info }, { t: cache.text, fg: cache.fg, bold: cache.bold }];
-  const room = w - segsWidth(tag);
-  if (room < Math.min(width(status), CACHE_STATUS_MIN)) return plain;
+  if (!tag) return plain;
+  const segs = [{ t: ' · ', fg: PALETTE.info }, { t: tag.text, fg: tag.fg, bold: tag.bold, dim: tag.dim }];
+  const room = w - segsWidth(segs);
+  if (room < Math.min(width(status), TAG_STATUS_MIN)) return plain;
   const head = truncate(status, room);
-  return [{ t: head, ...look }, ...tag, { t: ' '.repeat(Math.max(0, room - width(head))) + ' ' }];
+  return [{ t: head, ...look }, ...segs, { t: ' '.repeat(Math.max(0, room - width(head))) + ' ' }];
 }
 
 // 기록을 읽는 중인 세션의 CONTEXT 칸: 빈 막대와 … (gauge 와 같은 폭).

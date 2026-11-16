@@ -202,6 +202,19 @@ function cacheOf(alive, status, t) {
   return { cacheExpiresAt: at, cacheTtl: t.cacheTtl };
 }
 
+// 도구가 돌기 시작한 시각(ms). 작업 중(busy)이고 진행 단계가 열린 도구 실행일 때만 둔다 (claude-tracker.mjs toolStartedAt).
+// 허락 대기 중에는 두지 않고, 그동안 본 시각을 적어 두어 허락한 뒤에는 그때부터 잰다 (markWaiting).
+// 쉘 명령(! 입력, status 'shell')은 기록에 tool_use 가 없어 빼고, 기록을 다 읽기 전에도 뺀다.
+function toolStartOf(status, phase, t) {
+  if (!t) return null;
+  if (status === 'waiting') {
+    t.markWaiting();
+    return null;
+  }
+  if (status !== 'busy' || phase?.kind !== 'tool' || t.loading != null) return null;
+  return t.toolStartedAt();
+}
+
 // sessions/<pid>.json 은 세션이 끝나면 지워지므로, 끝난 세션은 최근에 바뀐 기록 파일로 찾는다.
 // 폴더를 매번 훑지 않게 목록은 잠깐 재사용하고, 기록 앞부분에서 이름·폴더만 읽어 둔다.
 const DISCOVER_TTL_MS = 10_000;
@@ -483,6 +496,7 @@ export function collectClaude({ showEnded, budget, selectedId }) {
     const { members, sub } = transcript ? readMembers(transcript, t, budget) : { members: [], sub: emptySub() };
     const mtime = Math.max(t?.mtimeMs ?? 0, touched);
     const status = statusOf(e, e.alive, mtime);
+    const phase = withRunningMembers(phaseOf(status, e, t), status, members);
 
     out.push({
       tool: 'claude',
@@ -500,7 +514,9 @@ export function collectClaude({ showEnded, budget, selectedId }) {
       status,
       // Claude Code 가 상태를 남기지 않아 기록 수정 시각으로 추측한 경우
       statusGuessed: e.alive && !e.waitingFor && !['busy', 'shell', 'idle'].includes(e.status),
-      phase: withRunningMembers(phaseOf(status, e, t), status, members),
+      phase,
+      // 지금 도는 도구가 시작된 시각(ms) 또는 null. 화면은 1분이 지나야 STATUS 글 뒤에 경과 시간을 붙인다 (draw.mjs toolElapsed).
+      toolStartedAt: toolStartOf(status, phase, t),
       // 멈춘 이유 (phase 가 stopped 일 때만). 끝남(done) 알림과 확인 전(●)을 이 동안 막는다 (attention.mjs).
       stopReason: status === 'idle' && stoppedPhase(t) ? t.stopReason : null,
       // 프롬프트 캐시 만료 시각(ms)과 TTL(초). 응답 대기·다음 지시 대기인 살아 있는 세션에만 둔다 (claude-tracker.mjs applyCacheUsage).
