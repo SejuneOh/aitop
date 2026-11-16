@@ -5,7 +5,7 @@ import { homedir } from 'node:os';
 import { JsonlTail } from '../tail.mjs';
 import { loadCache, markDirty } from '../cache.mjs';
 import { canListProcesses, findProcesses, isCodex, openFiles, processStart } from '../procs.mjs';
-import { addActivity, emptyTokens, parseTs, pushEvent, describeTool, isNoisePrompt } from './common.mjs';
+import { addActivity, emptyTokens, parseTs, pushEvent, describeTool, isNoisePrompt, sessionName } from './common.mjs';
 import { addChange, mergeFiles } from './files.mjs';
 import { codexCost } from '../pricing.mjs';
 import { parsePatch, extractPatch, patchSucceeded } from './patch.mjs';
@@ -15,7 +15,10 @@ import { lastName } from '../paths.mjs';
 // 지시 탭에 쓰는 지시 목록은 최근 것만 남긴다.
 const MAX_TURNS = 50;
 
-const ROOT = join(process.env.CODEX_HOME ?? join(homedir(), '.codex'), 'sessions');
+const CODEX_HOME = process.env.CODEX_HOME ?? join(homedir(), '.codex');
+const ROOT = join(CODEX_HOME, 'sessions');
+// Codex 세션 이름 목록: 한 줄에 { id, thread_name, updated_at }. 이름을 바꿀 때마다 뒤에 붙으므로 같은 id 는 마지막 줄이 이긴다.
+const INDEX = join(CODEX_HOME, 'session_index.jsonl');
 const RECENT_MS = 24 * 3600 * 1000;
 // 프로세스 목록을 못 얻는 OS(지금은 Windows)에서는 이 시간 안에 바뀐 기록을 실행 중으로 본다.
 // codex 는 답할 때마다 기록에 쓰므로, 답을 읽고 다음 지시를 쓰는 동안(대개 몇 분)은 남고 닫은 세션은 곧 빠진다.
@@ -170,10 +173,27 @@ function searchByCwd(pid, cwd, taken, startOf) {
   return path;
 }
 
-const SAVED = ['id', 'cwd', 'branch', 'model', 'busy', 'tokens', 'context', 'window', 'events', 'lastTool', 'startedAt', 'lastKind', 'files', 'turns', 'turnCount', 'activity'];
+// session_index.jsonl 을 따라 읽어 id → 이름. 새로 붙은 줄만 읽는다.
+let indexTail = null;
+const indexNames = new Map();
+
+function readIndex(budget) {
+  if (!indexTail) {
+    indexTail = new JsonlTail(INDEX);
+    indexTail.onReset = () => indexNames.clear();
+  }
+  indexTail.read((x) => {
+    if (typeof x?.id !== 'string') return;
+    const name = sessionName(x.thread_name);
+    if (name) indexNames.set(x.id, name);
+    else indexNames.delete(x.id);
+  }, budget);
+}
+
+const SAVED = ['id', 'threadName', 'cwd', 'branch', 'model', 'busy', 'tokens', 'context', 'window', 'events', 'lastTool', 'startedAt', 'lastKind', 'files', 'turns', 'turnCount', 'activity'];
 
 function newState(path) {
-  const st = { tail: new JsonlTail(path), id: basename(path), cwd: null, branch: null, model: null, busy: false, tokens: emptyTokens(), context: 0, window: 0, events: [], lastTool: null, startedAt: null, pending: new Map(), lastKind: null, files: [], turns: [], turnCount: 0, patches: {}, activity: {} };
+  const st = { tail: new JsonlTail(path), id: basename(path), threadName: null, cwd: null, branch: null, model: null, busy: false, tokens: emptyTokens(), context: 0, window: 0, events: [], lastTool: null, startedAt: null, pending: new Map(), lastKind: null, files: [], turns: [], turnCount: 0, patches: {}, activity: {} };
   const c = loadCache(path);
   if (c) {
     st.tail.offset = c.offset;
@@ -241,6 +261,10 @@ function applyLine(st, x) {
         }
         st.lastKind = 'prompt';
         break;
+      // 이름 바꾸기 이벤트 (Codex /rename 등). 빈 이름이면 지운다.
+      case 'thread_name_updated':
+        st.threadName = sessionName(p.thread_name);
+        break;
       case 'agent_message':
         pushEvent(st, x.timestamp, 'reply', p.message);
         st.lastKind = 'reply';
@@ -283,7 +307,7 @@ function applyLine(st, x) {
   }
 }
 
-export const _test = { newState, applyLine, phaseOf, snapshot };
+export const _test = { newState, applyLine, phaseOf, snapshot, readIndex, indexNames };
 
 export function collectCodex({ showEnded, budget, filesOf = openFiles, startOf = processStart, canList = canListProcesses }) {
   // 프로세스를 못 세면 숨기지 않고 최근에 바뀐 기록으로 판정한다 (pid 는 null).
@@ -299,6 +323,7 @@ export function collectCodex({ showEnded, budget, filesOf = openFiles, startOf =
     if (st.tail.read((x) => applyLine(st, x), budget)) markDirty(path, () => snapshot(st));
   };
   for (const f of files) read(f.path);
+  readIndex(budget);
 
   const liveByPath = new Map();
   const claim = (path, pid) => {
@@ -358,12 +383,15 @@ export function collectCodex({ showEnded, budget, filesOf = openFiles, startOf =
     // 가격표에 없는 모델은 비용을 ? 로 보인다.
     const cost = codexCost(st.model, st.tokens);
     const used = st.tokens.total > 0;
+    // 기록 안의 이름 바꾸기 이벤트가 먼저, 없으면 session_index.jsonl 의 thread_name.
+    const customName = st.threadName ?? indexNames.get(st.id) ?? null;
     out.push({
       tool: 'codex',
       id: st.id,
       pid: pid ?? null,
       kind: 'interactive',
-      name: lastName(st.cwd) || 'codex',
+      name: customName ?? (lastName(st.cwd) || 'codex'),
+      customName,
       cwd: st.cwd,
       project: lastName(st.cwd),
       branch: st.branch,

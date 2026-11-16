@@ -1,14 +1,47 @@
 // Claude 대화 기록 한 개(메인 세션 또는 서브에이전트)를 따라 읽으며 토큰·비용·진행 단계를 누적한다.
+import { openSync, readSync, closeSync, fstatSync } from 'node:fs';
 import { JsonlTail } from '../tail.mjs';
 import { loadCache, markDirty } from '../cache.mjs';
 import { claudeCost } from '../pricing.mjs';
-import { addActivity, emptyTokens, pushEvent, describeTool, toolDetail, isNoisePrompt, parseTs } from './common.mjs';
+import { addActivity, emptyTokens, pushEvent, describeTool, toolDetail, isNoisePrompt, parseTs, sessionName } from './common.mjs';
+import { debugIo } from '../log.mjs';
 import { addChange } from './files.mjs';
 
 const MAX_TURNS = 50;
 
 const RECENT_IDS = 64;
 const LOADING_MIN_BYTES = 4 * 1024 * 1024;
+// Claude Code 는 /rename 이름(custom-title 줄)을 기록 뒤에 자주 다시 붙인다. 끝부분만 읽어도 마지막 이름을 찾는다.
+const TAIL_BYTES = 256 * 1024;
+const CUSTOM_TITLE = '"type":"custom-title"';
+
+// 기록 끝 TAIL_BYTES 에서 마지막 custom-title 이름. 줄이 없으면 undefined, 이름이 비었으면 null.
+export function tailCustomTitle(path) {
+  let text;
+  try {
+    const fd = openSync(path, 'r');
+    try {
+      const size = fstatSync(fd).size;
+      const start = Math.max(0, size - TAIL_BYTES);
+      const buf = Buffer.alloc(size - start);
+      text = buf.toString('utf8', 0, readSync(fd, buf, 0, buf.length, start));
+    } finally {
+      closeSync(fd);
+    }
+  } catch (e) {
+    debugIo('claude', 'transcript tail read failed', e, path);
+    return undefined;
+  }
+  const lines = text.split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (!lines[i].includes(CUSTOM_TITLE)) continue;
+    try {
+      const x = JSON.parse(lines[i]);
+      if (x.type === 'custom-title') return sessionName(x.customTitle);
+    } catch {}
+  }
+  return undefined;
+}
 
 export class ClaudeTracker {
   constructor(path) {
@@ -16,14 +49,22 @@ export class ClaudeTracker {
     this.tail.onReset = () => this.reset();
     this.reset();
     this.title = null;
+    // 사용자가 /rename 으로 붙인 이름. 기록의 마지막 custom-title 이 이긴다.
+    this.customTitle = null;
     this.branch = null;
 
     const c = loadCache(path);
     if (c) {
       this.tail.offset = c.offset;
-      Object.assign(this, { tokens: c.tokens, cost: c.cost, costNoCache: c.costNoCache, costUnknown: c.costUnknown, context: c.context, model: c.model, title: c.title, branch: c.branch, events: c.events, lastTool: c.lastTool, lastKind: c.lastKind, files: c.files ?? [], turns: c.turns ?? [], turnCount: c.turnCount ?? 0, firstAt: c.firstAt ?? null, activity: c.activity ?? {} });
+      Object.assign(this, { tokens: c.tokens, cost: c.cost, costNoCache: c.costNoCache, costUnknown: c.costUnknown, context: c.context, model: c.model, title: c.title, customTitle: c.customTitle ?? null, branch: c.branch, events: c.events, lastTool: c.lastTool, lastKind: c.lastKind, files: c.files ?? [], turns: c.turns ?? [], turnCount: c.turnCount ?? 0, firstAt: c.firstAt ?? null, activity: c.activity ?? {} });
       this.recent = new Map(c.recent);
       this.pending = new Map(c.pending);
+      // 이 필드가 생기기 전 캐시는 이미 지나간 custom-title 을 모른다. 끝부분을 한 번 훑어 채우고 캐시에 다시 적어
+      // 새 줄이 없어도 다음 실행에서 또 훑지 않게 한다 (캐시 버전은 그대로).
+      if (!('customTitle' in c)) {
+        this.customTitle = tailCustomTitle(path) ?? null;
+        markDirty(path, () => this.snapshot());
+      }
     }
   }
 
@@ -82,6 +123,7 @@ export class ClaudeTracker {
       context: this.context,
       model: this.model,
       title: this.title,
+      customTitle: this.customTitle,
       branch: this.branch,
       events: this.events,
       lastTool: this.lastTool,
@@ -120,6 +162,7 @@ export class ClaudeTracker {
 
   apply(x) {
     if (x.type === 'ai-title' && x.aiTitle) this.title = x.aiTitle;
+    if (x.type === 'custom-title') this.customTitle = sessionName(x.customTitle);
     if (x.gitBranch) this.branch = x.gitBranch;
     if (this.firstAt == null && x.timestamp) this.firstAt = parseTs(x.timestamp);
     if (x.isMeta) return;

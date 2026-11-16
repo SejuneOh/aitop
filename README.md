@@ -42,7 +42,7 @@ aitop --lang ko  Korean screen, help, doctor and error messages (also AITOP_LANG
 
 The language is picked from `--lang`, then `AITOP_LANG`, then `lang` in the config file, then `LC_ALL`, `LC_MESSAGES` and `LANG`: Korean when the locale starts with `ko`, English otherwise (including `C.UTF-8` and unset). If you used aitop on a `C.UTF-8` or `en_US` locale before, the screen, help and doctor output are now in English; set `AITOP_LANG=ko` to keep Korean.
 
-In `--json`, `phase` stays the Korean status text in every language (as does `AITOP_WAITING_FOR` for `--on-waiting`). For scripts, use `phaseKind`, a stable state name: `think`, `write`, `tool`, `team`, `waiting`, `idle`, `done`, `ended` (or `null`). Other text fields follow their own rules: with English selected, `--doctor --json` has Korean `tools.*.hint` but English `config.problems`.
+In `--json`, `phase` stays the Korean status text in every language (as does `AITOP_WAITING_FOR` for `--on-waiting`). Session `name` uses the same user-given names as the table: a Codex session's `name` changes from the folder name to its `thread_name` once it has one. For scripts, use `phaseKind`, a stable state name: `think`, `write`, `tool`, `team`, `waiting`, `idle`, `done`, `ended` (or `null`). Other text fields follow their own rules: with English selected, `--doctor --json` has Korean `tools.*.hint` but English `config.problems`.
 
 ### Daily report
 
@@ -74,6 +74,8 @@ aitop --on-waiting 'my-hook.sh'      run a command with /bin/sh -c for the same 
 - `context`: context use passes 90%, once; it re-arms after it drops below 85% (for example after compaction).
 
 The hook keeps its name: it gets `AITOP_EVENT` (`waiting`, `done` or `context`) plus `AITOP_TOOL`, `AITOP_PROJECT`, `AITOP_SESSION_ID`, `AITOP_CWD` and `AITOP_WAITING_FOR` in its environment. Config file: `"notify": true` or `"notify": ["waiting", "done", "context"]`, `"onWaiting": "..."` (file must be `chmod 600`), `"doneMinutes": 5`. Plain `--notify` keeps the kinds from the config `notify` list (waiting only when there is none). `--no-notify` turns off only the desktop notification: the hook still follows those kinds. `--bell` stays waiting only.
+
+The notification body shows the session's own name when it has one (Claude Code `/rename`, or a name given by a peer session; Codex `thread_name`), otherwise the project. Desktop notifications can appear on the lock screen, so the name is visible there too.
 
 ### tmux status line
 
