@@ -76,6 +76,60 @@ export function tailStopReason(path) {
   return null;
 }
 
+// 프롬프트 캐시 수명. 공식 문서(https://platform.claude.com/docs/en/build-with-claude/prompt-caching) 기준:
+//   기본 5분, 1시간은 선택. 캐시를 쓰거나 읽을 때마다 수명이 새로 시작되고, 수명은 응답 끝이 아니라 그 요청이 시작된 때부터 잰다.
+// 요청 시작 시각은 기록에 없으므로 그 응답 바로 앞의 사용자 줄(지시·도구 결과) 시각으로 잡는다. 없으면 응답 줄 시각.
+export const CACHE_TTL_5M = 300;
+export const CACHE_TTL_1H = 3600;
+
+// 응답 한 줄의 usage 로 캐시 상태를 갱신한다. st: { cacheAt, cacheTtl, inputAt, inputFor }. 바꾸면 true.
+// inputAt 은 한 요청(message.id)에만 쓴다. 사용자 줄 없이 다른 응답이 이어지면 그 응답 줄 시각을 쓴다.
+//   1시간 쓰기 토큰이 있으면 1시간, 5분 쓰기 토큰(또는 쪼갠 값이 없는 쓰기)이 있으면 5분.
+//   읽기만 있으면 읽은 항목의 수명이 다시 시작되므로 앞서 정한 TTL 을 그대로 쓴다 (모르면 기본 5분).
+//   캐시를 쓰지도 읽지도 않은 응답은 캐시를 건드리지 않는다.
+export function applyCacheUsage(st, u, at, id = null) {
+  if (!u || !Number.isFinite(at)) return false;
+  const cc = u.cache_creation;
+  const h1 = cc?.ephemeral_1h_input_tokens ?? 0;
+  const m5 = cc?.ephemeral_5m_input_tokens ?? 0;
+  const write = u.cache_creation_input_tokens ?? 0;
+  const read = u.cache_read_input_tokens ?? 0;
+  let ttl;
+  if (h1 > 0) ttl = CACHE_TTL_1H;
+  else if (m5 > 0 || write > 0) ttl = CACHE_TTL_5M;
+  else if (read > 0) ttl = st.cacheTtl ?? CACHE_TTL_5M;
+  else return false;
+  const fresh = Number.isFinite(st.inputAt) && st.inputAt <= at && (st.inputFor == null || st.inputFor === id);
+  st.cacheAt = fresh ? st.inputAt : at;
+  st.inputFor = fresh ? id : null;
+  if (!fresh) st.inputAt = null;
+  st.cacheTtl = ttl;
+  return true;
+}
+
+// 기록 끝 TAIL_BYTES 를 앞에서부터 다시 읽어 캐시 상태를 만든다. 이 필드가 생기기 전 캐시를 위해서다.
+export function tailCacheState(path) {
+  const st = { cacheAt: null, cacheTtl: null, inputAt: null, inputFor: null };
+  for (const l of tailLines(path) ?? []) {
+    if (!l.includes('"type":"assistant"') && !l.includes('"type":"user"')) continue;
+    try {
+      cacheStep(st, JSON.parse(l));
+    } catch {}
+  }
+  return st;
+}
+
+// 대화 줄 하나를 캐시 상태에 반영한다 (apply 와 tailCacheState 가 같이 쓴다).
+function cacheStep(st, x) {
+  if (x.isMeta || !x.message) return;
+  if (x.type === 'user') {
+    st.inputAt = parseTs(x.timestamp);
+    st.inputFor = null;
+  }
+  // API 오류 줄은 사용량이 0 이라 캐시를 건드리지 않는다.
+  else if (x.type === 'assistant' && x.message.usage) applyCacheUsage(st, x.message.usage, parseTs(x.timestamp), x.message.id ?? null);
+}
+
 export class ClaudeTracker {
   constructor(path) {
     this.tail = new JsonlTail(path);
@@ -89,7 +143,7 @@ export class ClaudeTracker {
     const c = loadCache(path);
     if (c) {
       this.tail.offset = c.offset;
-      Object.assign(this, { tokens: c.tokens, cost: c.cost, costNoCache: c.costNoCache, costUnknown: c.costUnknown, context: c.context, model: c.model, title: c.title, customTitle: c.customTitle ?? null, branch: c.branch, events: c.events, lastTool: c.lastTool, lastKind: c.lastKind, files: c.files ?? [], turns: c.turns ?? [], turnCount: c.turnCount ?? 0, firstAt: c.firstAt ?? null, activity: c.activity ?? {}, stopReason: c.stopReason ?? null });
+      Object.assign(this, { tokens: c.tokens, cost: c.cost, costNoCache: c.costNoCache, costUnknown: c.costUnknown, context: c.context, model: c.model, title: c.title, customTitle: c.customTitle ?? null, branch: c.branch, events: c.events, lastTool: c.lastTool, lastKind: c.lastKind, files: c.files ?? [], turns: c.turns ?? [], turnCount: c.turnCount ?? 0, firstAt: c.firstAt ?? null, activity: c.activity ?? {}, stopReason: c.stopReason ?? null, cacheAt: c.cacheAt ?? null, cacheTtl: c.cacheTtl ?? null, inputAt: c.inputAt ?? null, inputFor: c.inputFor ?? null });
       this.recent = new Map(c.recent);
       this.pending = new Map(c.pending);
       // 이 필드가 생기기 전 캐시는 이미 지나간 custom-title 을 모른다. 끝부분을 한 번 훑어 채우고 캐시에 다시 적어
@@ -101,6 +155,12 @@ export class ClaudeTracker {
       // 멈춘 이유도 같은 방식으로 한 번만 채운다 (캐시 버전은 그대로).
       if (!('stopReason' in c)) {
         this.stopReason = tailStopReason(path);
+        markDirty(path, () => this.snapshot());
+      }
+      // 프롬프트 캐시 상태도 같은 방식으로 한 번만 채운다 (캐시 버전은 그대로).
+      if (!('cacheAt' in c)) {
+        const { cacheAt, cacheTtl } = tailCacheState(path);
+        Object.assign(this, { cacheAt, cacheTtl });
         markDirty(path, () => this.snapshot());
       }
     }
@@ -132,6 +192,16 @@ export class ClaudeTracker {
     // 마지막 대화 줄이 API 오류면 멈춘 이유 { kind: 'auth'|'network'|'api' } (stopReasonOf), 아니면 null.
     // 그 뒤 정상 assistant 줄이나 사용자 줄이 오면 지운다.
     this.stopReason = null;
+    // 프롬프트 캐시 (applyCacheUsage): 수명이 시작된 시각(ms), TTL(초), 마지막 사용자 줄 시각(다음 요청 시작으로 본다).
+    this.cacheAt = null;
+    this.cacheTtl = null;
+    this.inputAt = null;
+    this.inputFor = null;
+  }
+
+  // 프롬프트 캐시가 만료되는 시각(ms). 캐시를 쓴 응답이 없으면 null.
+  get cacheExpiresAt() {
+    return Number.isFinite(this.cacheAt) && this.cacheTtl ? this.cacheAt + this.cacheTtl * 1000 : null;
   }
 
   get path() {
@@ -177,6 +247,10 @@ export class ClaudeTracker {
       firstAt: this.firstAt,
       activity: this.activity,
       stopReason: this.stopReason,
+      cacheAt: this.cacheAt,
+      cacheTtl: this.cacheTtl,
+      inputAt: this.inputAt,
+      inputFor: this.inputFor,
     };
   }
 
@@ -209,7 +283,10 @@ export class ClaudeTracker {
     if (this.firstAt == null && x.timestamp) this.firstAt = parseTs(x.timestamp);
     if (x.isMeta) return;
 
-    if ((x.type === 'assistant' || x.type === 'user') && x.message) this.stopReason = stopReasonOf(x);
+    if ((x.type === 'assistant' || x.type === 'user') && x.message) {
+      this.stopReason = stopReasonOf(x);
+      cacheStep(this, x);
+    }
 
     if (x.type === 'assistant' && x.message) {
       const m = x.message;

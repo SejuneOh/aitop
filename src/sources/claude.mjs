@@ -196,6 +196,12 @@ function stoppedPhase(t) {
   return r ? { kind: 'stopped', msg: STOP_MSG[r.kind] ?? 'stopApi' } : null;
 }
 
+function cacheOf(alive, status, t) {
+  const at = t?.cacheExpiresAt;
+  if (!alive || at == null || t.loading != null || (status !== 'waiting' && status !== 'idle') || (status === 'idle' && stoppedPhase(t))) return { cacheExpiresAt: null, cacheTtl: null };
+  return { cacheExpiresAt: at, cacheTtl: t.cacheTtl };
+}
+
 // sessions/<pid>.json 은 세션이 끝나면 지워지므로, 끝난 세션은 최근에 바뀐 기록 파일로 찾는다.
 // 폴더를 매번 훑지 않게 목록은 잠깐 재사용하고, 기록 앞부분에서 이름·폴더만 읽어 둔다.
 const DISCOVER_TTL_MS = 10_000;
@@ -497,6 +503,9 @@ export function collectClaude({ showEnded, budget, selectedId }) {
       phase: withRunningMembers(phaseOf(status, e, t), status, members),
       // 멈춘 이유 (phase 가 stopped 일 때만). 끝남(done) 알림과 확인 전(●)을 이 동안 막는다 (attention.mjs).
       stopReason: status === 'idle' && stoppedPhase(t) ? t.stopReason : null,
+      // 프롬프트 캐시 만료 시각(ms)과 TTL(초). 응답 대기·다음 지시 대기인 살아 있는 세션에만 둔다 (claude-tracker.mjs applyCacheUsage).
+      // 오류로 멈춘 세션과 기록을 다 읽기 전의 세션은 빼고, 시간이 지나 만료돼도 그대로 둔다 (화면이 '캐시 만료' 로 보인다).
+      ...cacheOf(e.alive, status, t),
       waitingFor: e.waitingFor ?? null,
       waitDetail: status === 'waiting' ? (t?.waitDetail(e.waitingFor) ?? null) : null,
       now: t?.lastTool ?? t?.events.at(-1)?.text ?? '',

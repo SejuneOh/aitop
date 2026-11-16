@@ -4,6 +4,7 @@ import { homedir } from 'node:os';
 import { tildeIn } from '../paths.mjs';
 import { NO_COLOR, PALETTE, PHASE_COLOR, RESET, style } from './theme.mjs';
 import { glyphs } from './glyphs.mjs';
+import { t as tr } from '../i18n.mjs';
 
 // segs: [{ t: 텍스트, ...style }]. 폭 W 에 맞춰 자르고, 남는 칸은 bg 로 채운다.
 // 화면에 나가는 글자는 모두 여기를 지나므로, 기록에서 온 제어문자도 여기서 한 번 더 지운다.
@@ -154,4 +155,18 @@ export function levelBar(values) {
   const v = values.map((x) => Math.max(0, x ?? 0));
   const max = Math.max(0, ...v);
   return v.map((x) => (!(x > 0) || !(max > 0) ? { t: bars[0], fg: PALETTE.faint } : { t: bars[Math.min(7, Math.max(1, Math.ceil((x / max) * 7)))], fg: PALETTE.info }));
+}
+
+// 프롬프트 캐시 만료까지 남은 시간 (claude.mjs cacheOf). 남은 시간은 m:ss 로, 1분 미만이면 경고색, 만료면 흐린 '캐시 만료'.
+// 초 단위로 바뀌지만 타이머를 따로 두지 않는다: 실시간 화면은 데이터 갱신(1초마다)에 맞춰 다시 그리므로 그때 바뀐다.
+// 그래서 animating() 에 넣지 않고, 스피너가 없는 화면에서 120ms 프레임 타이머를 깨우지 않는다.
+export const CACHE_WARN_MS = 60_000;
+export function cacheState(s, now = NOW) {
+  if (s?.cacheExpiresAt == null || !s.live || (s.status !== 'waiting' && s.status !== 'idle')) return null;
+  const left = s.cacheExpiresAt - now;
+  const ttl = tr(s.cacheTtl >= 3600 ? 'cache.ttl1h' : 'cache.ttl5m');
+  if (left <= 0) return { expired: true, ttl, text: tr('cache.expired'), fg: PALETTE.faint };
+  const sec = Math.ceil(left / 1000);
+  const t = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+  return { expired: false, ttl, left: t, text: tr('cache.left', { t }), fg: left < CACHE_WARN_MS ? PALETTE.alert : PALETTE.info, bold: left < CACHE_WARN_MS };
 }

@@ -38,6 +38,7 @@ Native Windows support is early (Windows Terminal recommended): Claude Code and 
 ## Features
 
 - **Live status** of every session and its subagents: thinking, running a tool, waiting for you, idle, or stopped by an error (`! Login needed`, `! Connection lost`, read from the API error lines Claude Code already logs; it sorts right under waiting and pinned sessions and never counts as done). Subagent rows show how long they have run ([details](#subagents))
+- **Prompt cache countdown** for Claude sessions waiting on you or idle: `cache 3:12` after the status text (warning color under a minute, dim `cache expired` after), estimated from the log's `cache_creation` 5m/1h tokens and the last request start, per the [prompt caching docs](https://platform.claude.com/docs/en/build-with-claude/prompt-caching). Dropped first on narrow screens; `--json` has `cacheExpiresAt`
 - **Waiting alerts**: blocked sessions jump to the top, with optional bell, desktop notification or hook command
 - **Tokens and cost** per session and for today / last 7 days, estimated at public API list prices. This is not your bill
 - **Changed files and diffs** per session and per prompt
