@@ -1,5 +1,5 @@
 // aitop --report sessions (#215) 를 새 프로세스로 실행한다: 요약 카드와 세션 줄, --md, --json, 지시 글은 --show-prompts 때만,
-// 잘못된 옵션은 2 로 끝낸다.
+// 기다린 시간(#243) 칸·카드·waitedMs, 잘못된 옵션은 2 로 끝낸다.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -23,6 +23,8 @@ fx.transcript('ses00000-2', [
   { ...user('비밀스러운 첫 지시 | 표 깨기'), timestamp: ago(0.01) },
   { ...assistant('s1', [], usage(2_000_000, 0), 'claude-opus-5-5'), timestamp: ago(0.009) },
   { ...user([{ type: 'tool_result', tool_use_id: 'x', content: 'ok' }]), timestamp: ago(0.008), toolUseResult: { filePath: '/work/demo/a.mjs', structuredPatch: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ['-a', '+b'] }] } },
+  // 도구 결과 뒤 다음 지시까지 기다린 시간 (0.008일 - 0.006일 = 172.8초).
+  { ...user('이어서'), timestamp: ago(0.006) },
   { type: 'custom-title', customTitle: 'standup demo' },
 ]);
 
@@ -38,6 +40,8 @@ test('--report sessions: 요약 카드와 세션 줄, 비용 큰 순, 지시 글
   assert.match(r.stdout, /^Sessions, \d{4}-\d\d-\d\d 00:00 to /);
   assert.match(r.stdout, /Total \$[\d.]+ \(API list price\) · 3\.3M tokens · 2 sessions/);
   assert.match(r.stdout, /Cost share by tool: claude 100%/);
+  assert.match(r.stdout, /Agents waited for you 2m52s \(estimate\)/);
+  assert.match(r.stdout, /^Tool +Model +Project +Session +Start +End +Waited +Tokens +Cost +Files$/m);
   const rows = r.stdout.split('\n').filter((l) => l.startsWith('claude '));
   assert.equal(rows.length, 2);
   assert.match(rows[0], /standup demo .* 2\.0M +\$[\d.]+ +1$/);
@@ -47,13 +51,14 @@ test('--report sessions: 요약 카드와 세션 줄, 비용 큰 순, 지시 글
   const ko = run(['--report', 'sessions', '--since', 'today', '--plan', '200'], { XDG_CACHE_HOME: cache, AITOP_LANG: 'ko' }).stdout;
   assert.match(ko, /^세션 리포트 · /);
   assert.match(ko, /구독료 \$200\/월의 .* 대비 .*\(API 정가 환산, 실제 청구액이 아님\)/);
+  assert.match(ko, /에이전트가 기다린 시간 \d+m\d\ds \(추정\)/);
 });
 
 test('--report sessions --md: 붙여 넣을 Markdown, 칸 안의 | 는 이스케이프', () => {
   const md = run(['--report', 'sessions', '--md', '--show-prompts'], EN).stdout;
   const lines = md.split('\n');
   assert.match(lines[0], /^\*\*Sessions, /);
-  assert.ok(lines.includes('| Tool | Model | Project | Session | Start | End | Tokens | Cost | Files | First prompt |'));
+  assert.ok(lines.includes('| Tool | Model | Project | Session | Start | End | Waited | Tokens | Cost | Files | First prompt |'));
   assert.ok(lines.some((l) => l.includes('비밀스러운 첫 지시 \\| 표 깨기')));
   const cells = (l) => l.replace(/\\\|/g, '').split('|').length;
   assert.equal(new Set(lines.filter((l) => l.startsWith('|')).map(cells)).size, 1);
@@ -70,6 +75,8 @@ test('--report sessions --json: 메타·summary·sessions, 숫자는 숫자, pro
   assert.equal(typeof j.summary.cost, 'number');
   assert.equal(j.sessions[0].name, 'standup demo');
   assert.equal(j.sessions[0].files, 1);
+  assert.equal(j.sessions[0].waitedMs, 172_800);
+  assert.equal(j.summary.waitedMs, 172_800);
   assert.ok(j.sessions.every((s) => !('prompt' in s)));
   const p = JSON.parse(run(['--report', 'sessions', '--json', '--show-prompts']).stdout);
   assert.equal(p.sessions[0].prompt, '비밀스러운 첫 지시 | 표 깨기');

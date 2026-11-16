@@ -3,10 +3,12 @@
 // 토큰·비용·모델·프로젝트는 날짜별 장부(--report daily 와 같은 값, 같은 프로젝트 규칙)에서, 시작·끝 시각·고친 파일·첫 지시·세션 이름은
 // 기록 요약(sources/sheets.mjs)에서 온다. agy 는 시작·끝을 장부의 호출 시각에서 얻고, 고친 파일과 첫 지시는 모른다 ('-').
 // 첫 지시는 --show-prompts 일 때만 낸다 (공유용 출력에 개인 내용이 섞이지 않게).
+// 기다린 시간(waited)은 기록 요약의 날짜별 w 합이다 (에이전트가 끝낸 뒤 사용자 입력까지, 간격 하나당 2시간 상한, sheets.mjs).
+// 부모 세션 기록에서만 세고(서브에이전트는 넣지 않는다), agy 는 모른다 ('-').
 import { existsSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { t } from './i18n.mjs';
-import { fmtTokens, mask, oneLine, pad, stripControl, truncate, width } from './text.mjs';
+import { fmtElapsed, fmtTokens, mask, oneLine, pad, stripControl, truncate, width } from './text.mjs';
 import { money } from './line.mjs';
 import { tildeIn } from './paths.mjs';
 import { dayKey } from './sources/common.mjs';
@@ -169,6 +171,8 @@ export function buildSessions(books, { since, now = Date.now(), extra = new Map(
     }
     if (g.tool === 'claude') paths.add(g.mainPath);
     let prompt = null;
+    // 기다린 시간: 부모 기록의 기록 요약이 있을 때만 (없으면 모름).
+    let waited = g.tool !== 'agy' && extra.has(g.mainPath) ? 0 : null;
     for (const p of paths) {
       const e = extra.get(p);
       if (!e) {
@@ -181,6 +185,7 @@ export function buildSessions(books, { since, now = Date.now(), extra = new Map(
         for (const f of x.f ?? []) files.add(f);
         if (x.more) more = true;
         if (p === g.mainPath && x.p && prompt == null) prompt = x.p;
+        if (p === g.mainPath && waited != null) waited += x.w ?? 0;
       }
     }
     const main = g.tool === 'agy' ? agy.get(g.mainPath) : extra.get(g.mainPath);
@@ -206,6 +211,7 @@ export function buildSessions(books, { since, now = Date.now(), extra = new Map(
       files: filesKnown ? files.size : null,
       filesMore: filesKnown && more,
       prompt,
+      waited,
     });
   }
   const rank = (x) => TOOLS.indexOf(x.tool);
@@ -214,8 +220,10 @@ export function buildSessions(books, { since, now = Date.now(), extra = new Map(
 }
 
 function summaryOf(sessions, since, now, plan) {
-  const total = { sessions: sessions.length, tokens: 0, cost: 0, unpriced: false, tools: {} };
+  // waited: 아는 세션의 기다린 시간 합. 아는 세션이 하나도 없으면 null.
+  const total = { sessions: sessions.length, tokens: 0, cost: 0, unpriced: false, tools: {}, waited: null };
   for (const s of sessions) {
+    if (s.waited != null) total.waited = (total.waited ?? 0) + s.waited;
     total.tokens += s.tokens;
     total.cost += s.cost;
     if (s.unpriced) total.unpriced = true;
@@ -259,6 +267,8 @@ export function sessionsJson(r, version, { partial = false, prompts = false } = 
       shareBy: s.shareBy,
       tools: s.tools,
       plan: s.plan,
+      // 기다린 시간 합 (ms, 추정). 모르면 null.
+      waitedMs: s.waited,
     },
     sessions: r.sessions.map((x) => ({
       tool: x.tool,
@@ -274,6 +284,8 @@ export function sessionsJson(r, version, { partial = false, prompts = false } = 
       cost: x.cost,
       unpriced: x.unpriced,
       files: x.files,
+      // 기다린 시간 (ms, 추정). agy 처럼 모르면 null.
+      waitedMs: x.waited,
       ...(prompts ? { prompt: x.prompt } : {}),
     })),
   };
@@ -289,6 +301,7 @@ const mdhm = (ms) => {
 const endText = (x) => (x.end == null ? '-' : x.start != null && dayKey(x.start) === dayKey(x.end) ? hm(new Date(x.end)) : mdhm(x.end));
 const startText = (x) => (x.start == null ? '-' : mdhm(x.start));
 const costText = (x) => (used(x) && !(x.unpriced && !(x.cost > 0)) ? money(x.cost) : '-');
+const waitedText = (ms) => (ms == null ? '-' : fmtElapsed(ms));
 const filesText = (x) => (x.files == null ? '-' : `${x.files}${x.filesMore ? '+' : ''}`);
 const modelText = (x) => (x.model ? `${x.model}${x.models.length > 1 ? ` +${x.models.length - 1}` : ''}` : '-');
 const projectText = (x) => (x.project === UNKNOWN ? t('report.unknown') : x.project);
@@ -311,6 +324,7 @@ function cardLines(r, md = false) {
     const p = s.plan;
     out.push(t('sessions.cardPlan', { plan: money(p.monthly), days: daysText(p.days), prorated: money(p.prorated), ratio: b(p.ratio == null ? '-' : `${p.ratio >= 10 ? Math.round(p.ratio) : p.ratio.toFixed(1)}x`) }));
   }
+  if (s.waited != null) out.push(t('sessions.cardWaited', { waited: b(waitedText(s.waited)) }));
   return out;
 }
 
@@ -318,9 +332,10 @@ function titleOf(r) {
   return t('sessions.title', { from: `${dayKey(r.since)} 00:00`, to: `${dayKey(r.now)} ${hm(new Date(r.now))}`, days: daysText(r.days) });
 }
 
-const HEAD_KEYS = ['tool', 'model', 'project', 'name', 'start', 'end', 'tokens', 'cost', 'files'];
-const rowCells = (x) => [x.tool, clean(modelText(x)), clean(projectText(x)), clean(x.name), startText(x), endText(x), used(x) ? fmtTokens(Math.round(x.tokens)) : '-', costText(x), filesText(x)];
-const RIGHT = new Set([6, 7, 8]);
+// 기다림 칸은 시작·끝 옆에 둔다 (시간끼리). 좁은 터미널에서는 다른 칸처럼 그대로 두고 세션 이름 칸이 줄어든다.
+const HEAD_KEYS = ['tool', 'model', 'project', 'name', 'start', 'end', 'waited', 'tokens', 'cost', 'files'];
+const rowCells = (x) => [x.tool, clean(modelText(x)), clean(projectText(x)), clean(x.name), startText(x), endText(x), waitedText(x.waited), used(x) ? fmtTokens(Math.round(x.tokens)) : '-', costText(x), filesText(x)];
+const RIGHT = new Set([6, 7, 8, 9]);
 // 칸 폭 상한 (세션 이름은 터미널 폭에 맞춘다).
 const MAX_W = { 1: 24, 2: 20 };
 const NAME_MIN = 12;
