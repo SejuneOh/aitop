@@ -553,6 +553,10 @@ test('날짜별 사용량 장부에 agy 호출을 호출 날짜로 더한다 (Cl
   const again = collectAgyLedger({ budget: createBudget() });
   const day = again.days.map((d) => d[dayKey(now)]?.tokens ?? 0);
   assert.ok(day.includes(2_000_007), '새 호출만 더한다');
+  // 그날 첫·마지막 호출 시각 (세션 리포트의 시작·끝, #215).
+  const book = again.days.find((d) => d[dayKey(now)]?.tokens === 2_000_007)[dayKey(now)];
+  assert.ok(Number.isFinite(book.a) && Number.isFinite(book.z) && book.a <= book.z, JSON.stringify(book));
+  assert.equal(dayKey(book.a), dayKey(now));
   // 다시 시작해도 5분 칸이 캐시에서 돌아와, 새 호출(입력 1M, $0.30)만 더해진다.
   const costs = again.slots.map((s) => Math.round(lastHourOf([s], now).cost * 1e4) / 1e4);
   assert.ok(costs.includes(2.8), `대화별 최근 1시간 ${costs}`);
@@ -606,6 +610,31 @@ test('agy 기록 갱신이 영구히 실패해도: 실패 sig 는 다시 열지 
   writeFileSync(path, 'still not a database '.repeat(100));
   collectAgyLedger({ budget: createBudget() });
   assert.equal(agyLedger.opens(), opened + 1);
+  rmSync(path);
+  agyLedger.reset();
+});
+
+test('agy 장부의 시작(a): 예전 캐시에서 온 날(a 없음)에는 채우지 않고, 끝(z)은 갱신한다. 새 날은 둘 다 (#215)', { skip: noSqlite }, async () => {
+  const { AgyBook } = await import('../src/sources/agy-ledger.mjs');
+  const now = Date.now();
+  const t1 = now - 60 * 60_000;
+  const t2 = now - 30 * 60_000;
+  const t3 = now - 10 * 60_000;
+  const k = dayKey(now);
+  makeSteps('az-old', [prompt('a', t1), reply('b', null, t2), reply('c', null, t3)]);
+  makeConversation('az-old', [{ model: 'gemini-3.5-flash-lite', input: 100, step: 0 }]);
+  const path = join(root, 'conversations', 'az-old.db');
+  const book = new AgyBook(path);
+  book.update(createBudget());
+  assert.deepEqual([book.days[k].a, book.days[k].z], [t1, t1], '새 날은 시작·끝을 채운다');
+  // 예전 캐시(agy-ledger2, a·z 없음)에서 불러온 날을 흉내 낸다.
+  delete book.days[k].a;
+  delete book.days[k].z;
+  makeConversation('az-old', [{ model: 'gemini-3.5-flash-lite', input: 100, step: 2 }]);
+  book.update(createBudget());
+  assert.equal(book.days[k].tokens, 200);
+  assert.equal(book.days[k].a, undefined, '첫 호출을 모르는 날의 시작은 비워 둔다');
+  assert.equal(book.days[k].z, t3, '끝은 마지막 호출');
   rmSync(path);
   agyLedger.reset();
 });

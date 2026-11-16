@@ -339,6 +339,13 @@ function applyLine(st, x) {
   }
 }
 
+// 세션 리포트용: rollout(path)·세션 id 의 session_index.jsonl 이름 (없으면 null). 색인은 새로 붙은 줄만 읽는다.
+export function codexIndexName(path, id) {
+  if (!id) return null;
+  readIndex(undefined);
+  return indexName(path, id);
+}
+
 export const _test = { newState, applyLine, phaseOf, snapshot, readIndex, indexName };
 
 export function collectCodex({ showEnded, budget, filesOf = openFiles, startOf = processStart, canList = canListProcesses }) {

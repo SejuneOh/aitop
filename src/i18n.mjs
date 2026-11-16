@@ -73,6 +73,10 @@ const HELP_KO = `{logo} aitop - 터미널에서 Claude Code · Codex · Antigrav
                    프로젝트는 작업 폴더의 마지막 이름이고, 열이 터미널 폭을 넘으면 비용이 작은 쪽을 (그 외) 로 합친다
   aitop --report monthly [--by tool|model|project] [--months N] [--json]  최근 N달(기본·최대 12)의 달별 표. 지난 날은 캐시 폴더의
                    monthly.json 에 달별로 남겨 기록이 지워져도 남는다. 처음 실행은 1년치 기록을 한 번 읽는다. * 이번 달, ~ 일부만 센 달
+  aitop --report sessions [--since yesterday|today|Nd|YYYY-MM-DD] [--plan USD] [--md|--json] [--show-prompts]
+                   기간(기본: 어제 0시부터 지금까지, 최대 30일 전) 안에 사용량이 있는 세션을 비용이 큰 순서로 한 줄씩 보인다
+                   (도구, 모델, 프로젝트, 세션 이름, 시작·끝, 토큰, API 정가 환산 비용, 고친 파일 수). 맨 위 요약 카드에 합계와 도구별 비중.
+                   --plan 월 구독료를 주면 기간 몫의 몇 배인지 보인다. --md 는 붙여 넣을 Markdown. 첫 지시는 --show-prompts 일 때만
   aitop --doctor   Claude · Codex · Antigravity · Gemini 기록과 실행 중인 프로세스, 설정 파일을 점검한다 (--json 과 함께 쓸 수 있다)
   aitop --bell     응답 대기 세션이 새로 생기면 터미널 벨을 울린다
   aitop --notify   응답 대기 세션이 새로 생기면 데스크톱 알림을 띄운다 (notify-send · osascript, 없으면 건너뜀)
@@ -127,6 +131,11 @@ const HELP_EN = `{logo} aitop - watch Claude Code, Codex, Antigravity and Gemini
   aitop --report monthly [--by tool|model|project] [--months N] [--json]  the same per month for the last N months (default and max 12).
                    Past days are kept per month in monthly.json in the cache folder, so they survive log cleanup. The first run reads up to a year of logs once.
                    * marks this month, ~ a month only partly counted
+  aitop --report sessions [--since yesterday|today|Nd|YYYY-MM-DD] [--plan USD] [--md|--json] [--show-prompts]
+                   list each session with usage in the period (default: since midnight yesterday, at most 30 days back), highest cost first
+                   (tool, model, project, session name, start and end, tokens, API list price cost, files changed), with a summary card on top.
+                   --plan with your monthly subscription shows how many times its share for the period you used. --md prints pasteable Markdown.
+                   First prompts are shown only with --show-prompts
   aitop --doctor   check Claude, Codex, Antigravity and Gemini logs, running processes and the config file (works with --json)
   aitop --bell     ring the terminal bell when a session starts waiting for you
   aitop --notify   show a desktop notification when a session starts waiting (notify-send or osascript, skipped if missing)
@@ -220,8 +229,16 @@ export const STRINGS = {
     'opt.lineBad': '--line 값 {value} 이 잘못되었습니다 (plain 또는 tmux)',
     'opt.lineWidthMissing': '--line-width 값이 없습니다 (글자 수)',
     'opt.lineWidthBad': '--line-width 값 {value} 이 잘못되었습니다 (0 보다 큰 정수)',
-    'opt.reportMissing': '--report 값이 없습니다 (daily 또는 monthly)',
-    'opt.reportBad': '--report 값 {value} 이 잘못되었습니다 (daily 또는 monthly)',
+    'opt.reportMissing': '--report 값이 없습니다 (daily, monthly 또는 sessions)',
+    'opt.reportBad': '--report 값 {value} 이 잘못되었습니다 (daily, monthly 또는 sessions)',
+    'opt.sinceMissing': '--since 값이 없습니다 (yesterday, today, 7d 같은 일 수, 또는 YYYY-MM-DD)',
+    'opt.sinceBad': '--since 값 {value} 이 잘못되었습니다 (yesterday, today, 7d 같은 일 수, 또는 YYYY-MM-DD)',
+    'opt.sinceFuture': '--since 값 {value} 이 오늘보다 뒤입니다',
+    'opt.planMissing': '--plan 값이 없습니다 (월 구독료, USD)',
+    'opt.planBad': '--plan 값 {value} 이 잘못되었습니다 (0 보다 큰 숫자, USD)',
+    'opt.sessionsOnly': '{opt} 는 --report sessions 와 함께 쓴다',
+    'opt.notSessions': '{opt} 는 --report sessions 와 함께 쓸 수 없다 (기간은 --since)',
+    'opt.mdJson': '--md 와 --json 은 함께 쓸 수 없다',
     'opt.byMissing': '--by 값이 없습니다 (tool, model 또는 project)',
     'opt.byBad': '--by 값 {value} 이 잘못되었습니다 (tool, model 또는 project)',
     'opt.daysMissing': '--days 값이 없습니다 (일 수)',
@@ -253,6 +270,25 @@ export const STRINGS = {
     'report.noteCurrent': '* 이번 달 (아직 진행 중)',
     'report.notePartial': '~ 일부 날만 셌습니다 (그 전 기록이 지워졌거나 보관함이 비어 있던 때)',
     'report.noteMissing': '기록 없음: 남은 기록도 보관함도 없는 달입니다 (0 이 아니라 모름)',
+    // 세션 리포트 (--report sessions).
+    'sessions.title': '세션 리포트 · {from} ~ {to} ({days}일)',
+    'sessions.cardTotal': '합계 {cost} (API 정가 환산) · 토큰 {tokens} · 세션 {n}개',
+    'sessions.cardTools': '도구별 비용 비중: {tools}',
+    'sessions.cardToolsTokens': '도구별 토큰 비중: {tools}',
+    'sessions.cardPlan': '구독료 {plan}/월의 {days}일 몫 {prorated} 대비 {ratio} (API 정가 환산, 실제 청구액이 아님)',
+    'sessions.col.tool': '도구',
+    'sessions.col.model': '모델',
+    'sessions.col.project': '프로젝트',
+    'sessions.col.name': '세션',
+    'sessions.col.start': '시작',
+    'sessions.col.end': '끝',
+    'sessions.col.tokens': '토큰',
+    'sessions.col.cost': '비용',
+    'sessions.col.files': '파일',
+    'sessions.col.prompt': '첫 지시',
+    'sessions.empty': '이 기간에 사용량이 있는 세션이 없습니다',
+    'sessions.noteBasis': '비용은 API 정가 환산이며 실제 청구액이 아닙니다. 시작·끝은 기간 안의 활동 시각, 파일은 고친 파일 수 (- 는 모름)',
+    'sessions.capped': '--since 는 장부가 남기는 {n}일 전까지만 볼 수 있어 {n}일 전으로 줄입니다',
 
     'cfg.notFile': '설정 파일이 일반 파일이 아니라 읽지 않습니다',
     'cfg.tooBig': '설정 파일이 {kb}KB 를 넘어 읽지 않습니다',
@@ -596,8 +632,16 @@ export const STRINGS = {
     'opt.lineBad': 'bad --line value {value} (plain or tmux)',
     'opt.lineWidthMissing': '--line-width needs a value (characters)',
     'opt.lineWidthBad': 'bad --line-width value {value} (a whole number above 0)',
-    'opt.reportMissing': '--report needs a value (daily or monthly)',
-    'opt.reportBad': 'bad --report value {value} (daily or monthly)',
+    'opt.reportMissing': '--report needs a value (daily, monthly or sessions)',
+    'opt.reportBad': 'bad --report value {value} (daily, monthly or sessions)',
+    'opt.sinceMissing': '--since needs a value (yesterday, today, a number of days like 7d, or YYYY-MM-DD)',
+    'opt.sinceBad': 'bad --since value {value} (yesterday, today, a number of days like 7d, or YYYY-MM-DD)',
+    'opt.sinceFuture': '--since value {value} is after today',
+    'opt.planMissing': '--plan needs a value (monthly subscription in USD)',
+    'opt.planBad': 'bad --plan value {value} (a number above 0, USD)',
+    'opt.sessionsOnly': '{opt} only works with --report sessions',
+    'opt.notSessions': '{opt} does not work with --report sessions (use --since for the period)',
+    'opt.mdJson': '--md and --json cannot be used together',
     'opt.byMissing': '--by needs a value (tool, model or project)',
     'opt.byBad': 'bad --by value {value} (tool, model or project)',
     'opt.daysMissing': '--days needs a value (number of days)',
@@ -628,6 +672,24 @@ export const STRINGS = {
     'report.noteCurrent': '* this month (still in progress)',
     'report.notePartial': '~ only some days were counted (older logs were deleted or the archive was empty then)',
     'report.noteMissing': 'no data: neither logs nor the archive cover this month (unknown, not zero)',
+    'sessions.title': 'Sessions, {from} to {to} ({days} days)',
+    'sessions.cardTotal': 'Total {cost} (API list price) · {tokens} tokens · {n} sessions',
+    'sessions.cardTools': 'Cost share by tool: {tools}',
+    'sessions.cardToolsTokens': 'Token share by tool: {tools}',
+    'sessions.cardPlan': '{ratio} the {days}-day share {prorated} of a {plan}/month subscription (API list price, not your actual bill)',
+    'sessions.col.tool': 'Tool',
+    'sessions.col.model': 'Model',
+    'sessions.col.project': 'Project',
+    'sessions.col.name': 'Session',
+    'sessions.col.start': 'Start',
+    'sessions.col.end': 'End',
+    'sessions.col.tokens': 'Tokens',
+    'sessions.col.cost': 'Cost',
+    'sessions.col.files': 'Files',
+    'sessions.col.prompt': 'First prompt',
+    'sessions.empty': 'No session used tokens in this period',
+    'sessions.noteBasis': 'Cost is the API list price, not your actual bill. Start and end are activity times within the period; Files is the number of files changed (- means unknown)',
+    'sessions.capped': '--since is limited to {n} days back, which the ledger keeps, using {n} days',
 
     'cfg.notFile': 'config file is not a regular file, not reading it',
     'cfg.tooBig': 'config file is over {kb}KB, not reading it',
