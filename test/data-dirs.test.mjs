@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, chmodSync, renameSync, utimesSync, copyFileSync } from 'node:fs';
-import { delimiter, join } from 'node:path';
+import { delimiter, join, resolve } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -107,7 +107,8 @@ test('구분자로 나눈 경로: 빈 칸은 버리고, 남는 것이 없으면 
 test('같은 실제 경로(링크, ~)는 한 번만, 처음 적은 순서대로', () => {
   assert.deepEqual(dirs.claudeDirs(), [C1, C2]);
   assert.deepEqual(dirs.codexHomes(), [X1, X2]);
-  assert.deepEqual(dirs.uniqueDirs(['~/p', '~/p/', '/q'], '/h'), ['/h/p', '/q']);
+  // Windows 에서는 /h 가 현재 드라이브 기준으로 풀리므로 기대값도 resolve 로 만든다.
+  assert.deepEqual(dirs.uniqueDirs(['~/p', '~/p/', '/q'], '/h'), [resolve('/h/p'), resolve('/q')]);
   assert.equal(dirs.pathLike('~/x'), true);
   assert.equal(dirs.pathLike('rel/x'), false);
   assert.equal(dirs.pathLike('C:\\x'), true);
