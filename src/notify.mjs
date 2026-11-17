@@ -2,7 +2,7 @@
 // 세션 정보는 명령 문자열에 넣지 않는다. 알림 도구에는 인자로, 사용자 명령에는 AITOP_* 환경변수로만 넘긴다.
 import { spawn } from 'node:child_process';
 import { accessSync, constants, existsSync, readFileSync } from 'node:fs';
-import { join, delimiter } from 'node:path';
+import { join, delimiter, posix } from 'node:path';
 import { mask, stripControl } from './text.mjs';
 import { getLang, phaseText, t } from './i18n.mjs';
 
@@ -127,11 +127,11 @@ export function findNotifier({ platform = process.platform, env = process.env, w
 
 // notify-send 가 기대는 D-Bus 세션 버스를 찾을 수 있는지. 알림을 실제로 보내 보지는 않는다 (--doctor 가 알림을 띄우면 안 된다).
 // 문제가 없거나 확인할 수 없으면 null, 주소가 없으면 { reason: 'missing' }, unix:path= 소켓이 모두 없으면 { reason: 'socket', path }.
-// 주소가 없을 때 GLib 처럼 $XDG_RUNTIME_DIR/bus 를 먼저 본다. abstract 소켓·tcp 등은 파일로 확인할 수 없으니 문제로 보지 않는다.
+// 주소가 없을 때 GLib 처럼 $XDG_RUNTIME_DIR/bus 를 먼저 본다. abstract 소켓·tcp 등은 파일로 확인할 수 없으니 문제로 보지 않는다. 버스 경로는 늘 POSIX 경로라 posix.join 으로 잇는다 (Windows 에서 돌려도 같은 결과).
 export function busProblem(env = process.env, exists = existsSync) {
   const addr = env.DBUS_SESSION_BUS_ADDRESS;
   if (!addr) {
-    if (env.XDG_RUNTIME_DIR && exists(join(env.XDG_RUNTIME_DIR, 'bus'))) return null;
+    if (env.XDG_RUNTIME_DIR && exists(posix.join(env.XDG_RUNTIME_DIR, 'bus'))) return null;
     return { reason: 'missing' };
   }
   let firstPath = null;
