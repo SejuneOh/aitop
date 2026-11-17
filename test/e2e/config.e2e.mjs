@@ -153,7 +153,8 @@ async function liveAlerts(body, { mode = 0o600, args = [] } = {}) {
   const notifyLog = join(dir, 'notify.log');
   const hookLog = join(dir, 'hook.log');
   mkdirSync(join(dir, 'bin'));
-  writeFileSync(join(dir, 'bin', 'notify-send'), `#!/bin/sh\necho called >> '${notifyLog}'\n`, { mode: 0o755 });
+  // WSL 은 powershell.exe(Windows 알림)를 먼저 쓰므로 그것도 가짜로 바꾼다 (#250). 진짜 알림이 뜨지 않게 한다.
+  for (const name of ['notify-send', 'powershell.exe']) writeFileSync(join(dir, 'bin', name), `#!/bin/sh\necho called >> '${notifyLog}'\n`, { mode: 0o755 });
   const { xdg } = configHome(typeof body === 'function' ? body(hookLog) : body, mode);
   const other = spawn('sleep', ['60'], { stdio: 'ignore' });
   const wait = (id, name, pid) => {

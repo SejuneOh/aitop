@@ -10,7 +10,7 @@ import { loadSqlite, openReadOnly } from './sqlite.mjs';
 import { fmtAgo, pad, stripControl } from './text.mjs';
 import { BRAND } from './brand.mjs';
 import { tildeIn } from './paths.mjs';
-import { findNotifier, isWsl } from './notify.mjs';
+import { busProblem, findNotifier, isWsl } from './notify.mjs';
 import { getLang, t as tr } from './i18n.mjs';
 import { candidateDirs, claudeDirs, codexHomes } from './sources/dirs.mjs';
 
@@ -213,17 +213,32 @@ export function checkTools({ home = HOME } = {}) {
     r.hint = hintOf(r, 'ko');
     tools[r.tool] = r;
   }
-  const n = findNotifier();
-  return { platform: platform(), processes: canListProcesses(), tools, notifier: n ? { kind: n.kind, path: tilde(n.path) } : null };
+  return { platform: platform(), processes: canListProcesses(), tools, notifier: notifierCheck() };
 }
 
-// --notify 에 쓸 데스크톱 알림 도구.
-export function notifierText(n, plat = platform(), lang = getLang()) {
+// 알림 도구와, notify-send 면 D-Bus 세션 버스를 찾을 수 있는지 (#250). 알림을 실제로 보내 보지는 않는다.
+// bus: 문제가 있을 때만 { reason, path? }. 테스트에서 platform·env·wsl·exists 를 바꿔 끼운다.
+export function notifierCheck({ platform: plat = platform(), env = process.env, wsl = plat === 'linux' && isWsl(env), exists } = {}) {
+  const n = findNotifier({ platform: plat, env, wsl });
+  if (!n) return null;
+  const bus = n.kind === 'notify-send' ? busProblem(env, exists) : null;
+  return { kind: n.kind, path: tilde(n.path), ...(bus ? { bus: bus.path ? { ...bus, path: tilde(bus.path) } : bus } : {}) };
+}
+
+// --notify 에 쓸 데스크톱 알림 도구. 알림이 뜨지 않을 것이 확실하면 ! 와 안내 줄(→)을 붙인다.
+export function notifierText(n, plat = platform(), lang = getLang(), wsl = plat === 'linux' && isWsl()) {
   const o = { lang };
+  const hint = (k) => `         → ${tr(k, null, o)}`;
+  if (n?.bus) {
+    const why = n.bus.reason === 'socket' ? tr('doctor.busSocket', { path: n.bus.path }, o) : tr('doctor.busMissing', null, o);
+    const out = [tr('doctor.busBad', { kind: n.kind, path: n.path, why }, o), hint('doctor.busHint')];
+    if (wsl) out.push(hint('doctor.wslHint'));
+    return out.join('\n');
+  }
   if (n) return tr('doctor.notifier', { kind: n.kind, path: n.path }, o);
+  if (wsl) return [tr('doctor.noNotifierWsl', null, o), hint('doctor.wslHint')].join('\n');
   const want = plat === 'darwin' ? 'osascript' : 'notify-send';
-  const wsl = plat === 'linux' && isWsl() ? tr('doctor.wsl', null, o) : '';
-  return tr('doctor.noNotifier', { want, wsl }, o);
+  return tr('doctor.noNotifier', { want }, o);
 }
 
 // JSON 용: 시각은 ISO 문자열로.
