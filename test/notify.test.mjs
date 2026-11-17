@@ -5,7 +5,7 @@ import { join, delimiter } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { createWaitWatch, takeNewlyWaiting } from '../src/attention.mjs';
-import { notifyOptions, findNotifier, notifierCommand, waitingEnv, createRunner, createNotifier, isWsl } from '../src/notify.mjs';
+import { notifyOptions, findNotifier, notifierCommand, waitingEnv, createRunner, createNotifier, isWsl, busProblem, toastScript, encodePowerShell, PS_APP_ID } from '../src/notify.mjs';
 
 const s = (id, status, extra = {}) => ({ id, status, live: true, tool: 'claude', project: 'demo', cwd: '/work/demo', phase: status === 'waiting' ? { kind: 'waiting', args: { what: 'Bash' } } : { kind: 'idle' }, ...extra });
 const tmp = () => mkdtempSync(join(tmpdir(), 'aitop-notify-'));
@@ -113,22 +113,96 @@ test('한 번에 하나만 실행하고, 실행 중 들어온 일은 가장 최�
   rmSync(dir, { recursive: true, force: true });
 });
 
-test('알림 도구는 PATH 에서 찾고, 없으면 null (WSL 에서도 다른 것으로 대신하지 않는다)', { skip: process.platform === 'win32' && 'Windows: /bin/sh·실행 권한 스크립트가 필요 (알림·--on-waiting 은 #196·#197)' }, () => {
+test('알림 도구는 PATH 에서 찾고, WSL 은 powershell.exe 를 먼저, 없으면 notify-send, 둘 다 없으면 null', { skip: process.platform === 'win32' && 'Windows: /bin/sh·실행 권한 스크립트가 필요 (알림·--on-waiting 은 #196·#197)' }, () => {
   const dir = tmp();
+  const onlyPs = tmp();
+  const onlyNs = tmp();
   const empty = tmp();
-  for (const name of ['notify-send', 'osascript', 'powershell.exe']) {
-    writeFileSync(join(dir, name), '#!/bin/sh\n');
-    chmodSync(join(dir, name), 0o755);
+  for (const [d, names] of [[dir, ['notify-send', 'osascript', 'powershell.exe']], [onlyPs, ['powershell.exe']], [onlyNs, ['notify-send']]]) {
+    for (const name of names) {
+      writeFileSync(join(d, name), '#!/bin/sh\n');
+      chmodSync(join(d, name), 0o755);
+    }
   }
-  writeFileSync(join(empty, 'powershell.exe'), '#!/bin/sh\n');
-  chmodSync(join(empty, 'powershell.exe'), 0o755);
-  assert.deepEqual(findNotifier({ platform: 'linux', env: { PATH: dir } }), { kind: 'notify-send', path: join(dir, 'notify-send') });
+  // 일반 Linux 는 powershell.exe 가 있어도 notify-send 만 쓴다.
+  assert.deepEqual(findNotifier({ platform: 'linux', env: { PATH: dir }, wsl: false }), { kind: 'notify-send', path: join(dir, 'notify-send') });
+  assert.equal(findNotifier({ platform: 'linux', env: { PATH: onlyPs }, wsl: false }), null);
+  // WSL 은 powershell.exe(Windows 토스트)가 먼저다 (#250).
+  assert.deepEqual(findNotifier({ platform: 'linux', env: { PATH: dir }, wsl: true }), { kind: 'powershell', path: join(dir, 'powershell.exe') });
+  assert.deepEqual(findNotifier({ platform: 'linux', env: { PATH: onlyPs }, wsl: true }), { kind: 'powershell', path: join(onlyPs, 'powershell.exe') });
+  assert.deepEqual(findNotifier({ platform: 'linux', env: { PATH: onlyNs }, wsl: true }), { kind: 'notify-send', path: join(onlyNs, 'notify-send') });
+  assert.equal(findNotifier({ platform: 'linux', env: { PATH: empty }, wsl: true }), null);
+  // wsl 을 주지 않으면 env 의 WSL_DISTRO_NAME 으로 판단한다.
+  assert.equal(findNotifier({ platform: 'linux', env: { PATH: dir, WSL_DISTRO_NAME: 'Ubuntu' } }).kind, 'powershell');
   assert.deepEqual(findNotifier({ platform: 'darwin', env: { PATH: dir } }), { kind: 'osascript', path: join(dir, 'osascript') });
-  assert.equal(findNotifier({ platform: 'linux', env: { PATH: empty, WSL_DISTRO_NAME: 'Ubuntu' } }), null);
-  assert.equal(findNotifier({ platform: 'darwin', env: { PATH: empty } }), null);
+  assert.equal(findNotifier({ platform: 'darwin', env: { PATH: onlyPs } }), null);
   assert.equal(findNotifier({ platform: 'win32', env: { PATH: dir } }), null);
+  for (const d of [dir, onlyPs, onlyNs, empty]) rmSync(d, { recursive: true, force: true });
+});
+
+test('busProblem: 주소가 없거나 unix:path= 소켓이 없으면 문제, abstract·tcp 는 확인할 수 없으니 문제로 보지 않는다', () => {
+  const have = new Set(['/run/user/1000/bus', '/tmp/x y']);
+  const exists = (p) => have.has(p);
+  assert.deepEqual(busProblem({}, exists), { reason: 'missing' });
+  assert.deepEqual(busProblem({ DBUS_SESSION_BUS_ADDRESS: '' }, exists), { reason: 'missing' });
+  // 주소가 없어도 GLib 처럼 $XDG_RUNTIME_DIR/bus 가 있으면 쓴다.
+  assert.equal(busProblem({ XDG_RUNTIME_DIR: '/run/user/1000' }, exists), null);
+  assert.deepEqual(busProblem({ XDG_RUNTIME_DIR: '/run/user/1001' }, exists), { reason: 'missing' });
+  assert.equal(busProblem({ DBUS_SESSION_BUS_ADDRESS: 'unix:path=/run/user/1000/bus' }, exists), null);
+  assert.deepEqual(busProblem({ DBUS_SESSION_BUS_ADDRESS: 'unix:path=/run/user/1001/bus' }, exists), { reason: 'socket', path: '/run/user/1001/bus' });
+  assert.equal(busProblem({ DBUS_SESSION_BUS_ADDRESS: 'unix:path=/tmp/x%20y,guid=abc' }, exists), null, '%xx 를 풀고 guid 같은 다른 키는 무시한다');
+  assert.equal(busProblem({ DBUS_SESSION_BUS_ADDRESS: 'unix:abstract=/tmp/dbus-XXXX,guid=1' }, exists), null);
+  assert.equal(busProblem({ DBUS_SESSION_BUS_ADDRESS: 'tcp:host=localhost,port=1234' }, exists), null);
+  assert.equal(busProblem({ DBUS_SESSION_BUS_ADDRESS: 'unix:path=/nope;unix:path=/run/user/1000/bus' }, exists), null, '여러 주소 중 하나라도 있으면 된다');
+});
+
+// PowerShell 스크립트에서 디코드 함수($d)에 넘기는 base64 값을 모두 지운 모양. 사용자 글이 그 밖에 들어가면 이 모양이 달라진다.
+const skeleton = (script) => script.replace(/& \$d '[A-Za-z0-9+/=]*'/g, "& $d ''");
+const decodeEncoded = (args) => Buffer.from(args[args.indexOf('-EncodedCommand') + 1], 'base64').toString('utf16le');
+
+test('Windows 토스트: 제목·본문은 base64 로만 스크립트에 들어가 따옴표·$()·XML 특수문자가 명령을 바꾸지 못한다', () => {
+  const evils = [`'; Remove-Item C:\\ -Recurse; '`, '$(Start-Process calc)', '`$env:USERPROFILE`', '"; & calc; "', '</text><text>x</text>', '<![CDATA[x]]> & &amp; 줄\n바꿈', "@'\nhere\n'@"];
+  const base = skeleton(toastScript('t', 'b'));
+  for (const evil of evils) {
+    const script = toastScript(evil, `${evil} · Bash`);
+    assert.equal(skeleton(script), base, evil);
+    assert.ok(!script.includes(evil), evil);
+    // 스크립트 안의 base64 값을 풀면 원래 글로 돌아온다 (글 노드 CreateTextNode 로 넣으므로 XML 로 읽히지 않는다).
+    const vals = [...script.matchAll(/& \$d '([A-Za-z0-9+/=]+)'/g)].map((m) => Buffer.from(m[1], 'base64').toString('utf8'));
+    assert.deepEqual(vals, [evil, `${evil} · Bash`, PS_APP_ID]);
+  }
+  assert.match(toastScript('a', 'b'), /CreateTextNode/);
+  assert.match(toastScript('a', 'b'), /ToastText02/);
+  assert.doesNotMatch(toastScript('a', 'b'), /LoadXml/);
+  // 너무 긴 글은 잘라 명령줄 길이를 넘지 않게 한다.
+  const long = encodePowerShell(toastScript('x'.repeat(100_000), 'y'.repeat(100_000)));
+  assert.ok(long.length < 8_000, String(long.length));
+});
+
+test('Windows 토스트 실행 인자: -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand <UTF-16LE base64>', () => {
+  const [file, args] = notifierCommand({ kind: 'powershell', path: '/mnt/c/ps/powershell.exe' }, 'aitop: 응답 대기 (claude)', '$(id) · Bash');
+  assert.equal(file, '/mnt/c/ps/powershell.exe');
+  assert.deepEqual(args.slice(0, -1), ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand']);
+  assert.match(args.at(-1), /^[A-Za-z0-9+/]+=*$/);
+  assert.equal(decodeEncoded(args), toastScript('aitop: 응답 대기 (claude)', '$(id) · Bash'));
+  assert.ok(args.every((a) => !a.includes('$(id)')));
+});
+
+test('--notify 는 WSL 에서 가짜 powershell.exe 를 runner 로 부른다', { skip: process.platform === 'win32' && 'Windows: /bin/sh·실행 권한 스크립트가 필요 (알림·--on-waiting 은 #196·#197)' }, async () => {
+  const dir = tmp();
+  const out = join(dir, 'args');
+  writeFileSync(join(dir, 'powershell.exe'), `#!/bin/sh\nprintf '%s\\n' "$@" > ${out}\n`);
+  chmodSync(join(dir, 'powershell.exe'), 0o755);
+  writeFileSync(join(dir, 'notify-send'), '#!/bin/sh\nexit 1\n');
+  chmodSync(join(dir, 'notify-send'), 0o755);
+  const n = createNotifier({ notify: true, notifier: findNotifier({ platform: 'linux', env: { PATH: dir }, wsl: true }), env: { PATH: process.env.PATH } });
+  n.fire([s('a', 'waiting', { project: `'; $(calc) "<x>` })]);
+  await until(() => !n.desk.busy && existsSync(out));
+  const args = readFileSync(out, 'utf8').trim().split('\n');
+  assert.equal(args.length, 6);
+  assert.equal(decodeEncoded(args), toastScript('aitop: 응답 대기 (claude)', `'; $(calc) "<x> · Bash`));
+  assert.equal(n.desk.stats.started, 1);
   rmSync(dir, { recursive: true, force: true });
-  rmSync(empty, { recursive: true, force: true });
 });
 
 test('알림 제목·본문은 인자로만 넘기고 스크립트 문자열에 넣지 않는다', () => {

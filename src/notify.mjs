@@ -1,7 +1,7 @@
 // 알림: --notify[=종류] (데스크톱 알림), --on-waiting <명령> (사용자 명령 실행). 종류는 waiting(기본)·done·context.
 // 세션 정보는 명령 문자열에 넣지 않는다. 알림 도구에는 인자로, 사용자 명령에는 AITOP_* 환경변수로만 넘긴다.
 import { spawn } from 'node:child_process';
-import { accessSync, constants, readFileSync } from 'node:fs';
+import { accessSync, constants, existsSync, readFileSync } from 'node:fs';
 import { join, delimiter } from 'node:path';
 import { mask, stripControl } from './text.mjs';
 import { getLang, phaseText, t } from './i18n.mjs';
@@ -95,7 +95,7 @@ export function which(name, envPath = process.env.PATH ?? '') {
   return null;
 }
 
-// WSL 인지. --doctor 의 알림 안내에 쓴다. readVersion 은 테스트에서 /proc/version 대신 넣는다.
+// WSL 인지. 알림 수단 고르기와 --doctor 의 알림 안내에 쓴다. readVersion 은 테스트에서 /proc/version 대신 넣는다.
 export function isWsl(env = process.env, readVersion = () => readFileSync('/proc/version', 'utf8')) {
   if (env.WSL_DISTRO_NAME || env.WSL_INTEROP) return true;
   try {
@@ -106,23 +106,84 @@ export function isWsl(env = process.env, readVersion = () => readFileSync('/proc
 }
 
 // 쓸 수 있는 데스크톱 알림 도구. 없으면 null (조용히 건너뛴다).
-// Linux·WSL 은 notify-send 만 쓴다. WSL 에서 없으면 powershell 로 대신하지 않는다.
-export function findNotifier({ platform = process.platform, env = process.env } = {}) {
+// WSL 은 powershell.exe 로 Windows 토스트를 먼저 띄운다 (WSL 에는 D-Bus 세션 버스가 없는 일이 흔하다, #250).
+// powershell.exe 가 없으면 notify-send 를 쓴다. 일반 Linux 는 notify-send 만 쓴다.
+// wsl 은 테스트에서 바꿔 끼운다.
+export function findNotifier({ platform = process.platform, env = process.env, wsl = platform === 'linux' && isWsl(env) } = {}) {
   if (platform === 'darwin') {
     const path = which('osascript', env.PATH);
     return path ? { kind: 'osascript', path } : null;
   }
   if (platform === 'linux') {
+    if (wsl) {
+      const ps = which('powershell.exe', env.PATH);
+      if (ps) return { kind: 'powershell', path: ps };
+    }
     const path = which('notify-send', env.PATH);
     return path ? { kind: 'notify-send', path } : null;
   }
   return null;
 }
 
+// notify-send 가 기대는 D-Bus 세션 버스를 찾을 수 있는지. 알림을 실제로 보내 보지는 않는다 (--doctor 가 알림을 띄우면 안 된다).
+// 문제가 없거나 확인할 수 없으면 null, 주소가 없으면 { reason: 'missing' }, unix:path= 소켓이 모두 없으면 { reason: 'socket', path }.
+// 주소가 없을 때 GLib 처럼 $XDG_RUNTIME_DIR/bus 를 먼저 본다. abstract 소켓·tcp 등은 파일로 확인할 수 없으니 문제로 보지 않는다.
+export function busProblem(env = process.env, exists = existsSync) {
+  const addr = env.DBUS_SESSION_BUS_ADDRESS;
+  if (!addr) {
+    if (env.XDG_RUNTIME_DIR && exists(join(env.XDG_RUNTIME_DIR, 'bus'))) return null;
+    return { reason: 'missing' };
+  }
+  let firstPath = null;
+  for (const entry of addr.split(';')) {
+    const m = /^unix:(.*)$/.exec(entry.trim());
+    if (!m) return null;
+    const keys = Object.fromEntries(m[1].split(',').map((kv) => [kv.slice(0, kv.indexOf('=')), kv.slice(kv.indexOf('=') + 1)]));
+    if (keys.path == null) return null;
+    let path;
+    try {
+      path = decodeURIComponent(keys.path);
+    } catch {
+      path = keys.path;
+    }
+    if (exists(path)) return null;
+    firstPath ??= path;
+  }
+  return firstPath ? { reason: 'socket', path: firstPath } : null;
+}
+
+// Windows PowerShell 의 AUMID. 시작 메뉴에 등록되어 있어 따로 등록하지 않아도 토스트가 뜬다 (Get-StartApps 로 확인).
+export const PS_APP_ID = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe';
+const TOAST_MAX = 250;
+
+// Windows 토스트를 띄우는 PowerShell 스크립트. Windows 네이티브(#197)에서도 그대로 쓸 수 있게 따로 둔다.
+// 제목·본문은 UTF-8 base64 로만 스크립트에 들어가고(글자는 A-Z a-z 0-9 + / = 뿐), 스크립트 안에서 풀어
+// XML 글 노드(CreateTextNode)로 넣는다. 그래서 따옴표·$()·XML 특수문자가 명령이나 XML 구조를 바꾸지 못한다.
+export function toastScript(title, body, appId = PS_APP_ID) {
+  const b64 = (v) => Buffer.from(String(v).slice(0, TOAST_MAX), 'utf8').toString('base64');
+  const id = b64(appId);
+  return [
+    "$ErrorActionPreference = 'Stop'",
+    '$d = { param($s) [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($s)) }',
+    '[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null',
+    '$x = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02)',
+    "$n = $x.GetElementsByTagName('text')",
+    `$n.Item(0).AppendChild($x.CreateTextNode((& $d '${b64(title)}'))) > $null`,
+    `$n.Item(1).AppendChild($x.CreateTextNode((& $d '${b64(body)}'))) > $null`,
+    `[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier((& $d '${id}')).Show([Windows.UI.Notifications.ToastNotification]::new($x))`,
+  ].join('\n');
+}
+
+// powershell.exe -EncodedCommand 의 값: 스크립트를 UTF-16LE 로 바꿔 base64.
+export const encodePowerShell = (script) => Buffer.from(script, 'utf16le').toString('base64');
+
 // 알림 도구 실행 인자. 제목·본문은 인자로만 넘긴다 (셸·AppleScript 문자열에 넣지 않는다).
 export function notifierCommand(notifier, title, body) {
   if (notifier.kind === 'osascript') {
     return [notifier.path, ['-e', 'on run argv', '-e', 'display notification (item 2 of argv) with title (item 1 of argv)', '-e', 'end run', title, body]];
+  }
+  if (notifier.kind === 'powershell') {
+    return [notifier.path, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encodePowerShell(toastScript(title, body))]];
   }
   // notify-send 는 본문을 마크업으로 읽으므로 <, >, & 를 바꿔 넣는다.
   return [notifier.path, ['--app-name=aitop', '--', escapeMarkup(title), escapeMarkup(body)]];
@@ -176,6 +237,7 @@ export function notifyText(sessions, lang = getLang(), kind = 'waiting') {
 // 실행 중에 새 일이 오면 하나만 대기열에 두고(가장 최근 것으로 덮어씀), 끝나면 그것을 실행한다.
 // 출력은 버리고, timeoutMs 가 지나면 프로세스 그룹째(셸과 그 자식) SIGKILL 한다.
 // 자식은 'exit' 를 받아 거두므로 좀비가 남지 않는다. UI 루프는 기다리지 않는다.
+// WSL 의 powershell.exe 는 Windows 쪽 프로세스지만, Linux 쪽 중계 프로세스를 SIGKILL 하면 Windows 프로세스도 함께 끝난다 (#250 에서 확인).
 function killGroup(c, sig) {
   try {
     process.kill(-c.pid, sig);

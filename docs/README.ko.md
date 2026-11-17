@@ -232,7 +232,7 @@ CLI 기록 형식이 바뀌어 값이 비어 보이면 `aitop --debug` 로 실�
 다른 창에서 일할 때는 알림을 켤 수 있다 (둘 다 기본으로 꺼져 있고, 실시간 화면에서만 동작한다. `--bell` 처럼 aitop 을 켰을 때 이미 응답 대기인 세션은 알리지 않는다).
 
 ```
-aitop --notify                     데스크톱 알림. Linux 는 notify-send, macOS 는 osascript. 없으면 조용히 건너뛴다 (--doctor 에 보임)
+aitop --notify                     데스크톱 알림. Linux 는 notify-send, WSL 은 Windows 알림, macOS 는 osascript. 없으면 조용히 건너뛴다 (--doctor 에 보임)
 aitop --on-waiting 'my-hook.sh'    응답 대기가 새로 생길 때마다 /bin/sh -c 로 명령 실행 (--on-waiting=<명령> 도 됨)
 aitop --notify=waiting,done,context  알릴 종류를 고른다. --notify 만 주면 설정 파일 notify 배열의 종류, 없으면 waiting 만
 ```
@@ -244,6 +244,8 @@ aitop --notify=waiting,done,context  알릴 종류를 고른다. --notify 만 �
 | `context` | 컨텍스트 사용률이 90% 를 넘을 때 한 번. 85% 아래로 내려가면(압축 등) 다시 알린다. aitop 을 켰을 때나 새 세션의 기록을 처음 다 읽었을 때 이미 넘어 있으면 알리지 않는다 |
 
 종류는 데스크톱 알림과 `--on-waiting` 명령에 함께 쓴다. 이름은 예전 그대로 `--on-waiting` 이고, 어떤 일인지는 `AITOP_EVENT` 로 가른다 (예: `[ "$AITOP_EVENT" = done ] && say 끝`). 종류는 명령줄 `--notify=<종류>` > 설정 파일 `notify` 배열 > `waiting` 순서로 정한다. 그래서 종류를 따로 정하지 않으면 예전처럼 응답 대기에만 실행된다. `--no-notify` 는 데스크톱 알림만 끄고, `--on-waiting` 명령은 그 종류를 그대로 따른다. 벨(`--bell`)은 늘 응답 대기만 울린다.
+
+WSL 에서는 `powershell.exe` 로 Windows 알림을 띄운다 (Windows PowerShell 이름으로 뜨고 따로 설정할 것은 없다). PATH 에 `powershell.exe` 가 없으면 notify-send 를 쓴다. notify-send 는 D-Bus 세션 버스가 있어야 뜬다. `DBUS_SESSION_BUS_ADDRESS` 가 없거나 그 소켓 파일이 없으면 알림이 뜨지 않으므로 `--doctor` 가 알림 줄에 `!` 와 안내를 보인다. 도구가 없거나 알림이 실패하면 조용히 건너뛴다.
 
 알림 본문에는 세션에 붙인 이름(Claude Code `/rename` 이나 다른 세션이 붙인 이름, Codex `thread_name`)이 있으면 그 이름이, 없으면 프로젝트 이름이 들어간다. 데스크톱 알림은 잠금 화면에도 보일 수 있으니 이름도 그대로 보인다.
 
@@ -258,7 +260,7 @@ aitop --notify=waiting,done,context  알릴 종류를 고른다. --notify 만 �
 | `AITOP_CWD` | 작업 폴더 |
 | `AITOP_WAITING_FOR` | 짧은 대기 사유 (예: `Bash`, 비밀값처럼 보이는 것은 가림) |
 
-출력은 버리고, 10초가 지나면 명령(과 그 자식)을 끝낸다. 한 번에 하나만 실행하며, 실행 중에 새 대기가 생기면 가장 최근 것 하나만 기다렸다가 이어서 실행한다 (그 사이 것은 건너뜀). 그래서 여러 세션이 한꺼번에 응답 대기가 되면, 지금 명령이 끝난 뒤 그중 가장 최근 하나만 실행된다. aitop 을 끝내면 실행 중인 명령도 함께 끝낸다. 한 번 갱신에서 여러 세션이 함께 응답 대기가 되면 첫 세션과 마지막 세션만 실행되고 그 사이 세션은 건너뛴다. 명령이 자식을 백그라운드로 띄우고(`cmd &`) 먼저 끝나면, 그 자식은 10초 제한과 종료 정리 밖에 남으므로 정리는 명령이 맡는다. WSL 에서 notify-send 가 없으면 Windows 알림을 대신 띄우지 않는다. 필요하면 `--on-waiting` 으로 직접 부른다.
+출력은 버리고, 10초가 지나면 명령(과 그 자식)을 끝낸다. 한 번에 하나만 실행하며, 실행 중에 새 대기가 생기면 가장 최근 것 하나만 기다렸다가 이어서 실행한다 (그 사이 것은 건너뜀). 그래서 여러 세션이 한꺼번에 응답 대기가 되면, 지금 명령이 끝난 뒤 그중 가장 최근 하나만 실행된다. aitop 을 끝내면 실행 중인 명령도 함께 끝낸다. 한 번 갱신에서 여러 세션이 함께 응답 대기가 되면 첫 세션과 마지막 세션만 실행되고 그 사이 세션은 건너뛴다. 명령이 자식을 백그라운드로 띄우고(`cmd &`) 먼저 끝나면, 그 자식은 10초 제한과 종료 정리 밖에 남으므로 정리는 명령이 맡는다.
 
 ### 로고와 탭 아이콘
 
