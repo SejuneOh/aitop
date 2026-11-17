@@ -109,7 +109,7 @@ aitop --report sessions --since 7d --json
 Off by default and only on the live screen. Sessions already waiting (or already over 90% context) when aitop starts are not reported.
 
 ```
-aitop --notify                       desktop notification when a session starts waiting (notify-send on Linux/WSL, osascript on macOS)
+aitop --notify                       desktop notification when a session starts waiting (notify-send on Linux, Windows notification on WSL, osascript on macOS)
 aitop --notify=waiting,done,context  pick the kinds; plain --notify uses the config file kinds, or waiting only when none are set
 aitop --on-waiting 'my-hook.sh'      run a command with /bin/sh -c for the same events (10 second limit, runs as you)
 ```
@@ -119,6 +119,8 @@ aitop --on-waiting 'my-hook.sh'      run a command with /bin/sh -c for the same 
 - `context`: context use passes 90%, once; it re-arms after it drops below 85% (for example after compaction).
 
 The hook keeps its name: it gets `AITOP_EVENT` (`waiting`, `done` or `context`) plus `AITOP_TOOL`, `AITOP_PROJECT`, `AITOP_SESSION_ID`, `AITOP_CWD` and `AITOP_WAITING_FOR` in its environment. Config file: `"notify": true` or `"notify": ["waiting", "done", "context"]`, `"onWaiting": "..."` (file must be `chmod 600`), `"doneMinutes": 5`. Plain `--notify` keeps the kinds from the config `notify` list (waiting only when there is none). `--no-notify` turns off only the desktop notification: the hook still follows those kinds. `--bell` stays waiting only.
+
+On WSL, aitop shows a Windows notification through `powershell.exe` (as Windows PowerShell, no setup needed) and falls back to notify-send when `powershell.exe` is not on the PATH. notify-send needs a D-Bus session bus: when `DBUS_SESSION_BUS_ADDRESS` is unset or its socket file is missing, notifications cannot show and `--doctor` marks the line with `!`. A missing tool or a failed notification is skipped quietly.
 
 The notification body shows the session's own name when it has one (Claude Code `/rename`, or a name given by a peer session; Codex `thread_name`), otherwise the project. Desktop notifications can appear on the lock screen, so the name is visible there too.
 

@@ -79,7 +79,7 @@ const HELP_KO = `{logo} aitop - 터미널에서 Claude Code · Codex · Antigrav
                    --plan 월 구독료를 주면 기간 몫의 몇 배인지 보인다. --md 는 붙여 넣을 Markdown. 첫 지시는 --show-prompts 일 때만
   aitop --doctor   Claude · Codex · Antigravity · Gemini 기록과 실행 중인 프로세스, 설정 파일을 점검한다 (--json 과 함께 쓸 수 있다)
   aitop --bell     응답 대기 세션이 새로 생기면 터미널 벨을 울린다
-  aitop --notify   응답 대기 세션이 새로 생기면 데스크톱 알림을 띄운다 (notify-send · osascript, 없으면 건너뜀)
+  aitop --notify   응답 대기 세션이 새로 생기면 데스크톱 알림을 띄운다 (Linux notify-send · macOS osascript · WSL 은 powershell.exe 로 Windows 알림, 없으면 건너뜀)
   aitop --notify=waiting,done,context  알릴 종류를 고른다 (--notify 만 주면 설정 파일 notify 배열, 없으면 waiting). done: 3분(설정 파일 doneMinutes, 응답 대기 시간 빼고) 넘게 작업하던 세션이 다음 지시를
                    기다리면 한 번. context: 컨텍스트가 90% 를 넘으면 한 번 (85% 아래로 내려가면 다시)
   aitop --on-waiting <명령>  알릴 일이 생기면 /bin/sh -c 로 명령을 실행한다 (내 권한으로 실행, 10초 제한). 종류는 --notify 를 따른다 (--no-notify 여도)
@@ -138,7 +138,7 @@ const HELP_EN = `{logo} aitop - watch Claude Code, Codex, Antigravity and Gemini
                    First prompts are shown only with --show-prompts
   aitop --doctor   check Claude, Codex, Antigravity and Gemini logs, running processes and the config file (works with --json)
   aitop --bell     ring the terminal bell when a session starts waiting for you
-  aitop --notify   show a desktop notification when a session starts waiting (notify-send or osascript, skipped if missing)
+  aitop --notify   show a desktop notification when a session starts waiting (notify-send on Linux, osascript on macOS, a Windows toast via powershell.exe on WSL; skipped if missing)
   aitop --notify=waiting,done,context  pick what to notify about (plain --notify: the config notify list, else waiting). done: once when a session that worked for
                    over 3 minutes (config doneMinutes, approval waits not counted) waits for its next instruction. context: once when context passes 90% (again after it drops below 85%)
   aitop --on-waiting <cmd>  run a command with /bin/sh -c when there is something to notify (runs as you, 10 second limit). Follows the --notify kinds (even with --no-notify)
@@ -335,8 +335,13 @@ export const STRINGS = {
     'doctor.hint.gemini': '프로세스만 감지합니다 (세션·토큰은 아직 지원하지 않음)',
     'doctor.hint.agyNode': 'Node {node} 에서는 기록을 읽기 전용으로 열 수 없어 프로세스만 감지합니다 (Node 22.15 이상 필요)',
     'doctor.notifier': '✓ 알림    {kind} ({path}) · --notify 로 켬 (끝남·context 경고는 --notify=waiting,done,context)',
-    'doctor.noNotifier': '○ 알림    {want} 없음 · --notify 를 켜도 알림을 건너뜀{wsl}',
-    'doctor.wsl': ' (WSL 은 notify-send 만 쓴다)',
+    'doctor.noNotifier': '○ 알림    {want} 없음 · --notify 를 켜도 알림을 건너뜀',
+    'doctor.noNotifierWsl': '! 알림    powershell.exe·notify-send 없음 · --notify 를 켜도 알림을 건너뜀',
+    'doctor.wslHint': 'WSL 은 powershell.exe 로 Windows 알림을 띄운다. Windows PATH 를 넣었는지(/etc/wsl.conf 의 appendWindowsPath) 확인한다',
+    'doctor.busBad': '! 알림    {kind} ({path}) · D-Bus 세션 버스가 없어 알림이 뜨지 않음 ({why})',
+    'doctor.busMissing': 'DBUS_SESSION_BUS_ADDRESS 없음',
+    'doctor.busSocket': '{path} 소켓 없음',
+    'doctor.busHint': '데스크톱 세션 안에서 실행하거나 사용자 D-Bus(systemctl --user, dbus-launch)를 켠다. 대신 --on-waiting 으로 다른 알림 명령을 부를 수 있다',
     'doctor.config': '{mark} 설정   {state}{path}',
     'doctor.configExists': '있음',
     'doctor.configMissing': '없음 (기본값)',
@@ -751,8 +756,13 @@ export const STRINGS = {
     'doctor.hint.gemini': 'detects processes only (sessions and tokens not supported yet)',
     'doctor.hint.agyNode': 'Node {node} cannot open the logs read-only, so only processes are detected (needs Node 22.15 or later)',
     'doctor.notifier': '✓ notify  {kind} ({path}) · turn on with --notify (done and context alerts: --notify=waiting,done,context)',
-    'doctor.noNotifier': '○ notify  {want} not found · --notify will skip notifications{wsl}',
-    'doctor.wsl': ' (WSL uses notify-send only)',
+    'doctor.noNotifier': '○ notify  {want} not found · --notify will skip notifications',
+    'doctor.noNotifierWsl': '! notify  powershell.exe and notify-send not found · --notify will skip notifications',
+    'doctor.wslHint': 'WSL shows Windows notifications through powershell.exe. Check that the Windows PATH is added (appendWindowsPath in /etc/wsl.conf)',
+    'doctor.busBad': '! notify  {kind} ({path}) · no D-Bus session bus, notifications will not show ({why})',
+    'doctor.busMissing': 'DBUS_SESSION_BUS_ADDRESS not set',
+    'doctor.busSocket': 'no socket at {path}',
+    'doctor.busHint': 'run inside a desktop session or start a user D-Bus (systemctl --user, dbus-launch). Or call another notifier with --on-waiting',
     'doctor.config': '{mark} config {state}{path}',
     'doctor.configExists': 'found',
     'doctor.configMissing': 'not found',

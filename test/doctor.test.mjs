@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, writeFileSync, mkdtempSync, utimesSync } from 'node:fs';
+import { mkdirSync, writeFileSync, mkdtempSync, utimesSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -16,7 +16,7 @@ writeFileSync(join(root, 'gemini', 'tmp', 'abc', 'chats', 'session-1.json'), JSO
 fx.session({ sessionId: 'dddddddd-1', name: 'doc' });
 fx.transcript('dddddddd-1', [user('안녕'), assistant('m1', [{ type: 'text', text: '네' }], usage(10, 1))]);
 
-const { checkTools, describe, doctorText, toolsJson } = await import('../src/doctor.mjs');
+const { checkTools, describe, doctorText, toolsJson, notifierCheck, notifierText } = await import('../src/doctor.mjs');
 const BIN = join(fileURLToPath(new URL('.', import.meta.url)), '..', 'bin', 'aitop.mjs');
 
 test('기록이 있는 도구는 찾음, 기록 수, 실행 수를 보인다', () => {
@@ -89,4 +89,49 @@ test('aitop --doctor 와 --doctor --json 을 실행할 수 있다', () => {
   const data = JSON.parse(run('--json').stdout);
   assert.match(data.version, /^\d+\.\d+\.\d+/);
   assert.equal(data.tools.claude.state, 'ok');
+});
+
+// #250: 알림 도구가 있어도 실제로 뜨지 않을 것이 확실하면 ! 와 안내를 보인다. 알림을 보내 보지는 않는다.
+test('--doctor 알림 줄: D-Bus 버스가 없으면 !, WSL 은 powershell.exe 를 먼저, 둘 다 없으면 !', { skip: process.platform === 'win32' && 'Windows: 실행 권한 스크립트가 필요' }, () => {
+  const dir = mkdtempSync(join(tmpdir(), 'aitop-doctor-bin-'));
+  const both = join(dir, 'both');
+  const ns = join(dir, 'ns');
+  mkdirSync(both);
+  mkdirSync(ns);
+  for (const [d, name] of [[both, 'notify-send'], [both, 'powershell.exe'], [ns, 'notify-send']]) {
+    writeFileSync(join(d, name), '#!/bin/sh\n');
+    chmodSync(join(d, name), 0o755);
+  }
+  const yes = () => true;
+  const no = () => false;
+  const linux = (env, exists, wsl = false) => notifierCheck({ platform: 'linux', env, wsl, exists });
+  // 일반 Linux: 버스가 있으면 예전처럼 ✓, abstract 소켓은 확인할 수 없으니 ✓.
+  const ok = linux({ PATH: ns, DBUS_SESSION_BUS_ADDRESS: 'unix:path=/run/user/1000/bus' }, yes);
+  assert.equal(ok.bus, undefined);
+  assert.match(notifierText(ok, 'linux', 'ko', false), /^✓ 알림 {4}notify-send/);
+  assert.match(notifierText(linux({ PATH: ns, DBUS_SESSION_BUS_ADDRESS: 'unix:abstract=/tmp/dbus-x' }, no), 'linux', 'ko', false), /^✓ 알림/);
+  // 소켓 파일이 없으면 ! 와 안내.
+  const sock = linux({ PATH: ns, DBUS_SESSION_BUS_ADDRESS: 'unix:path=/run/user/1000/bus' }, no);
+  assert.deepEqual(sock.bus, { reason: 'socket', path: '/run/user/1000/bus' });
+  const ko = notifierText(sock, 'linux', 'ko', false).split('\n');
+  assert.match(ko[0], /^! 알림 {4}notify-send .*D-Bus 세션 버스가 없어 알림이 뜨지 않음 \(\/run\/user\/1000\/bus 소켓 없음\)/);
+  assert.match(ko[1], /^ {9}→ .*--on-waiting/);
+  assert.equal(ko.length, 2, '일반 Linux 에는 WSL 안내가 없다');
+  // 주소가 없으면 ! (영어).
+  const en = notifierText(linux({ PATH: ns }, no), 'linux', 'en', false);
+  assert.match(en, /^! notify  notify-send .*no D-Bus session bus.*\(DBUS_SESSION_BUS_ADDRESS not set\)/);
+  // WSL: powershell.exe 가 있으면 버스와 상관없이 ✓ powershell.
+  const ps = linux({ PATH: both }, no, true);
+  assert.equal(ps.kind, 'powershell');
+  assert.equal(ps.bus, undefined);
+  assert.match(notifierText(ps, 'linux', 'ko', true), /^✓ 알림 {4}powershell \(/);
+  // WSL 에 notify-send 만 있고 버스가 없으면 ! 와 두 안내.
+  const wslNs = notifierText(linux({ PATH: ns, DBUS_SESSION_BUS_ADDRESS: 'unix:path=/run/user/1000/bus' }, no, true), 'linux', 'ko', true).split('\n');
+  assert.match(wslNs[0], /^! 알림/);
+  assert.match(wslNs[2], /appendWindowsPath/);
+  // WSL 에 둘 다 없으면 !, 일반 Linux 는 예전처럼 ○.
+  assert.equal(linux({ PATH: join(dir, 'none') }, no, true), null);
+  assert.match(notifierText(null, 'linux', 'ko', true), /^! 알림 {4}powershell.exe·notify-send 없음/);
+  assert.match(notifierText(null, 'linux', 'ko', false), /^○ 알림 {4}notify-send 없음/);
+  assert.match(notifierText(null, 'darwin', 'en', false), /^○ notify  osascript not found/);
 });

@@ -66,7 +66,7 @@ test('--help 는 키 안내를 보이고 0 으로 끝난다', () => {
 test('--notify 를 --once·--json·파이프 출력과 함께 주면 무시한다고 알린다', () => {
   const dir = mkdtempSync(join(tmpdir(), 'aitop-notify-warn-'));
   const called = join(dir, 'called');
-  for (const name of ['notify-send', 'osascript']) writeFileSync(join(dir, name), `#!/bin/sh\necho "$@" >> '${called}'\n`, { mode: 0o755 });
+  for (const name of ['notify-send', 'osascript', 'powershell.exe']) writeFileSync(join(dir, name), `#!/bin/sh\necho "$@" >> '${called}'\n`, { mode: 0o755 });
   // 사용자 설정 파일의 notify·onWaiting 이 섞이지 않게 빈 설정 폴더를 쓴다.
   const env = { ...process.env, XDG_CONFIG_HOME: join(dir, 'xdg'), PATH: dir + delimiter + process.env.PATH };
   // stdout 은 파이프다 (spawnSync 기본값). 그래서 옵션 없이 --notify 만 줘도 파이프 출력으로 본다.
