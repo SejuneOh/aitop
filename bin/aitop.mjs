@@ -41,7 +41,7 @@ if (line.error) {
   process.stderr.write(`aitop: ${line.error}\n`);
   process.exit(2);
 }
-// --report daily|monthly|sessions, --by tool|model|project, --days <N>, --months <N>, --since, --plan, --md, --show-prompts 는 reportOption 이 꺼낸다.
+// --report daily|monthly|sessions|trace <세션>, --by tool|model|project, --days <N>, --months <N>, --since, --plan, --md, --show-prompts 는 reportOption 이 꺼낸다.
 const report = reportOption(line.rest);
 if (report.error) {
   process.stderr.write(`aitop: ${report.error}\n`);
@@ -175,6 +175,36 @@ if (report.kind === 'sessions') {
   const cols = process.stdout.isTTY ? process.stdout.columns : Number(process.env.COLUMNS) || 0;
   const opts = { partial: got.partial, prompts: report.prompts };
   const text = json ? JSON.stringify(sessionsJson(r, VERSION, opts), null, 2) : report.md ? sessionsMarkdown(r, opts) : formatSessions(r, { ...opts, cols });
+  process.stdout.on('error', (err) => process.exit(err.code === 'EPIPE' ? 0 : 1));
+  await new Promise((resolve) => process.stdout.write(text + '\n', resolve));
+  process.exit(0);
+}
+
+// --report trace <세션>: 세션 하나의 호출 트리 (trace.mjs). 장부·캐시·실시간 tracker 없이 기록 파일만 한 번 읽는다. Codex·agy 는 미지원으로 알린다.
+if (report.kind === 'trace') {
+  const { findTrace, readTrace, build, formatTrace, traceMarkdown, traceJson, candidatesText, STALE_MS } = await import('../src/trace.mjs');
+  const json = args.has('--json');
+  if (json && report.md) {
+    process.stderr.write(`aitop: ${t('opt.mdJson')}\n`);
+    process.exit(2);
+  }
+  const query = stripControl(report.session);
+  const found = await findTrace(report.session);
+  if (found.error) {
+    const head = t(found.error === 'many' ? 'trace.many' : 'trace.notFound', { query: JSON.stringify(query) });
+    process.stderr.write(`aitop: ${head}\n${found.error === 'many' ? candidatesText(found.candidates) + '\n' : ''}`);
+    process.exit(found.error === 'many' ? 2 : 1);
+  }
+  if (found.tool !== 'claude') {
+    process.stderr.write(`aitop: ${t('trace.unsupported', { tool: found.tool === 'agy' ? 'Antigravity' : 'Codex' })}\n`);
+    process.exit(1);
+  }
+  const { lines, subagents, mtime } = await readTrace(found.path, { showArgs: report.prompts });
+  // 기록이 STALE_MS 넘게 바뀌지 않았으면 끝난 세션으로 본다 (결과 없는 도구를 진행 중으로 두지 않는다).
+  const r = build(lines, { subagents, showArgs: report.prompts, ended: Date.now() - mtime > STALE_MS });
+  const meta = { id: found.id, name: found.name };
+  const cols = process.stdout.isTTY ? process.stdout.columns : Number(process.env.COLUMNS) || 0;
+  const text = json ? JSON.stringify(traceJson(r, VERSION, meta), null, 2) : report.md ? traceMarkdown(r, meta) : formatTrace(r, meta, { cols });
   process.stdout.on('error', (err) => process.exit(err.code === 'EPIPE' ? 0 : 1));
   await new Promise((resolve) => process.stdout.write(text + '\n', resolve));
   process.exit(0);
