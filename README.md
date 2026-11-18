@@ -535,9 +535,9 @@ Requires Node.js 22+ on Linux, macOS, WSL or Windows.
 - `npm install -g` installs it. Then run `aitop`.
 
 <details>
-<summary>Windows: what works and what does not yet</summary>
+<summary>Windows: what works and how</summary>
 
-- Native Windows support is early. Windows Terminal is recommended.
+- Windows Terminal is recommended.
 - In the old console (conhost) the `▕█░` bars and braille (`⠋`, the logo) may show as boxes, and `--doctor` says so. Run with `AITOP_AMBIGUOUS=wide` (ASCII tables and bars) or `NO_COLOR` (progress bar as `[#.]`) there.
 - When antivirus or another aitop briefly holds a cache or summary file, replacing it is retried 3 times, 50ms apart.
 - Works: Claude Code and Codex sessions, `--once`, `--json`, `--report`, `--doctor`, `--notify` and `--on-waiting`.
@@ -546,9 +546,11 @@ Requires Node.js 22+ on Linux, macOS, WSL or Windows.
 - The same goes for a `.bat` or `.cmd` file the hook calls: `%AITOP_PROJECT%` inside it is read as part of the script. Start it with `setlocal enabledelayedexpansion` and use `!AITOP_PROJECT!`, or write the hook in PowerShell and read `$env:AITOP_PROJECT`.
 - Windows uses ACLs, not modes, so instead of the `chmod 600` check `onWaiting` in the config file is accepted only when the file (after following links) is under your profile (`%USERPROFILE%`, for example `%APPDATA%\aitop`), which other users cannot write by default. A config file elsewhere (say `XDG_CONFIG_HOME=C:\cfg`) has its `onWaiting` ignored, with a warning at start and in `--doctor`.
 - Desktop notifications (`--notify`) show through Windows PowerShell, as on WSL.
-- Not there yet: process detection ([#195](https://github.com/SejuneOh/aitop/issues/195)).
-- Until then a Codex session counts as running while its log was written in the last 10 minutes.
-- So it drops out during a long step that writes nothing for over 10 minutes, and a crashed session can stay up to 10 minutes.
+- Running processes come from one PowerShell call (`Get-CimInstance Win32_Process`): ids, parents, command lines and start times. It takes about a second, so aitop waits for the first one and then refreshes it in the background every 5 seconds (8 second limit). `--doctor` shows the method and the time it took.
+- Windows does not give other processes' working folders, so each Codex process (latest first) gets the most recently written session among those started after it, which follows `/new`. A process with none gets the latest log written after it started (a resumed session).
+- Known limit: by times alone this cannot tell a session that just ended in another terminal from `/new`, so such a session may show as running for a while instead of a long-idle one. It corrects itself once the idle session writes again.
+- A Claude Code session is ended when the process now holding its pid started after the session file was last written (pid reuse).
+- If the PowerShell call fails 3 times in a row (or the first call fails), a Codex session counts as running while its log was written in the last 10 minutes, as before. It is retried after a minute.
 - Cache, log and config live in `%LOCALAPPDATA%\aitop\cache`, `%LOCALAPPDATA%\aitop\state` and `%APPDATA%\aitop` unless `XDG_*` is set.
 
 </details>

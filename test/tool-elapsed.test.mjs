@@ -14,7 +14,7 @@ const { toolStartOf: agyToolStart, phaseOf: agyPhase, STEP } = await import('../
 const { createBudget } = await import('../src/tail.mjs');
 const { flushCache, CACHE_DIR } = await import('../src/cache.mjs');
 const { toJson } = await import('../src/json.mjs');
-const { toolElapsed, TOOL_LONG_MS } = await import('../src/ui/draw.mjs');
+const { toolElapsed, TOOL_LONG_MS, setNow } = await import('../src/ui/draw.mjs');
 const { statusCell, sessionRow, columns } = await import('../src/ui/table.mjs');
 const { animating } = await import('../src/ui.mjs');
 const { PALETTE } = await import('../src/ui/theme.mjs');
@@ -152,7 +152,9 @@ test('STATUS 칸: 넓으면 도구 이름 뒤에 붙고, 좁으면 상태 글을
   assert.doesNotMatch(text(narrow), /4m12s/);
   assert.equal(width(text(narrow)), 19);
 
-  // 세션 행 전체: 넓은 화면에는 보이고 행 폭은 그대로다.
+  // 세션 행 전체: 넓은 화면에는 보이고 행 폭은 그대로다. 행은 그리는 시각(NOW)을 쓰므로 맞춰 둔다
+  // (불러온 뒤 이 시험까지 몇 초 걸리는 느린 PC 에서 4m09s 처럼 보이지 않게).
+  setNow(now);
   const s = sess({ toolStartedAt: now - 4 * M - 12 * S, name: 'demo', model: 'claude-opus-5-5' });
   const plain = (x) => x.replace(/\x1b\[[0-9;]*m/g, '');
   for (const W of [160, 100]) {

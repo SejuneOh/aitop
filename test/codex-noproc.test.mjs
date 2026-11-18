@@ -1,4 +1,4 @@
-// 프로세스 목록을 못 얻는 OS(Windows)에서는 최근에 바뀐 rollout 을 실행 중으로 본다 (#194).
+// 프로세스 목록을 못 얻을 때(Windows 에서 PowerShell CIM 이 실패할 때 등)는 최근에 바뀐 rollout 을 실행 중으로 본다 (#194, #195).
 // canList 를 바꿔 끼워 Linux 에서도 그 경로를 돈다.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

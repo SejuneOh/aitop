@@ -55,7 +55,8 @@ async function rowOf(pid, opts = {}) {
   return rows;
 }
 
-const skip = !canListProcesses() && '이 OS 는 프로세스 목록을 지원하지 않음';
+// Windows 는 작업 폴더 대신 시작 시각으로 짝짓는다 (#195). 작업 폴더로 짝짓는 아래 시험은 Linux·macOS 만.
+const skip = (!canListProcesses() && '이 OS 는 프로세스 목록을 지원하지 않음') || (process.platform === 'win32' && 'Windows 는 작업 폴더를 얻지 않는다 (test/win-procs.test.mjs)');
 const linuxOnly = (!canListProcesses() || process.platform !== 'linux') && 'Linux /proc 에서만 열린 파일을 안다';
 
 test('25시간 쉰 codex 세션은 프로세스가 열어 둔 기록 파일로 짝짓는다', { skip: linuxOnly }, async () => {
