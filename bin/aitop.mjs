@@ -258,6 +258,9 @@ if (args.has('--doctor')) {
   await printAndExit(args.has('--json') ? JSON.stringify({ version: VERSION, ...result, tools: toolsJson(result.tools) }, null, 2) : doctorText(result, VERSION));
 }
 
+// 설정 파일의 onWaiting 을 받지 않았으면 실행할 때도 알린다 (--doctor·--print-config 에는 problems 로 보인다).
+if (cfgFile.onWaitingIgnored && !cli.onWaiting) process.stderr.write(`aitop: ${cfgFile.onWaitingIgnored}\n`);
+
 const { collect } = await import('../src/collect.mjs');
 const { render, filterSessions, animating } = await import('../src/ui.mjs');
 const { arrange } = await import('../src/order.mjs');
