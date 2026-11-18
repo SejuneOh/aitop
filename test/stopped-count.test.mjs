@@ -33,7 +33,7 @@ test('헤더는 멈춤을 기호·글자와 함께 따로 세고 대기 수에�
     assert.match(ko, /! 2 멈춤/, `${W}: ${ko}`);
     // 대기에는 멈춘 2개가 빠진 1개만 남는다 (좁으면 대기 칸 자체가 빠질 수 있다).
     assert.doesNotMatch(ko, /○ 3/, `${W}: ${ko}`);
-    if (W >= 130) assert.match(ko, /○ 1 대기/, ko);
+    if (W >= 130) assert.match(ko, /○ 1 지시 대기/, ko);
     setLang('en');
     const en = strip(header(view(sessions), W));
     assert.match(en, /! 2 stopped/, `${W}: ${en}`);
@@ -41,7 +41,7 @@ test('헤더는 멈춤을 기호·글자와 함께 따로 세고 대기 수에�
   // 응답 대기 바로 뒤에 둔다 (사람이 할 일을 앞에).
   setLang('ko');
   const l = strip(header(view(sessions), 130));
-  assert.ok(l.indexOf('! 2') > l.indexOf('◆ 1') && l.indexOf('! 2') < l.indexOf('live'), l);
+  assert.ok(l.indexOf('! 2') > l.indexOf('◆ 1') && l.indexOf('! 2') < l.indexOf('세션'), l);
 });
 
 test('AITOP_AMBIGUOUS=wide 헤더에서도 멈춤(!)과 응답 대기(?)가 다른 기호다', () => {
