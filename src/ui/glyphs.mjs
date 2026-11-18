@@ -37,6 +37,9 @@ const NORMAL = {
   event: '•',
   cursor: '▏',
   pin: '★',
+  // 팀원 행의 작업 경과 시간 앞 표시 (◷3m12s). IDLE 칸 자리에 서서 '마지막 활동 후' 로 읽히지 않게 한다 (#265).
+  // ⏱ 는 이모지라 2칸으로 그리는 터미널이 있어 폭이 늘 1칸(N)인 시계 모양 ◷ 를 쓴다.
+  elapsed: '◷',
 };
 
 const SAFE = {
@@ -75,6 +78,8 @@ const SAFE = {
   cursor: '|',
   // 확인 전 * 와 겹치지 않게.
   pin: '#',
+  // 응답 대기 ? 나 '멈춘 듯' 의 좁은 표시(3m12s?)와 겹치지 않게 ~ 로 둔다.
+  elapsed: '~',
 };
 
 export const glyphs = () => (ambiguousWide() ? SAFE : NORMAL);
@@ -82,7 +87,7 @@ export const glyphs = () => (ambiguousWide() ? SAFE : NORMAL);
 // 도움말 범례처럼 기본 기호로 적어 둔 글을 지금 기호로 바꾼다.
 const SWAP = { '◆': 'waiting', '●': 'unseen', '◐': 'live', '○': 'idle', '!': 'stopped', '✓': 'done', '·': 'ended', '★': 'pin', '▲': 'hot' };
 
-// 표의 상태 칸과 그 앞뒤에 서는 기호. 세트마다 서로 달라야 한다 (응답 대기 깜빡임은 응답 대기와 같아도 된다).
-export const STATUS_KEYS = ['waiting', 'unseen', 'live', 'idle', 'stopped', 'done', 'ended', 'select', 'pin'];
+// 표의 상태 칸과 그 앞뒤에 서는 기호, 팀원 경과 시간 앞 표시(elapsed). 세트마다 서로 달라야 한다 (응답 대기 깜빡임은 응답 대기와 같아도 된다).
+export const STATUS_KEYS = ['waiting', 'unseen', 'live', 'idle', 'stopped', 'done', 'ended', 'select', 'pin', 'elapsed'];
 export const glyphSets = () => ({ NORMAL, SAFE });
 export const legendMark = (t) => (SWAP[t] ? glyphs()[SWAP[t]] : t);

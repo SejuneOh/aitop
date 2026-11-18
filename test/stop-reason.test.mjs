@@ -157,3 +157,22 @@ test('--line 의 멈춤 수(claudeStopped)는 세션 파일과 기록 끝만 보
   fx.transcript('line-ok', [user('해줘'), assistant('ok', [{ type: 'text', text: '끝' }], usage(1, 1))]);
   assert.equal(claudeStopped(), 0, '정상으로 끝난 대기');
 });
+
+test('--line 은 대기 목록과 멈춤 수를 세션 목록 한 번으로 모으고, 시간 상한을 넘기면 멈춤 수를 모름(null)으로 둔다 (#265)', async () => {
+  const { claudeLineCounts } = await import('../src/sources/claude.mjs');
+  fx.session({ sessionId: 'line-stop', status: 'idle' });
+  fx.transcript('line-stop', [user('해줘'), authLine(), ...tailRows]);
+  assert.deepEqual(claudeLineCounts(), { waiting: [], stopped: 1 });
+  assert.deepEqual(claudeLineCounts({ deadline: Date.now() + 60_000 }), { waiting: [], stopped: 1 }, '상한 안이면 결과가 같다');
+  assert.deepEqual(claudeLineCounts({ deadline: 0 }), { waiting: [], stopped: null }, '상한을 넘기면 모자라게 세지 않고 모름');
+  // 응답 대기 세션은 상한을 넘겨도 목록에 남는다 (기록 끝 읽기 상한은 멈춤 수에만 건다).
+  fx.session({ sessionId: 'line-stop', status: 'idle', waitingFor: 'approve Bash', name: 'line-wait', nameSource: 'user' });
+  const late = claudeLineCounts({ deadline: 0 });
+  assert.deepEqual([late.waiting.map((w) => w.name), late.stopped], [['line-wait'], 0]);
+});
+
+test('--line 줄: 멈춤 수를 모르면(null) 멈춤 칸만 뺀다', async () => {
+  const { formatLine } = await import('../src/line.mjs');
+  assert.doesNotMatch(formatLine({ today: 1, stopped: null }), /stop/);
+  assert.match(formatLine({ today: 1, stopped: 2 }), /stop 2/);
+});

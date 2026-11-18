@@ -147,7 +147,8 @@ test('도움말은 모달: 열려 있으면 스크롤·닫기·나가기만 듣�
   assert.equal(v.helpScroll, Math.min(v.helpPage, v.helpMax));
   v.helpScroll = v.helpMax;
   press(KEY.pageUp);
-  assert.equal(v.helpScroll, 0);
+  // 80칸은 설명을 감싸 줄이 늘었으므로 (#265) 한 페이지 올리면 끝에서 한 페이지 위다.
+  assert.equal(v.helpScroll, Math.max(0, v.helpMax - v.helpPage));
   press('q');
   assert.deepEqual(calls, ['quit']);
   press(KEY.esc);

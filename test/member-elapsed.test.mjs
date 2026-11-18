@@ -48,9 +48,9 @@ test('멈춘 듯 경계: 마지막 기록 후 3분, 오래 걸리는 도구가 �
 
 test('넓은 화면: 작업 중 팀원 행 끝에 경과 시간, 멈췄으면 그 앞에 멈춘 듯', () => {
   const W = 140;
-  assert.match(row(member(), W).trimEnd(), / 3m12s$/);
+  assert.match(row(member(), W).trimEnd(), / ◷3m12s$/);
   assert.doesNotMatch(row(member(), W), /멈춘 듯/);
-  assert.match(row(member({ lastActivityAt: AT - MEMBER_STALL_MS }), W).trimEnd(), /멈춘 듯 3m12s$/);
+  assert.match(row(member({ lastActivityAt: AT - MEMBER_STALL_MS }), W).trimEnd(), /멈춘 듯 ◷3m12s$/);
   // 끝난 팀원은 경과 시간을 그리지 않는다.
   assert.doesNotMatch(row(member({ status: 'done', phase: { kind: 'done' } }), W), /3m12s/);
   // 시작 시각을 모르면 비운다.
@@ -63,25 +63,25 @@ test('좁은 화면: 이름이 먼저 줄고 경과 시간은 남는다. 멈춘 
     const c = columns(W);
     assert.equal(c.cells, 0, `W=${W} 는 CTX 막대가 없는 단계`);
     const r = row(long, W);
-    assert.match(r.trimEnd(), / 3m12s$/, `W=${W}: 경과 시간은 그대로`);
+    assert.match(r.trimEnd(), / ◷3m12s$/, `W=${W}: 경과 시간은 그대로`);
     assert.doesNotMatch(r, /넘친다/, `W=${W}: 이름은 잘린다`);
     assert.match(r, / 멈춘 듯 /, `W=${W}: 멈춘 듯은 STATUS 칸 앞에 남는다`);
   }
   // STATUS 칸이 '멈춘 듯' 보다 좁은 가장 좁은 단계: 경과 시간 뒤의 ? 하나로 줄인다.
   assert.ok(columns(44).status < 8);
-  assert.match(row(long, 44).trimEnd(), / 3m12s\?$/);
-  assert.match(row(member(), 44).trimEnd(), / 3m12s$/, '멈추지 않았으면 ? 가 없다');
+  assert.match(row(long, 44).trimEnd(), / ◷3m12s\?$/);
+  assert.match(row(member(), 44).trimEnd(), / ◷3m12s$/, '멈추지 않았으면 ? 가 없다');
   // CONTEXT 막대 4칸 단계(끝 칸 14칸)에서는 둘 다 끝 칸에 들어간다.
   const W = [...Array(40).keys()].map((i) => 95 - i).find((w) => columns(w).cells === 4);
   assert.ok(W, 'CONTEXT 막대 4칸 단계가 있다');
-  assert.match(row(long, W).trimEnd(), /멈춘 듯 3m12s$/);
+  assert.match(row(long, W).trimEnd(), /멈춘 듯 ◷3m12s$/);
 });
 
 test('영어 화면은 stalled? 로 적는다', () => {
   const before = getLang();
   try {
     setLang('en');
-    assert.match(row(member({ lastActivityAt: AT - MEMBER_STALL_MS }), 140).trimEnd(), /stalled\? 3m12s$/);
+    assert.match(row(member({ lastActivityAt: AT - MEMBER_STALL_MS }), 140).trimEnd(), /stalled\? ◷3m12s$/);
   } finally {
     setLang(before);
   }
@@ -98,10 +98,10 @@ process.stdout.write(memberRow(${JSON.stringify(m)}, true, columns(120), 120, 0,
   const run = (env) => execFileSync(process.execPath, ['--input-type=module', '-e', src], { env: { ...process.env, AITOP_LANG: 'ko', ...env }, encoding: 'utf8' });
   const plain = run({ NO_COLOR: '1' });
   assert.doesNotMatch(plain, /\x1b\[[0-9;]*[34]8;/, '색 코드 없음');
-  assert.match(strip(plain), /멈춘 듯 3m12s/);
-  assert.match(strip(run({ AITOP_THEME: 'light' })), /멈춘 듯 3m12s/);
-  assert.match(strip(run({ AITOP_COLOR_BLIND: '1' })), /멈춘 듯 3m12s/);
-  assert.match(strip(run({ AITOP_LANG: 'en', NO_COLOR: '1' })), /stalled\? 3m12s/);
+  assert.match(strip(plain), /멈춘 듯 ◷3m12s/);
+  assert.match(strip(run({ AITOP_THEME: 'light' })), /멈춘 듯 ◷3m12s/);
+  assert.match(strip(run({ AITOP_COLOR_BLIND: '1' })), /멈춘 듯 ◷3m12s/);
+  assert.match(strip(run({ AITOP_LANG: 'en', NO_COLOR: '1' })), /stalled\? ◷3m12s/);
 });
 
 test('--json member 에 startedAt·lastActivityAt·stalled 를 더한다 (기존 필드는 그대로)', () => {
@@ -145,9 +145,9 @@ test('허락 대기: 팀원이 응답 대기이거나 부모 세션이 응답 �
   // 화면: 부모가 응답 대기면 경과 시간만 남는다.
   setNow(AT);
   const m = member({ lastActivityAt: AT - MEMBER_STALL_MS });
-  assert.match(strip(memberRow(m, true, columns(140), 140, 0, 'claude-opus-5-5', 'api', 'busy')).trimEnd(), /멈춘 듯 3m12s$/);
+  assert.match(strip(memberRow(m, true, columns(140), 140, 0, 'claude-opus-5-5', 'api', 'busy')).trimEnd(), /멈춘 듯 ◷3m12s$/);
   const r = strip(memberRow(m, true, columns(140), 140, 0, 'claude-opus-5-5', 'api', 'waiting')).trimEnd();
-  assert.match(r, / 3m12s$/);
+  assert.match(r, / ◷3m12s$/);
   assert.doesNotMatch(r, /멈춘 듯/);
 });
 
@@ -171,7 +171,7 @@ test('Claude: 서브에이전트가 Edit 허락을 기다리는 동안(부모가
   assert.equal(x.s.status, 'waiting');
   assert.equal(x.s.members[0].status, 'busy');
   assert.doesNotMatch(x.screen, /멈춘 듯/);
-  assert.match(x.screen, / \d+s\s*$/, '경과 시간은 보인다');
+  assert.match(x.screen, / ◷\d+s\s*$/, '경과 시간은 보인다');
   assert.equal(x.json.stalled, false);
 
   // 같은 상태에서 부모가 대기가 아니면 3분 기준으로 멈춘 듯이다.
@@ -179,6 +179,32 @@ test('Claude: 서브에이전트가 Edit 허락을 기다리는 동안(부모가
   sub();
   x = look();
   assert.equal(x.s.status, 'busy');
-  assert.match(x.screen, /멈춘 듯 \d+s\s*$/);
+  assert.match(x.screen, /멈춘 듯 ◷\d+s\s*$/);
   assert.equal(x.json.stalled, true);
+});
+
+test('팀원 경과 시간 앞 표시: 기본 ◷, SAFE ~. 상태 기호·응답 대기 ?·멈춘 듯 ? 와 겹치지 않고 1칸이다 (#265)', async () => {
+  const { glyphSets, STATUS_KEYS } = await import('../src/ui/glyphs.mjs');
+  const { setAmbiguous, width } = await import('../src/text.mjs');
+  const { NORMAL, SAFE } = glyphSets();
+  assert.equal(NORMAL.elapsed, '◷');
+  assert.equal(SAFE.elapsed, '~');
+  for (const [name, G] of Object.entries({ NORMAL, SAFE })) {
+    assert.ok(!STATUS_KEYS.filter((k) => k !== 'elapsed').map((k) => G[k]).includes(G.elapsed), `${name}: 상태 기호와 겹침`);
+    assert.notEqual(G.elapsed, '?', `${name}: 멈춘 듯 ? 와 겹침`);
+    assert.notEqual(G.elapsed, G.waitingBlink, name);
+  }
+  for (const mode of ['narrow', 'wide']) {
+    setAmbiguous(mode);
+    assert.equal(width(mode === 'wide' ? SAFE.elapsed : NORMAL.elapsed), 1, mode);
+  }
+  setAmbiguous('wide');
+  try {
+    assert.match(row(member(), 140).trimEnd(), / ~3m12s$/, 'SAFE 세트 행');
+    assert.match(row(member({ lastActivityAt: AT - MEMBER_STALL_MS }), 44).trimEnd(), / ~3m12s\?$/, '좁은 화면 ? 는 뒤에 그대로');
+  } finally {
+    setAmbiguous('narrow');
+  }
+  // 세션 행 IDLE 칸(마지막 활동 후)에는 붙지 않는다.
+  assert.doesNotMatch(row(member({ startedAt: undefined }), 140), /◷/);
 });

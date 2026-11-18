@@ -55,6 +55,8 @@ const GEMINI_PRICES = {
 export const priceTag = (tables) => createHash('sha1').update(JSON.stringify(tables)).digest('hex').slice(0, 8);
 
 // 모델별 컨텍스트 창 크기(토큰). 출처: Anthropic 모델 표 https://platform.claude.com/docs/en/about-claude/models/overview (2026-11-18 확인). 표에 없는 모델은 contextWindow 가 추측한다.
+// 가격과 달리 창 크기는 틀려도 비용이 바뀌지 않고, 같은 계열이면 거의 같다. 그래서 표와 똑같은 이름이 없으면
+// 앞부분이 같은 가장 긴 키(계열)의 값을 쓴다 (contextWindow 참고).
 const WINDOWS = {
   // Gemini 계열의 입력 한도(1,048,576 토큰). Antigravity 의 내부 모델 이름(gemini-4-argon 등)도 같다고 본다.
   'gemini-': 1_048_576,
@@ -81,20 +83,47 @@ const WINDOWS = {
   'claude-haiku-4-5': 200_000,
 };
 
+// Claude 모델 이름을 가격표 키 모양으로 맞춘다. 떼는 것은 클라우드·도구가 같은 모델에 붙이는 모양뿐이다:
+// - 앞의 Bedrock 접두사: anthropic., global.anthropic., us.anthropic., us-gov.anthropic. 등 (모델 표의 Amazon Bedrock ID)
+// - 끝의 Bedrock 판 번호: -v1:0 (bedrock-runtime 의 예전 ID 모양. 콜론까지 있을 때만 뗀다)
+// - 끝의 [1m]: Claude Code 의 1M 창 모델 지정 (claude-opus-4-6[1m])
+// - 끝의 -latest (Codex 와 같은 규칙)
+// - 끝의 날짜: claude-opus-4-20250514 (4.6 이전 Claude API 의 날짜판 ID), claude-opus-4@20250514 (Vertex AI)
+// - 끝의 -0: claude-opus-4-0, claude-sonnet-4-0 은 claude-opus-4, claude-sonnet-4 의 공식 별칭이다 (계열-주판-0 모양만)
+// 그 밖의 꼬리(-preview, -v2, -9 등)는 다른 모델일 수 있어서 떼지 않는다.
+const claudeKey = (model) =>
+  model
+    .replace(/^(?:[a-z][a-z0-9-]*\.)?anthropic\./, '')
+    .replace(/\[\d+[km]\]$/i, '')
+    .replace(/-v\d+:\d+$/, '')
+    .replace(/-latest$/, '')
+    .replace(/[-@]\d{8}$/, '')
+    .replace(/^(claude-[a-z]+-\d+)-0$/, '$1');
+
+// 표에서 모델을 찾는다. 이름이 표와 똑같을 때, 또는 claudeKey 로 다듬은 이름이 표와 똑같을 때만 찾는다.
+// 앞부분만 같은 다른 모델(claude-opus-4-9 와 claude-opus-4 등)에 엉뚱한 가격·창 크기를 매기지 않기 위해서다 (#255, #266).
 function lookup(table, model) {
   if (!model) return null;
-  if (table[model]) return table[model];
-  const key = Object.keys(table)
+  return table[model] ?? table[claudeKey(model)] ?? null;
+}
+
+// 창 크기 표 찾기. 정확히 맞는 키(claudeKey 로 다듬은 이름 포함)가 먼저이고, 없으면 다듬은 이름과 앞부분이 같은
+// 가장 긴 키(계열 값)를 쓴다. 표에 없는 새 모델(claude-sonnet-5-6 등)이 200K 추측으로 떨어져 게이지가 부풀지 않게 하려는 것이다.
+function windowOf(model) {
+  const exact = lookup(WINDOWS, model);
+  if (exact || !model) return exact;
+  const name = claudeKey(model);
+  const key = Object.keys(WINDOWS)
     .sort((a, b) => b.length - a.length)
-    .find((k) => model.startsWith(k));
-  return key ? table[key] : null;
+    .find((k) => name.startsWith(k));
+  return key ? WINDOWS[key] : null;
 }
 
 // 모르는 모델은 사용량으로 추측한다: 200k 를 넘었으면 1M 창, 아니면 200k 창.
 // 표에 있어도 사용량이 표 값을 넘으면 추측 값을 쓴다: Sonnet 4/4.5 는 1M 베타로 200K 를 넘을 수 있는데, 기록의 모델 이름으로는 구분되지 않는다.
 export function contextWindow(model, used = 0) {
   const guess = used > 200_000 ? 1_000_000 : 200_000;
-  const w = lookup(WINDOWS, model);
+  const w = windowOf(model);
   return w ? Math.max(w, guess) : guess;
 }
 
@@ -178,9 +207,13 @@ export function openaiPrice(model) {
   return OPENAI_PRICES[model] ?? OPENAI_PRICES[model.replace(/-(latest|\d{4}-\d{2}-\d{2})$/, '')] ?? null;
 }
 
-// 가격표가 바뀌면 이 값이 바뀌고, 캐시 폴더도 바뀌어 예전 비용이 다시 계산된다. 세 표(Claude, Gemini, Codex)를 모두 넣는다.
+// 가격표가 바뀌면 이 값이 바뀌고, 캐시 폴더도 바뀌어 예전 비용이 다시 계산된다 (월별 보관함도 다시 계산한다).
+// 세 표(Claude, Gemini, Codex)와 찾는 규칙의 판 번호(LOOKUP_REV)를 함께 넣는다.
+// 표의 값은 그대로여도 모델 이름으로 가격을 찾는 규칙(lookup, claudeKey, openaiPrice 등)이 바뀌면 LOOKUP_REV 를 올린다.
+// lookup-2: Claude 가격을 앞부분 일치가 아니라 정규화 후 정확 일치로 찾는다 (#266).
 export const PRICE_TABLES = [PRICES, GEMINI_PRICES, OPENAI_PRICES];
-export const PRICE_TAG = priceTag(PRICE_TABLES);
+export const LOOKUP_REV = 'lookup-2';
+export const PRICE_TAG = priceTag([...PRICE_TABLES, LOOKUP_REV]);
 
 // Codex 세션 누적 토큰(tokens: input 은 캐시 제외, cacheRead, output)의 환산 비용. 가격표에 없는 모델이면 null.
 export function codexCost(model, t) {

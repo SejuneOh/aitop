@@ -7,7 +7,7 @@ const { collectClaude } = await import('../src/sources/claude.mjs');
 const { createBudget } = await import('../src/tail.mjs');
 const { money } = await import('../src/ui.mjs');
 const { CACHE_DIR } = await import('../src/cache.mjs');
-const { PRICE_TAG, PRICE_TABLES, priceTag } = await import('../src/pricing.mjs');
+const { PRICE_TAG, PRICE_TABLES, LOOKUP_REV, priceTag } = await import('../src/pricing.mjs');
 
 const run = () => collectClaude({ showEnded: false, budget: createBudget() });
 
@@ -61,12 +61,18 @@ test('가격표의 값이 하나라도 바뀌면 지문(PRICE_TAG)이 바뀐다'
   cheaper['gemini-4-argon'][0].input = 1.5;
   assert.notEqual(priceTag([table]), priceTag([cheaper]), '단가');
   assert.notEqual(priceTag([table]), priceTag([{ ...table, 'gemini-9': [{ input: 1, output: 1 }] }]), '모델 추가');
-  // 실제 지문은 Claude, Gemini, Codex 세 표로 만든다. Codex 단가만 바꿔도 지문이 바뀐다.
-  assert.equal(PRICE_TAG, priceTag(PRICE_TABLES));
+  // 실제 지문은 Claude, Gemini, Codex 세 표와 찾는 규칙 판 번호로 만든다. Codex 단가만 바꿔도 지문이 바뀐다.
+  assert.equal(PRICE_TAG, priceTag([...PRICE_TABLES, LOOKUP_REV]));
   const tables = structuredClone(PRICE_TABLES);
   const codex = tables.find((t) => t['gpt-5.3-codex']);
   assert.ok(codex, 'Codex 표가 지문에 들어 있다');
   codex['gpt-5.3-codex'].output += 1;
-  assert.notEqual(priceTag(tables), PRICE_TAG, 'Codex 단가');
+  assert.notEqual(priceTag([...tables, LOOKUP_REV]), PRICE_TAG, 'Codex 단가');
   assert.match(PRICE_TAG, /^[0-9a-f]{8}$/);
+});
+
+test('가격 찾는 규칙이 바뀌면(LOOKUP_REV) 표 값이 같아도 지문이 바뀐다 (#266)', () => {
+  assert.notEqual(PRICE_TAG, priceTag(PRICE_TABLES), '규칙 판 번호가 지문에 들어 있다');
+  assert.notEqual(PRICE_TAG, '3c180b4b', '앞부분 일치 시절(v0.34.0)의 지문과 다르다');
+  assert.notEqual(priceTag([...PRICE_TABLES, 'lookup-2']), priceTag([...PRICE_TABLES, 'lookup-3']));
 });
