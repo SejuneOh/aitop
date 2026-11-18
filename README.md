@@ -285,9 +285,9 @@ Alerts when a session starts waiting, finishes a long turn or fills its context.
 >
 > `aitop --on-waiting 'my-hook.sh'`
 
-- `--notify`: desktop notification when a session starts waiting (notify-send on Linux, Windows notification on WSL, osascript on macOS).
+- `--notify`: desktop notification when a session starts waiting (notify-send on Linux, osascript on macOS, a Windows notification through PowerShell on WSL and Windows).
 - `--notify=waiting,done,context`: pick the kinds. Plain `--notify` uses the config file kinds, or waiting only when none are set.
-- `--on-waiting`: run a command with `/bin/sh -c` for the same events (10 second limit, runs as you).
+- `--on-waiting`: run a command with `/bin/sh -c` (`cmd.exe /d /v:on /s /c` on Windows) for the same events (10 second limit, runs as you).
 - Sessions already waiting (or already over 90% context) when aitop starts are not reported.
 
 **Kinds**
@@ -313,7 +313,7 @@ Alerts when a session starts waiting, finishes a long turn or fills its context.
 **Config file and switches**
 
 - `"notify": true` or `"notify": ["waiting", "done", "context"]`.
-- `"onWaiting": "..."` (the file must be `chmod 600`).
+- `"onWaiting": "..."` (the file must be `chmod 600`; on Windows it must be under your profile instead, see [Install](#install)).
 - `"doneMinutes": 5`.
 - Plain `--notify` keeps the kinds from the config `notify` list (waiting only when there is none).
 - `--no-notify` turns off only the desktop notification: the hook still follows those kinds.
@@ -324,7 +324,7 @@ Alerts when a session starts waiting, finishes a long turn or fills its context.
 <details>
 <summary>Details: WSL, D-Bus, notification text</summary>
 
-- On WSL, aitop shows a Windows notification through `powershell.exe` (as Windows PowerShell, no setup needed).
+- On WSL and Windows, aitop shows a Windows notification through `powershell.exe` (as Windows PowerShell, no setup needed). On Windows it uses the one under `%SystemRoot%` first, then the PATH.
 - It falls back to notify-send when `powershell.exe` is not on the PATH.
 - notify-send needs a D-Bus session bus. When `DBUS_SESSION_BUS_ADDRESS` is unset or its socket file is missing, notifications cannot show and `--doctor` marks the line with `!`.
 - A missing tool or a failed notification is skipped quietly.
@@ -535,13 +535,22 @@ Requires Node.js 22+ on Linux, macOS, WSL or Windows.
 - `npm install -g` installs it. Then run `aitop`.
 
 <details>
-<summary>Windows: what works and what does not yet</summary>
+<summary>Windows: what works and how</summary>
 
-- Native Windows support is early (Windows Terminal recommended).
-- Works: Claude Code and Codex sessions, `--once`, `--json`, `--report` and `--doctor`.
-- Not there yet: process detection, desktop notifications and `--on-waiting` ([#195](https://github.com/SejuneOh/aitop/issues/195)-[#197](https://github.com/SejuneOh/aitop/issues/197)).
-- Until then a Codex session counts as running while its log was written in the last 10 minutes.
-- So it drops out during a long step that writes nothing for over 10 minutes, and a crashed session can stay up to 10 minutes.
+- Windows Terminal is recommended.
+- In the old console (conhost) the `▕█░` bars and braille (`⠋`, the logo) may show as boxes, and `--doctor` says so. Run with `AITOP_AMBIGUOUS=wide` (ASCII tables and bars) or `NO_COLOR` (progress bar as `[#.]`) there.
+- When antivirus or another aitop briefly holds a cache or summary file, replacing it is retried 3 times, 50ms apart.
+- Works: Claude Code and Codex sessions, `--once`, `--json`, `--report`, `--doctor`, `--notify` and `--on-waiting`.
+- `--on-waiting` runs through `%COMSPEC%` (usually `cmd.exe`) `/d /v:on /s /c` with no window, and `taskkill /T /F` ends it and its children.
+- Inside the command, read values as `!AITOP_PROJECT!`, not `%AITOP_PROJECT%`: cmd reads `&`, `|` and `>` in a `%...%` value as part of the command, but not in a `!...!` value. A `!` in the command itself is read as a variable mark.
+- The same goes for a `.bat` or `.cmd` file the hook calls: `%AITOP_PROJECT%` inside it is read as part of the script. Start it with `setlocal enabledelayedexpansion` and use `!AITOP_PROJECT!`, or write the hook in PowerShell and read `$env:AITOP_PROJECT`.
+- Windows uses ACLs, not modes, so instead of the `chmod 600` check `onWaiting` in the config file is accepted only when the file (after following links) is under your profile (`%USERPROFILE%`, for example `%APPDATA%\aitop`), which other users cannot write by default. A config file elsewhere (say `XDG_CONFIG_HOME=C:\cfg`) has its `onWaiting` ignored, with a warning at start and in `--doctor`.
+- Desktop notifications (`--notify`) show through Windows PowerShell, as on WSL.
+- Running processes come from one PowerShell call (`Get-CimInstance Win32_Process`): ids, parents, command lines and start times. It takes about a second, so aitop waits for the first one and then refreshes it in the background every 5 seconds (8 second limit). `--doctor` shows the method and the time it took.
+- Windows does not give other processes' working folders, so each Codex process (latest first) gets the most recently written session among those started after it, which follows `/new`. A process with none gets the latest log written after it started (a resumed session).
+- Known limit: by times alone this cannot tell a session that just ended in another terminal from `/new`, so such a session may show as running for a while instead of a long-idle one. It corrects itself once the idle session writes again.
+- A Claude Code session is ended when the process now holding its pid started after the session file was last written (pid reuse).
+- If the PowerShell call fails 3 times in a row (or the first call fails), a Codex session counts as running while its log was written in the last 10 minutes, as before. It is retried after a minute.
 - Cache, log and config live in `%LOCALAPPDATA%\aitop\cache`, `%LOCALAPPDATA%\aitop\state` and `%APPDATA%\aitop` unless `XDG_*` is set.
 
 </details>

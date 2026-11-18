@@ -98,12 +98,19 @@ test('잘못된 설정은 무시하고 --doctor 에 알린다 (JSON 도)', () =>
   assert.match(run(bad, ['--once']), /e2e 세션/, '잘못된 JSON 이어도 실행된다');
   assert.match(run(bad, ['--doctor']), /설정 .*config\.json[\s\S]*! 설정 파일이 올바른 JSON 이 아니라/);
 
+  // onWaiting 을 받지 않는 경우: POSIX 는 넓은 mode, Windows 는 사용자 프로필 밖의 설정 파일 (#196).
+  // Windows 는 mode 를 보지 않으므로, 프로필(USERPROFILE)을 설정 파일이 없는 다른 임시 폴더로 돌려 밖으로 만든다.
+  const win = process.platform === 'win32';
   const shared = configHome({ onWaiting: 'echo hi', showRequests: 'yes' }, 0o666).xdg;
-  const doc = JSON.parse(run(shared, ['--doctor', '--json']));
+  const extra = win ? { USERPROFILE: mkdtempSync(join(tmpdir(), 'aitop-profile-')) } : {};
+  const doc = JSON.parse(run(shared, ['--doctor', '--json'], extra));
   assert.equal(doc.config.exists, true);
   assert.equal(doc.config.values.onWaiting.source, 'default');
-  assert.ok(doc.config.problems.some((p) => /onWaiting 은 무시합니다: 그룹·다른 사용자가 쓸 수 있음 \(mode 666\)/.test(p)));
+  const why = win ? /onWaiting 은 무시합니다: 설정 파일이 사용자 프로필\(%USERPROFILE%\) 밖에 있어/ : /onWaiting 은 무시합니다: 그룹·다른 사용자가 쓸 수 있음 \(mode 666\)/;
+  assert.ok(doc.config.problems.some((p) => why.test(p)), doc.config.problems.join('\n'));
   assert.ok(doc.config.problems.some((p) => /showRequests 값 "yes"/.test(p)));
+  // Windows: 같은 파일도 프로필 아래면 받는다.
+  if (win) assert.equal(JSON.parse(run(shared, ['--doctor', '--json'])).config.values.onWaiting.source, 'file');
 });
 
 test('파일의 showRequests 가 --json 에 반영된다', () => {

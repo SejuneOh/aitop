@@ -45,7 +45,7 @@ test('isAlive 는 신호 없이 프로세스가 있는지만 본다', { skip: pr
   assert.equal(isAlive(NaN), false);
 });
 
-test('실행 중인 codex 프로세스와 작업 폴더를 찾는다 (Linux /proc, macOS ps·lsof)', { skip: !canListProcesses() && '이 OS 는 프로세스 목록을 지원하지 않음' }, async () => {
+test('실행 중인 codex 프로세스와 작업 폴더를 찾는다 (Linux /proc, macOS ps·lsof)', { skip: (!canListProcesses() && '이 OS 는 프로세스 목록을 지원하지 않음') || (process.platform === 'win32' && 'Windows 는 작업 폴더를 얻지 않는다 (test/win-procs.test.mjs)') }, async () => {
   // 공백이 든 폴더에서 띄워 macOS ps 출력의 경로 이어 붙이기도 확인한다.
   const dir = mkdtempSync(join(tmpdir(), 'aitop procs '));
   writeFileSync(join(dir, 'codex.js'), 'setInterval(() => {}, 1000);\n');

@@ -534,9 +534,9 @@ Claude Code 세션 하나를 지시 → 도구 호출 → 서브에이전트(그
 >
 > `aitop --on-waiting 'my-hook.sh'`
 
-- `--notify`: 데스크톱 알림. Linux 는 notify-send, WSL 은 Windows 알림, macOS 는 osascript. 없으면 조용히 건너뛴다 (`--doctor` 에 보임).
+- `--notify`: 데스크톱 알림. Linux 는 notify-send, WSL·Windows 는 Windows 알림, macOS 는 osascript. 없으면 조용히 건너뛴다 (`--doctor` 에 보임).
 - `--notify=waiting,done,context`: 알릴 종류를 고른다. `--notify` 만 주면 설정 파일 `notify` 배열의 종류, 없으면 `waiting` 만.
-- `--on-waiting`: 응답 대기가 새로 생길 때마다 `/bin/sh -c` 로 명령 실행 (`--on-waiting=<명령>` 도 됨).
+- `--on-waiting`: 응답 대기가 새로 생길 때마다 `/bin/sh -c` (Windows 는 `cmd.exe /d /v:on /s /c`) 로 명령 실행 (`--on-waiting=<명령>` 도 됨).
 - `--bell` 처럼 aitop 을 켰을 때 이미 응답 대기인 세션은 알리지 않는다.
 
 **종류**
@@ -573,7 +573,7 @@ Claude Code 세션 하나를 지시 → 도구 호출 → 서브에이전트(그
 <details>
 <summary>세부: WSL, D-Bus, 알림 본문</summary>
 
-- WSL 에서는 `powershell.exe` 로 Windows 알림을 띄운다 (Windows PowerShell 이름으로 뜨고 따로 설정할 것은 없다).
+- WSL 과 Windows 에서는 `powershell.exe` 로 Windows 알림을 띄운다 (Windows PowerShell 이름으로 뜨고 따로 설정할 것은 없다). Windows 는 `%SystemRoot%` 아래 것을 먼저, 없으면 PATH 에서 찾는다.
 - PATH 에 `powershell.exe` 가 없으면 notify-send 를 쓴다.
 - notify-send 는 D-Bus 세션 버스가 있어야 뜬다.
 - `DBUS_SESSION_BUS_ADDRESS` 가 없거나 그 소켓 파일이 없으면 알림이 뜨지 않으므로 `--doctor` 가 알림 줄에 `!` 와 안내를 보인다.
@@ -609,6 +609,9 @@ Claude Code 세션 하나를 지시 → 도구 호출 → 서브에이전트(그
 - 한 번 갱신에서 여러 세션이 함께 응답 대기가 되면 첫 세션과 마지막 세션만 실행되고 그 사이 세션은 건너뛴다.
 - aitop 을 끝내면 실행 중인 명령도 함께 끝낸다.
 - 명령이 자식을 백그라운드로 띄우고(`cmd &`) 먼저 끝나면, 그 자식은 10초 제한과 종료 정리 밖에 남으므로 정리는 명령이 맡는다.
+- Windows 는 `%COMSPEC%`(보통 `cmd.exe`) `/d /v:on /s /c` 로 창 없이 실행하고, 끝낼 때는 `taskkill /T /F` 로 자식까지 끝낸다.
+- Windows 명령 안에서는 값을 `%AITOP_PROJECT%` 가 아니라 `!AITOP_PROJECT!` 로 읽는다. cmd 는 `%…%` 값 안의 `&`·`|`·`>` 를 명령으로 읽지만 `!…!` 값은 글자 그대로 둔다. 대신 명령 글 안의 `!` 는 변수 표시로 읽힌다.
+- 훅이 부르는 `.bat`·`.cmd` 파일 안에서도 `%AITOP_PROJECT%` 는 값이 스크립트로 읽힌다. 배치 첫 줄에 `setlocal enabledelayedexpansion` 을 두고 `!AITOP_PROJECT!` 로 읽거나, 훅을 PowerShell 로 쓰고 `$env:AITOP_PROJECT` 로 읽는다.
 
 </details>
 
@@ -928,6 +931,8 @@ Claude Code 프로필을 여럿 쓰면(`CLAUDE_CONFIG_DIR=~/.claude-work claude`
 - `showRequests` 는 설정 파일로도 켤 수 있다 (내 파일이라 권한 검사는 하지 않는다).
 - 켜면 위의 `--show-requests` 주의가 그대로 적용된다.
 - `onWaiting` 은 파일 소유자가 나이고 그룹·다른 사용자가 쓸 수 없을 때(예: `chmod 600`)만 받는다.
+- Windows 는 파일 권한이 mode 가 아니라 ACL 이라, 이 검사 대신 설정 파일의 실제 경로(링크를 따라간 뒤)가 사용자 프로필(`%USERPROFILE%`, 예: `%APPDATA%\aitop`) 아래일 때만 받는다. 프로필은 기본 권한으로 다른 사용자가 쓸 수 없다.
+- 프로필 밖(예: `XDG_CONFIG_HOME=C:\cfg`)의 설정 파일이면 `onWaiting` 을 무시하고, 실행할 때와 `--doctor` 에 알린다.
 
 </details>
 
@@ -1038,14 +1043,14 @@ end)
 | 도구 | 실행 중 판단 | 진행 내용·토큰 |
 |---|---|---|
 | Claude Code | `~/.claude/sessions/<pid>.json` + pid 가 살아 있는지 | `~/.claude/projects/*/<sessionId>.jsonl`, `…/subagents/agent-*.jsonl` |
-| Codex CLI | `codex` 프로세스와 작업 폴더 (Linux `/proc`, macOS `ps`·`lsof`). Windows 는 10분 안에 바뀐 기록 | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` |
+| Codex CLI | `codex` 프로세스와 작업 폴더 (Linux `/proc`, macOS `ps`·`lsof`). Windows 는 PowerShell CIM 의 프로세스 시작 시각 | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` |
 | Antigravity CLI (`agy`) | `agy` 프로세스가 열어 둔 `presence/<id>.lock` (Linux `/proc/<pid>/fd`). macOS 는 작업 폴더로 짝짓는다 | `~/.gemini/antigravity-cli/conversation_summaries.db`(제목·상태·서브에이전트), `conversations/<id>.db` 의 `gen_metadata`(모델·토큰)·`steps`(지시·답변·도구 호출) |
 | Gemini CLI | `gemini` 프로세스 | 아직 미지원 |
 
 ## 알려진 한계
 
-- Linux·WSL·macOS 를 지원하고, macOS 는 `ps`·`lsof` 를 2초에 한 번 부른다.
-- Windows 네이티브는 1단계다 (Windows Terminal 권장). 아래 세부 참고.
+- Linux·WSL·macOS·Windows 를 지원하고, macOS 는 `ps`·`lsof` 를 2초에 한 번, Windows 는 PowerShell 을 5초에 한 번 부른다.
+- Windows 네이티브는 Windows Terminal 을 권장한다. 아래 세부 참고.
 - 배경색 자동 판별은 `COLORFGBG` 에 기대는데 Windows Terminal 은 이 값을 넣지 않는다. 밝은 배경의 Windows Terminal 에서는 `aitop --theme light` 로 실행한다.
 - 세션 파일 형식은 각 CLI 의 내부 형식이라, CLI 업데이트로 바뀌면 `src/sources/` 의 해당 파일을 고쳐야 한다.
 - 컨텍스트 창 크기는 기록에 없어서 모델별 표(`src/pricing.mjs`)로 정한다. 표에 없는 모델은 200k 를 넘으면 1M 으로 가정한다.
@@ -1058,10 +1063,16 @@ end)
 <details>
 <summary>세부: Windows 네이티브</summary>
 
-- 설치와 실시간 화면·`--once`·`--json`·`--report`·`--doctor` 에서 Claude Code·Codex 세션이 보인다.
-- 아직 안 되는 것: 프로세스 감지(#195), `onWaiting` 설정 파일 권한 확인(#196), 알림·`--on-waiting`(#197).
-- 프로세스를 못 세므로 Codex 는 10분 안에 기록이 바뀐 세션만 실행 중으로 본다 (pid 없음).
-- 그래서 10분 넘게 기록을 쓰지 않는 긴 작업 중에는 목록에서 빠지고, 비정상 종료된 세션은 최대 10분 남을 수 있다.
+- 설치와 실시간 화면·`--once`·`--json`·`--report`·`--doctor` 에서 Claude Code·Codex 세션이 보이고, `--notify`(WSL 과 같은 PowerShell 알림)·`--on-waiting` 도 돈다 ([알림](#알림)의 실행 규칙 참고).
+- 설정 파일의 `onWaiting` 은 권한(mode) 대신 파일이 사용자 프로필 아래인지로 받는다 ([설정 파일](#설정-파일) 참고).
+- 프로세스 목록은 PowerShell `Get-CimInstance Win32_Process` 한 번으로 pid·부모·명령줄·시작 시각을 받는다.
+- 한 번에 1초 안팎 걸려서, 처음 한 번만 기다려 받고 그 뒤에는 5초마다 뒤에서 새로 받는다 (8초 넘으면 끊음). `--doctor` 첫 줄에 방식과 걸린 시간이 보인다.
+- 다른 프로세스의 작업 폴더는 얻지 않는다. 그래서 Codex 는 늦게 뜬 프로세스부터, 그 프로세스가 뜬 뒤 시작한 세션 중 가장 최근에 기록된 세션을 짝짓는다 (`/new` 로 새로 연 세션을 따라간다). 그런 세션이 없는 프로세스(이어 연 세션)에는 뜬 뒤에 기록이 쓰인 가장 최근 세션을 준다.
+- 알려진 한계: 시각만으로는 다른 터미널에서 방금 끝난 세션과 `/new` 를 구별할 수 없어, 오래 쉬는 세션 대신 그 세션이 잠시 실행 중으로 보일 수 있다. 쉬던 세션이 다시 기록하면 바로잡힌다.
+- Claude Code 세션은 그 pid 를 지금 가진 프로세스가 세션 파일이 마지막으로 쓰인 뒤에 떴으면 끝난 것으로 본다 (pid 재사용).
+- PowerShell 호출이 3번 이어 실패하면(첫 호출은 한 번) 예전처럼 10분 안에 기록이 바뀐 Codex 세션만 실행 중으로 보고(pid 없음), 1분 뒤에 다시 해 본다.
+- 구형 콘솔(conhost)에서는 `▕█░` 막대와 점자 글자(`⠋`, 로고)가 네모로 보일 수 있고 `--doctor` 가 알린다. Windows Terminal 을 권장하고, 이 콘솔에서는 `AITOP_AMBIGUOUS=wide`(표·막대를 ASCII 로)나 `NO_COLOR`(진행 막대를 `[#.]` 로)로 실행한다.
+- 백신이나 다른 aitop 이 캐시·요약 파일을 잠깐 잡고 있으면 파일 교체를 50ms 간격으로 3번 더 해 본다.
 - 캐시·로그·설정은 `XDG_*` 가 없으면 `%LOCALAPPDATA%\aitop\cache`, `%LOCALAPPDATA%\aitop\state`, `%APPDATA%\aitop` 에 둔다.
 
 </details>
@@ -1162,10 +1173,13 @@ npmjs.com 에 공개로 올린다 (MIT).
 > `npm run test:e2e`
 >
 > `AITOP_BIN=bin/aitop.mjs node test/smoke.mjs`
+>
+> `npm run test:perf`
 
 - `npm test`: 단위 테스트 (`test/*.test.mjs`).
 - `npm run test:e2e`: e2e. 실제 bin 실행(`--json`/`--once`/`--help`), 가상 터미널에서 키 입력·종료 확인 (Linux, util-linux `script` 필요).
 - `AITOP_BIN=... node test/smoke.mjs`: 임시 기록으로 `--version`·`--doctor`·`--once`·`--json`·`--report` 확인 (CI 의 Windows 작업이 설치본으로 돌린다).
+- `npm run test:perf`: 성능 기준. 임시 폴더에 만든 고정 샘플로 `--json`·`--once`·`--report daily` 의 첫 실행·두 번째 실행 시간과 최대 메모리를 재고, 기준(`test/perf/startup.perf.mjs` 주석)을 넘으면 실패한다. `npm test` 에는 없고 CI 는 ubuntu Node 22 에서만 돌린다. 느린 기계는 `AITOP_PERF_SCALE=2` 로 기준을 늘린다.
 
 **버전 올리기**
 

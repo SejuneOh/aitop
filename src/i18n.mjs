@@ -82,10 +82,10 @@ const HELP_KO = `{logo} aitop - 터미널에서 Claude Code · Codex · Antigrav
                    같은 도구 연속 호출은 Grep ×38 처럼 묶고, 깊은 가지는 접는다. 명령·경로 같은 인자와 지시 글은 --show-prompts 일 때만
   aitop --doctor   Claude · Codex · Antigravity · Gemini 기록과 실행 중인 프로세스, 설정 파일을 점검한다 (--json 과 함께 쓸 수 있다)
   aitop --bell     응답 대기 세션이 새로 생기면 터미널 벨을 울린다
-  aitop --notify   응답 대기 세션이 새로 생기면 데스크톱 알림을 띄운다 (Linux notify-send · macOS osascript · WSL 은 powershell.exe 로 Windows 알림, 없으면 건너뜀)
+  aitop --notify   응답 대기 세션이 새로 생기면 데스크톱 알림을 띄운다 (Linux notify-send · macOS osascript · WSL·Windows 는 powershell.exe 로 Windows 알림, 없으면 건너뜀)
   aitop --notify=waiting,done,context  알릴 종류를 고른다 (--notify 만 주면 설정 파일 notify 배열, 없으면 waiting). done: 3분(설정 파일 doneMinutes, 응답 대기 시간 빼고) 넘게 작업하던 세션이 다음 지시를
                    기다리면 한 번. context: 컨텍스트가 90% 를 넘으면 한 번 (85% 아래로 내려가면 다시)
-  aitop --on-waiting <명령>  알릴 일이 생기면 /bin/sh -c 로 명령을 실행한다 (내 권한으로 실행, 10초 제한). 종류는 --notify 를 따른다 (--no-notify 여도)
+  aitop --on-waiting <명령>  알릴 일이 생기면 /bin/sh -c (Windows 는 cmd.exe /c) 로 명령을 실행한다 (내 권한으로 실행, 10초 제한). 종류는 --notify 를 따른다 (--no-notify 여도)
                    세션 정보는 환경변수로만: AITOP_EVENT(waiting|done|context) AITOP_TOOL AITOP_PROJECT AITOP_SESSION_ID AITOP_CWD AITOP_WAITING_FOR
   aitop --show-requests  응답 대기 요청 전체를 상세 패널·--json 에 보인다 (AITOP_SHOW_REQUESTS=1). 비밀값 가림은 최선일 뿐이라 명령 속 비밀값이 보일 수 있다
   aitop --budget-day <달러>  하루 예산. 헤더에 오늘 $12.30/$50 처럼 보이고, 오늘 끝 예상 비용(오늘 + 최근 속도 × 자정까지, 늘 API 환산)이
@@ -144,10 +144,10 @@ const HELP_EN = `{logo} aitop - watch Claude Code, Codex, Antigravity and Gemini
                    Repeated calls of one tool are grouped like Grep ×38 and deep branches are folded. Arguments and prompt text only with --show-prompts
   aitop --doctor   check Claude, Codex, Antigravity and Gemini logs, running processes and the config file (works with --json)
   aitop --bell     ring the terminal bell when a session starts waiting for you
-  aitop --notify   show a desktop notification when a session starts waiting (notify-send on Linux, osascript on macOS, a Windows toast via powershell.exe on WSL; skipped if missing)
+  aitop --notify   show a desktop notification when a session starts waiting (notify-send on Linux, osascript on macOS, a Windows toast via powershell.exe on WSL and Windows; skipped if missing)
   aitop --notify=waiting,done,context  pick what to notify about (plain --notify: the config notify list, else waiting). done: once when a session that worked for
                    over 3 minutes (config doneMinutes, approval waits not counted) waits for its next instruction. context: once when context passes 90% (again after it drops below 85%)
-  aitop --on-waiting <cmd>  run a command with /bin/sh -c when there is something to notify (runs as you, 10 second limit). Follows the --notify kinds (even with --no-notify)
+  aitop --on-waiting <cmd>  run a command with /bin/sh -c (cmd.exe /c on Windows) when there is something to notify (runs as you, 10 second limit). Follows the --notify kinds (even with --no-notify)
                    Session info is passed only in env vars: AITOP_EVENT(waiting|done|context) AITOP_TOOL AITOP_PROJECT AITOP_SESSION_ID AITOP_CWD AITOP_WAITING_FOR
   aitop --show-requests  show full waiting requests in the detail panel and --json (AITOP_SHOW_REQUESTS=1). Secret masking is best effort, so secrets in commands may show
   aitop --budget-day <usd>  daily budget. The header shows today $12.30/$50, and it warns when the projected end-of-day cost (today + recent rate until midnight, always API cost)
@@ -328,6 +328,7 @@ export const STRINGS = {
     'cfg.badValue': '{key} 값 {value} 이 잘못되어 무시합니다 ({expect})',
     'cfg.badEnv': '환경 변수 {name} 값 {value} 이 잘못되어 무시합니다 ({expect})',
     'cfg.onWaitingIgnored': 'onWaiting 은 무시합니다: {why}. chmod 600 으로 고치세요',
+    'cfg.onWaitingIgnoredWin': 'onWaiting 은 무시합니다: 설정 파일이 사용자 프로필(%USERPROFILE%) 밖에 있어 다른 사용자가 고칠 수 있음. 프로필 아래(%APPDATA%\\aitop)로 옮기세요',
     'cfg.notMine': '파일 소유자가 현재 사용자가 아님',
     'cfg.shared': '그룹·다른 사용자가 쓸 수 있음 (mode {mode})',
     'cfg.either': '{a} 또는 {b}',
@@ -343,6 +344,9 @@ export const STRINGS = {
     'doctor.os': '{platform}, 프로세스 {state}',
     'doctor.procsOk': '확인 가능',
     'doctor.procsNo': '확인 불가',
+    'doctor.procsCim': ' · PowerShell CIM {s}초',
+    'doctor.procsTimeout': ', 시간 초과',
+    'doctor.procsFailed': ', 실패',
     'doctor.state.ok': '찾음',
     'doctor.state.missing': '없음',
     'doctor.state.limited': '일부 지원',
@@ -353,7 +357,7 @@ export const STRINGS = {
     'doctor.candidateHintClaude': '읽으려면 설정 파일 claudeDirs 배열에 넣거나 AITOP_CLAUDE_DIRS 로 주세요 (예: ["~/.claude", "~/.claude-work"])',
     'doctor.candidateHintCodex': '읽으려면 설정 파일 codexHomes 배열에 넣거나 AITOP_CODEX_HOMES 로 주세요 (예: ["~/.codex", "~/.codex-alt"])',
     'doctor.last': '마지막 {ago} 전',
-    'doctor.runningUnknown': '실행 수 확인 불가 (Linux·WSL·macOS 만 지원)',
+    'doctor.runningUnknown': '실행 수 확인 불가 (프로세스 목록을 얻지 못함)',
     'doctor.running': '실행 {n}',
     'doctor.unreadable': '최근 기록 읽기 실패',
     'doctor.keys': '키: {keys}',
@@ -369,6 +373,8 @@ export const STRINGS = {
     'doctor.busMissing': 'DBUS_SESSION_BUS_ADDRESS 없음',
     'doctor.busSocket': '{path} 소켓 없음',
     'doctor.busHint': '데스크톱 세션 안에서 실행하거나 사용자 D-Bus(systemctl --user, dbus-launch)를 켠다. 대신 --on-waiting 으로 다른 알림 명령을 부를 수 있다',
+    'doctor.legacyConsole': '! 터미널  구형 콘솔(conhost)로 보임 · ▕█░ 막대와 점자 글자(⠋, 로고)가 네모로 보일 수 있음',
+    'doctor.legacyConsoleHint': 'Windows Terminal 을 권장한다. 이 콘솔을 쓴다면 AITOP_AMBIGUOUS=wide(표·막대를 ASCII 로)나 NO_COLOR(진행 막대를 [#.] 로)로 실행한다',
     'doctor.config': '{mark} 설정   {state}{path}',
     'doctor.configExists': '있음',
     'doctor.configMissing': '없음 (기본값)',
@@ -790,6 +796,7 @@ export const STRINGS = {
     'cfg.badValue': 'ignoring bad {key} value {value} ({expect})',
     'cfg.badEnv': 'ignoring bad env var {name} value {value} ({expect})',
     'cfg.onWaitingIgnored': 'ignoring onWaiting: {why}. Fix with chmod 600',
+    'cfg.onWaitingIgnoredWin': 'ignoring onWaiting: the config file is outside your profile (%USERPROFILE%), so other users may be able to change it. Move it under your profile (%APPDATA%\\aitop)',
     'cfg.notMine': 'file is not owned by the current user',
     'cfg.shared': 'group or other users can write it (mode {mode})',
     'cfg.either': '{a} or {b}',
@@ -805,6 +812,9 @@ export const STRINGS = {
     'doctor.os': '{platform}, processes {state}',
     'doctor.procsOk': 'visible',
     'doctor.procsNo': 'not visible',
+    'doctor.procsCim': ' · PowerShell CIM {s}s',
+    'doctor.procsTimeout': ', timed out',
+    'doctor.procsFailed': ', failed',
     'doctor.state.ok': 'found',
     'doctor.state.missing': 'missing',
     'doctor.state.limited': { long: 'partial support', short: 'partial' },
@@ -815,7 +825,7 @@ export const STRINGS = {
     'doctor.candidateHintClaude': 'to read it, add it to claudeDirs in the config file or AITOP_CLAUDE_DIRS (e.g. ["~/.claude", "~/.claude-work"])',
     'doctor.candidateHintCodex': 'to read it, add it to codexHomes in the config file or AITOP_CODEX_HOMES (e.g. ["~/.codex", "~/.codex-alt"])',
     'doctor.last': 'last {ago} ago',
-    'doctor.runningUnknown': 'cannot count running (Linux, WSL and macOS only)',
+    'doctor.runningUnknown': 'cannot count running (no process list)',
     'doctor.running': 'running {n}',
     'doctor.unreadable': 'cannot read the latest log',
     'doctor.keys': 'keys: {keys}',
@@ -831,6 +841,8 @@ export const STRINGS = {
     'doctor.busMissing': 'DBUS_SESSION_BUS_ADDRESS not set',
     'doctor.busSocket': 'no socket at {path}',
     'doctor.busHint': 'run inside a desktop session or start a user D-Bus (systemctl --user, dbus-launch). Or call another notifier with --on-waiting',
+    'doctor.legacyConsole': '! console legacy console (conhost) · ▕█░ bars and braille (⠋, logo) may show as boxes',
+    'doctor.legacyConsoleHint': 'Windows Terminal is recommended. In this console, run with AITOP_AMBIGUOUS=wide (ASCII tables and bars) or NO_COLOR (progress bar as [#.])',
     'doctor.config': '{mark} config {state}{path}',
     'doctor.configExists': 'found',
     'doctor.configMissing': 'not found',

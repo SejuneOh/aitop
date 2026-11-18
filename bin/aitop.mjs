@@ -254,9 +254,15 @@ if ((cli.notify || cli.onWaiting) && (args.has('--once') || args.has('--json') |
 
 const { checkTools, doctorText, toolsJson } = await import('../src/doctor.mjs');
 if (args.has('--doctor')) {
+  // 진단은 한 번 돌고 끝나므로 Windows 의 첫 PowerShell CIM 호출을 더 오래 기다린다 (procs.mjs WIN_DOCTOR_TIMEOUT_MS).
+  const { setFirstScanTimeout, WIN_DOCTOR_TIMEOUT_MS } = await import('../src/procs.mjs');
+  setFirstScanTimeout(WIN_DOCTOR_TIMEOUT_MS);
   const result = { ...checkTools(), config: configJson(config), log: { on: log.on, path: log.path } };
   await printAndExit(args.has('--json') ? JSON.stringify({ version: VERSION, ...result, tools: toolsJson(result.tools) }, null, 2) : doctorText(result, VERSION));
 }
+
+// 설정 파일의 onWaiting 을 받지 않았으면 실행할 때도 알린다 (--doctor·--print-config 에는 problems 로 보인다).
+if (cfgFile.onWaitingIgnored && !cli.onWaiting) process.stderr.write(`aitop: ${cfgFile.onWaitingIgnored}\n`);
 
 const { collect } = await import('../src/collect.mjs');
 const { render, filterSessions, animating } = await import('../src/ui.mjs');

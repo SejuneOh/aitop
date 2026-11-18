@@ -2,7 +2,7 @@
 // 사용: node test/smoke.mjs            → PATH 의 aitop 을 부른다 (npm i -g 로 설치한 것, Windows 는 aitop.cmd)
 //       AITOP_BIN=bin/aitop.mjs node test/smoke.mjs → 저장소의 bin 을 node 로 부른다
 // Claude 세션 pid 는 이 스크립트라서, 도는 동안 aitop 이 실행 중인 세션으로 본다.
-// Codex 는 프로세스가 없으므로, 프로세스 목록을 못 얻는 Windows 에서만 최근 기록으로 실행 중이 된다.
+// Codex 는 프로세스가 없으므로 실행 중이 아니다 (Windows 도 PowerShell CIM 으로 프로세스 목록을 얻는다, #195).
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -63,19 +63,19 @@ assert.match(aitop(['--help']), /print the current state once and exit/);
 const doctor = aitop(['--doctor']);
 assert.match(doctor, /setup check/);
 assert.match(doctor, /claude/i);
+if (WIN) {
+  // 실패하면 첫 줄에 원인(timed out = 상한 초과, failed = PowerShell 실행 실패)과 걸린 시간이 보인다.
+  const head = doctor.split('\n')[0];
+  assert.match(doctor, /processes visible · PowerShell CIM/, `PowerShell CIM 으로 프로세스 목록을 얻지 못함: ${head}\n${doctor}`);
+}
 
 const once = aitop(['--once']);
 assert.match(once, /smoke session/);
-if (WIN) assert.match(once, /smoke-codex/);
 
 const json = JSON.parse(aitop(['--json']));
 const claude = json.sessions.find((s) => s.tool === 'claude');
 assert.ok(claude?.live, 'Claude 세션이 실행 중으로 보인다');
-const codex = json.sessions.find((s) => s.tool === 'codex');
-if (WIN) {
-  assert.ok(codex?.live, '프로세스 목록이 없어도 최근 Codex 기록은 실행 중으로 보인다');
-  assert.equal(codex.status === 'idle' || codex.status === 'busy', true);
-}
+assert.equal(json.sessions.find((s) => s.tool === 'codex' && s.live), undefined, 'codex 프로세스가 없으면 Codex 기록은 실행 중이 아니다');
 
 const report = JSON.parse(aitop(['--report', 'daily', '--json']));
 assert.ok(report.total.tokens > 0, '리포트 합계에 fixture 토큰이 들어간다');

@@ -1,6 +1,6 @@
 {
   "name": "@sejuneoh/aitop",
-  "version": "0.35.0",
+  "version": "0.36.0",
   "description": "터미널에서 Claude Code · Codex · Antigravity · Gemini 세션과 토큰을 실시간으로 보는 읽기 전용 모니터",
   "license": "MIT",
   "type": "module",
@@ -34,6 +34,7 @@
   "scripts": {
     "start": "node bin/aitop.mjs",
     "test": "node --import ./test/lang-ko.mjs --test test/*.test.mjs",
-    "test:e2e": "node --import ./test/lang-ko.mjs --test test/e2e/*.e2e.mjs"
+    "test:e2e": "node --import ./test/lang-ko.mjs --test test/e2e/*.e2e.mjs",
+    "test:perf": "node --test test/perf/*.perf.mjs"
   }
 }

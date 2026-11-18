@@ -397,7 +397,7 @@ function sessionFile(path) {
   }
   // 미리 띄워 둔 대기 프로세스(claude bg-spare)는 아직 세션이 아니다. 작업을 맡으면 spare 가 빠진 파일로 다시 쓰인다.
   if (!c.entry?.sessionId || c.entry.spare) return null;
-  if (!c.dead && !isSessionAlive(c.entry.pid, c.entry.procStart)) c.dead = true;
+  if (!c.dead && !isSessionAlive(c.entry.pid, c.entry.procStart, c.entry.updatedAt ?? c.entry.startedAt)) c.dead = true;
   return { ...c.entry, alive: !c.dead };
 }
 
@@ -430,7 +430,7 @@ function sessionEntries() {
       }
       ok = true;
       for (const f of prev.files) keep.add(f);
-      for (const x of prev.entries) all.push(x.alive && !isSessionAlive(x.pid, x.procStart) ? { ...x, alive: false } : x);
+      for (const x of prev.entries) all.push(x.alive && !isSessionAlive(x.pid, x.procStart, x.updatedAt ?? x.startedAt) ? { ...x, alive: false } : x);
       continue;
     }
     ok = true;

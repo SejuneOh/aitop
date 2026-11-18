@@ -1,8 +1,8 @@
 // 알림: --notify[=종류] (데스크톱 알림), --on-waiting <명령> (사용자 명령 실행). 종류는 waiting(기본)·done·context.
 // 세션 정보는 명령 문자열에 넣지 않는다. 알림 도구에는 인자로, 사용자 명령에는 AITOP_* 환경변수로만 넘긴다.
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { accessSync, constants, existsSync, readFileSync } from 'node:fs';
-import { join, delimiter, posix } from 'node:path';
+import { join, delimiter, posix, win32 } from 'node:path';
 import { mask, stripControl } from './text.mjs';
 import { getLang, phaseText, t } from './i18n.mjs';
 
@@ -105,11 +105,25 @@ export function isWsl(env = process.env, readVersion = () => readFileSync('/proc
   }
 }
 
+// Windows 의 powershell.exe. SystemRoot 아래 Windows PowerShell 을 먼저 보고(PATH 앞의 다른 것을 부르지 않게), 없으면 PATH 에서 찾는다.
+// exists 는 테스트에서 바꿔 끼운다 (Linux 에서도 Windows 경로로 돌려 보게).
+export function windowsPowerShell(env = process.env, exists = executable) {
+  const root = env.SystemRoot ?? env.SYSTEMROOT ?? env.windir ?? env.WINDIR;
+  const list = root ? [win32.join(root, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')] : [];
+  for (const dir of String(env.PATH ?? env.Path ?? '').split(';')) if (dir) list.push(win32.join(dir, 'powershell.exe'));
+  return list.find((p) => exists(p)) ?? null;
+}
+
 // 쓸 수 있는 데스크톱 알림 도구. 없으면 null (조용히 건너뛴다).
 // WSL 은 powershell.exe 로 Windows 토스트를 먼저 띄운다 (WSL 에는 D-Bus 세션 버스가 없는 일이 흔하다, #250).
 // powershell.exe 가 없으면 notify-send 를 쓴다. 일반 Linux 는 notify-send 만 쓴다.
-// wsl 은 테스트에서 바꿔 끼운다.
-export function findNotifier({ platform = process.platform, env = process.env, wsl = platform === 'linux' && isWsl(env) } = {}) {
+// Windows 네이티브도 WSL 과 같은 PowerShell 토스트를 쓴다 (#197).
+// wsl·exists 는 테스트에서 바꿔 끼운다.
+export function findNotifier({ platform = process.platform, env = process.env, wsl = platform === 'linux' && isWsl(env), exists } = {}) {
+  if (platform === 'win32') {
+    const path = windowsPowerShell(env, exists);
+    return path ? { kind: 'powershell', path } : null;
+  }
   if (platform === 'darwin') {
     const path = which('osascript', env.PATH);
     return path ? { kind: 'osascript', path } : null;
@@ -156,7 +170,7 @@ export function busProblem(env = process.env, exists = existsSync) {
 export const PS_APP_ID = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe';
 const TOAST_MAX = 250;
 
-// Windows 토스트를 띄우는 PowerShell 스크립트. Windows 네이티브(#197)에서도 그대로 쓸 수 있게 따로 둔다.
+// Windows 토스트를 띄우는 PowerShell 스크립트. WSL 과 Windows 네이티브(#197)가 함께 쓴다.
 // 제목·본문은 UTF-8 base64 로만 스크립트에 들어가고(글자는 A-Z a-z 0-9 + / = 뿐), 스크립트 안에서 풀어
 // XML 글 노드(CreateTextNode)로 넣는다. 그래서 따옴표·$()·XML 특수문자가 명령이나 XML 구조를 바꾸지 못한다.
 export function toastScript(title, body, appId = PS_APP_ID) {
@@ -238,6 +252,7 @@ export function notifyText(sessions, lang = getLang(), kind = 'waiting') {
 // 출력은 버리고, timeoutMs 가 지나면 프로세스 그룹째(셸과 그 자식) SIGKILL 한다.
 // 자식은 'exit' 를 받아 거두므로 좀비가 남지 않는다. UI 루프는 기다리지 않는다.
 // WSL 의 powershell.exe 는 Windows 쪽 프로세스지만, Linux 쪽 중계 프로세스를 SIGKILL 하면 Windows 프로세스도 함께 끝난다 (#250 에서 확인).
+// Windows 는 프로세스 그룹이 없어 kill(-pid) 가 실패하므로 taskkill /T /F 로 자식까지 끝낸다 (#196).
 function killGroup(c, sig) {
   try {
     process.kill(-c.pid, sig);
@@ -248,25 +263,63 @@ function killGroup(c, sig) {
   }
 }
 
-// 실행 중인 모든 자식(이 모듈이 띄운 것). 자식은 따로 프로세스 그룹이라 aitop 이 끝나도 같이 죽지 않으므로,
-// 끝날 때(process 'exit') 그룹째 SIGKILL 한다. 'exit' 안에서는 동기 호출만 되므로 process.kill 만 쓴다.
-const liveChildren = new Set();
+// taskkill.exe 경로. SystemRoot 가 있으면 그 아래 것을 쓴다 (PATH 앞의 다른 taskkill 을 부르지 않게).
+export function taskkillPath(env = process.env) {
+  const root = env.SystemRoot ?? env.SYSTEMROOT ?? env.windir ?? env.WINDIR;
+  return root ? win32.join(root, 'System32', 'taskkill.exe') : 'taskkill.exe';
+}
+
+// Windows: pid 와 그 자식 프로세스 트리를 강제로 끝낸다. sync 는 process 'exit' 안에서 부를 때 (동기 호출만 된다).
+// taskkill 을 부르지 못하면(바로 던지거나 뒤에서 'error') 자식 하나라도 끝낸다. 끝날 때의 동기 호출은 2초까지만 기다린다.
+const killOne = (c) => {
+  try {
+    c.kill();
+  } catch {}
+};
+
+export function killTree(c, { sync = false, spawnFn = spawn, spawnSyncFn = spawnSync, env = process.env } = {}) {
+  const args = ['/T', '/F', '/PID', String(c.pid)];
+  const opts = { stdio: 'ignore', windowsHide: true };
+  try {
+    if (sync) spawnSyncFn(taskkillPath(env), args, { ...opts, timeout: 2000 });
+    else spawnFn(taskkillPath(env), args, opts).on?.('error', () => killOne(c));
+    return;
+  } catch {}
+  killOne(c);
+}
+
+// 실행 중인 모든 자식(이 모듈이 띄운 것)과 그 자식을 끝내는 함수. 자식은 따로 프로세스 그룹이라 aitop 이 끝나도 같이 죽지 않으므로,
+// 끝날 때(process 'exit') 그룹째 SIGKILL 한다. 'exit' 안에서는 동기 호출만 되므로 process.kill·spawnSync 만 쓴다.
+const liveChildren = new Map();
 let exitHooked = false;
 
 export function killAllChildren() {
-  for (const c of liveChildren) killGroup(c, 'SIGKILL');
+  for (const [c, kill] of liveChildren) kill(c, true);
   liveChildren.clear();
 }
 
-function track(c) {
-  liveChildren.add(c);
+function track(c, kill) {
+  liveChildren.set(c, kill);
   if (!exitHooked) {
     exitHooked = true;
     process.on('exit', killAllChildren);
   }
 }
 
-export function createRunner({ timeoutMs = HOOK_TIMEOUT_MS, spawnFn = spawn } = {}) {
+// --on-waiting 명령을 셸로 부르는 [파일, 인자, spawn 옵션]. Linux·macOS 는 /bin/sh -c.
+// Windows 는 COMSPEC(보통 cmd.exe) /d /v:on /s /c "명령". Node 의 shell: true 와 같은 꼴로, 인자를 그대로 넘겨야 cmd 가 따옴표를 바르게 읽는다.
+// cmd 는 %변수% 를 펼친 뒤에 & | > 를 읽어서 세션 값이 명령이 될 수 있다. /v:on 이면 !변수! 는 그 뒤에 펼쳐져 글로만 들어가므로
+// 명령 안에서는 !AITOP_PROJECT! 처럼 쓰라고 안내한다 (실제 cmd 로 확인, test/win-hook.test.mjs).
+export function hookCommand(cmd, { platform = process.platform, env = process.env } = {}) {
+  if (platform !== 'win32') return ['/bin/sh', ['-c', cmd], {}];
+  const shell = env.ComSpec ?? env.COMSPEC ?? 'cmd.exe';
+  return [shell, ['/d', '/v:on', '/s', '/c', `"${cmd}"`], { windowsVerbatimArguments: true }];
+}
+
+// platform: win32 이면 detached 대신 windowsHide 로 띄우고(detached 는 콘솔 창을 새로 연다) taskkill 로 끝낸다.
+export function createRunner({ timeoutMs = HOOK_TIMEOUT_MS, spawnFn = spawn, platform = process.platform, spawnSyncFn = spawnSync } = {}) {
+  const win = platform === 'win32';
+  const kill = win ? (c, sync = false) => killTree(c, { sync, spawnFn, spawnSyncFn }) : (c) => killGroup(c, 'SIGKILL');
   let child = null;
   let pending = null;
   const stats = { started: 0, dropped: 0, timedOut: 0 };
@@ -274,17 +327,17 @@ export function createRunner({ timeoutMs = HOOK_TIMEOUT_MS, spawnFn = spawn } = 
   function start(job) {
     let c;
     try {
-      c = spawnFn(job.file, job.args, { env: job.env, stdio: 'ignore', detached: true });
+      c = spawnFn(job.file, job.args, { env: job.env, stdio: 'ignore', ...(win ? { windowsHide: true } : { detached: true }), ...job.opts });
     } catch {
       return next();
     }
     child = c;
-    if (c.pid) track(c);
+    if (c.pid) track(c, kill);
     stats.started++;
     // 셸이 아직 살아 있을 때만 그룹을 죽이므로 그룹 id 가 다른 프로세스 것으로 바뀌어 있을 일이 없다.
     const timer = setTimeout(() => {
       stats.timedOut++;
-      killGroup(c, 'SIGKILL');
+      kill(c);
     }, timeoutMs);
     timer.unref?.();
     let finished = false;
@@ -324,7 +377,7 @@ export function createRunner({ timeoutMs = HOOK_TIMEOUT_MS, spawnFn = spawn } = 
     killAll() {
       pending = null;
       if (child) {
-        killGroup(child, 'SIGKILL');
+        kill(child);
         liveChildren.delete(child);
         child = null;
       }
@@ -335,9 +388,10 @@ export function createRunner({ timeoutMs = HOOK_TIMEOUT_MS, spawnFn = spawn } = 
 
 // --notify, --on-waiting 을 묶은 알리미. 알릴 세션 목록과 종류(waiting·done·context)를 받는다.
 // --on-waiting 명령에는 AITOP_EVENT 로 종류를 넘긴다 (예전 명령은 waiting 만 받으므로 그대로 동작한다).
-export function createNotifier({ notify = false, onWaiting = null, notifier = notify ? findNotifier() : null, env = process.env, timeoutMs = HOOK_TIMEOUT_MS, spawnFn = spawn } = {}) {
-  const hook = onWaiting ? createRunner({ timeoutMs, spawnFn }) : null;
-  const desk = notify && notifier ? createRunner({ timeoutMs, spawnFn }) : null;
+export function createNotifier({ notify = false, onWaiting = null, platform = process.platform, notifier = notify ? findNotifier({ platform }) : null, env = process.env, timeoutMs = HOOK_TIMEOUT_MS, spawnFn = spawn, spawnSyncFn = spawnSync } = {}) {
+  const hook = onWaiting ? createRunner({ timeoutMs, spawnFn, platform, spawnSyncFn }) : null;
+  const desk = notify && notifier ? createRunner({ timeoutMs, spawnFn, platform, spawnSyncFn }) : null;
+  const [shell, shellArgs, shellOpts] = onWaiting ? hookCommand(onWaiting, { platform, env }) : [];
   return {
     hook,
     desk,
@@ -352,7 +406,7 @@ export function createNotifier({ notify = false, onWaiting = null, notifier = no
         const [file, args] = notifierCommand(notifier, title, body);
         desk.run({ file, args, env });
       }
-      if (hook) for (const s of fresh) hook.run({ file: '/bin/sh', args: ['-c', onWaiting], env: { ...env, ...waitingEnv(s), AITOP_EVENT: kind } });
+      if (hook) for (const s of fresh) hook.run({ file: shell, args: shellArgs, opts: shellOpts, env: { ...env, ...waitingEnv(s), AITOP_EVENT: kind } });
     },
   };
 }

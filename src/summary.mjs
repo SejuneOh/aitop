@@ -2,7 +2,8 @@
 // --line 은 이 파일만 읽어 작업 중 수를 낸다 (세션 기록·프로세스 목록을 다시 읽지 않게).
 // 가격·캐시 형식과 무관하므로 버전 폴더가 아니라 캐시 루트에 두고, 파일 안의 v 로 형식을 가른다.
 // 그래야 다른 버전의 aitop 화면이 쓴 요약도 --line 이 읽는다.
-import { readFileSync, writeFileSync, mkdirSync, renameSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { renameSync } from './rename.mjs';
 import { dirname, join } from 'node:path';
 import { CACHE_ROOT } from './cache.mjs';
 import { debugIo } from './log.mjs';
