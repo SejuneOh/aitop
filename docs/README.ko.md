@@ -1162,10 +1162,13 @@ npmjs.com 에 공개로 올린다 (MIT).
 > `npm run test:e2e`
 >
 > `AITOP_BIN=bin/aitop.mjs node test/smoke.mjs`
+>
+> `npm run test:perf`
 
 - `npm test`: 단위 테스트 (`test/*.test.mjs`).
 - `npm run test:e2e`: e2e. 실제 bin 실행(`--json`/`--once`/`--help`), 가상 터미널에서 키 입력·종료 확인 (Linux, util-linux `script` 필요).
 - `AITOP_BIN=... node test/smoke.mjs`: 임시 기록으로 `--version`·`--doctor`·`--once`·`--json`·`--report` 확인 (CI 의 Windows 작업이 설치본으로 돌린다).
+- `npm run test:perf`: 성능 기준. 임시 폴더에 만든 고정 샘플로 `--json`·`--once`·`--report daily` 의 첫 실행·두 번째 실행 시간과 최대 메모리를 재고, 기준(`test/perf/startup.perf.mjs` 주석)을 넘으면 실패한다. `npm test` 에는 없고 CI 는 ubuntu Node 22 에서만 돌린다. 느린 기계는 `AITOP_PERF_SCALE=2` 로 기준을 늘린다.
 
 **버전 올리기**
 

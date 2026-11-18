@@ -41,6 +41,12 @@ jobs:
         timeout-minutes: 5
       - name: 실행 확인 (세션 없는 환경)
         run: node bin/aitop.mjs --once > /dev/null
+      # 고정 샘플(임시 폴더)로 첫 실행·두 번째 실행의 시간과 최대 메모리를 본다 (#136). 러너 편차가 커서 ubuntu Node 22 한 곳에서만 돈다.
+      # 측정값은 성공·실패와 상관없이 로그의 '# json first: ...' 줄에 찍힌다. 기준을 늘리려면 AITOP_PERF_SCALE.
+      - name: 성능 기준 테스트
+        if: matrix.os == 'ubuntu-latest' && matrix.node == 22
+        run: npm run test:perf
+        timeout-minutes: 5
       # 배포될 tarball 을 임시 prefix 에 설치해 실행한다. package.json 의 files 에 필요한 폴더가 빠지면 여기서 실패한다.
       - name: 설치 확인 (npm pack)
         shell: bash
