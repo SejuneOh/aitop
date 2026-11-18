@@ -43,6 +43,10 @@
 
 - Include sessions that ended in the last 24 hours.
 
+> `aitop --once`
+
+- Print the current state once and exit.
+
 > `aitop --json`
 
 - Print a snapshot as JSON and exit. See [JSON output](#json-output).
