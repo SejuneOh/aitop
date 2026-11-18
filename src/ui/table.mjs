@@ -435,8 +435,9 @@ export function memberRow(m, last, c, W, frame, parentModel, costMode = 'api', p
   // 두 칸은 폭과 상관없이 늘 있는 열이라, 좁아지면 이름·STATUS 가 먼저 줄고 경과 시간은 남는다 (세션 행의 IDLE 과 같은 규칙).
   // '멈춘 듯' 은 글자로 적어 색이 없어도 구분되고, 흐린 색으로만 둔다. 놓는 곳은 위에서부터 들어가는 첫 자리다:
   // 끝 칸에 '멈춘 듯 3m12s' → STATUS 칸 앞 (CTX 5칸만 남는 폭) → STATUS 칸도 그보다 좁으면 경과 시간 뒤에 '?' 하나 (3m12s?).
+  // 경과 시간 앞에는 glyphs().elapsed(◷, SAFE 세트는 ~)를 붙여 세션 행 IDLE(마지막 활동 후)과 구분한다 (#265).
   const tailW = c.ctx + 1 + c.age;
-  const elapsed = !done && Number.isFinite(m.startedAt) ? fmtElapsed(NOW - m.startedAt) : '';
+  const elapsed = !done && Number.isFinite(m.startedAt) ? glyphs().elapsed + fmtElapsed(NOW - m.startedAt) : '';
   const stalled = !done && memberStalled(m, NOW, parentStatus) ? t('member.stalled') : '';
   const both = stalled && elapsed ? width(stalled) + 1 + width(elapsed) <= tailW : Boolean(stalled);
   const before = stalled && !both && c.status >= width(stalled) + 1;

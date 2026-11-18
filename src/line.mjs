@@ -10,6 +10,8 @@ export const MODES = ['plain', 'tmux'];
 export const DEFAULT_WIDTH = 40;
 // 캐시가 없을 때(처음 실행) 장부를 읽는 시간 상한. 넘으면 '...' 만 내고 끝낸다 (tmux 를 오래 막지 않게).
 export const CAP_MS = 1500;
+// 멈춤 수를 세는 데(지시 대기 세션의 기록 끝 읽기) 장부 뒤에 남겨 두는 최소 시간.
+export const STOP_MIN_MS = 300;
 // 캐시가 없거나 시간 상한을 넘었을 때 내는 글.
 export const PENDING = '...';
 // 기다리는 세션 이름의 최대 폭 (칸). 기본 폭 40 에 오늘 비용·예산·대기(이름과 시간)·작업 중이 함께 들어가는 길이.
@@ -82,7 +84,7 @@ function waitTexts(waiting, longest, now) {
 }
 
 // 값: today(오늘 비용, API 정가 환산), budgetDay(하루 예산, 없으면 null), waiting(응답 대기 수),
-// longest(가장 오래 기다린 세션 { name, since }, 모르면 null), stopped(오류로 멈춘 세션 수), running(작업 중 수, 요약이 없거나 오래됐으면 null), perHour(최근 1시간 지출).
+// longest(가장 오래 기다린 세션 { name, since }, 모르면 null), stopped(오류로 멈춘 세션 수, 시간 안에 다 세지 못했으면 null), running(작업 중 수, 요약이 없거나 오래됐으면 null), perHour(최근 1시간 지출).
 // 0 인 항목은 뺀다. 오늘 비용이 0 이어도 예산이 있으면 $0.00/$50 으로 보인다.
 // width 를 넘으면 뒤 항목부터 줄인다: 시간당 지출, 작업 중, 멈춤 수, 대기 세션 이름, 대기 수, 오늘 비용 차례.
 // mode 가 tmux 이고 noColor 가 아니면 항목마다 tmux 서식을 씌운다. tmux 모드에서는 이름 속 # 을 ## 로 바꿔 서식으로 읽히지 않게 한다.
@@ -128,11 +130,14 @@ export function pickCounts(summary, claudeWaiting = []) {
 export async function collectLine({ capMs = CAP_MS, now = Date.now() } = {}) {
   const { createBudget } = await import('./tail.mjs');
   const { collectLedger } = await import('./sources/claude-ledger.mjs');
-  const { claudeWaiting, claudeStopped } = await import('./sources/claude.mjs');
+  const { claudeLineCounts } = await import('./sources/claude.mjs');
   const { readSummary } = await import('./summary.mjs');
   const budget = createBudget(Infinity, capMs);
   const usage = collectLedger({ budget, now });
   if (budget.exhausted || usage.loading != null) return null;
-  // 멈춤은 Claude 만 있는 상태라 요약 없이 세션 파일과 기록 끝에서 바로 센다.
-  return { today: usage.today.cost, ...pickCounts(readSummary({ now }), claudeWaiting()), stopped: claudeStopped(), perHour: usage.lastHour.cost };
+  // 멈춤은 Claude 만 있는 상태라 요약 없이 세션 파일과 기록 끝에서 바로 센다. 대기 목록과 같은 세션 목록을 쓴다.
+  // 기록 끝 읽기도 장부와 같은 시간 상한 안에 둔다. 장부가 상한을 거의 다 쓴 경우에도 세어 볼 수 있게 최소 STOP_MIN_MS 는 준다.
+  // 그래도 다 세지 못하면 stopped 는 null 이고 줄에서 멈춤 칸만 빠진다.
+  const { waiting, stopped } = claudeLineCounts({ deadline: Math.max(budget.deadline, Date.now() + STOP_MIN_MS) });
+  return { today: usage.today.cost, ...pickCounts(readSummary({ now }), waiting), stopped, perHour: usage.lastHour.cost };
 }

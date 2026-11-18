@@ -43,15 +43,17 @@ test('키 안내는 폭이 모자라면 오른쪽부터 빼고 ? 와 q 는 남�
   for (const W of [60, 80, 120, 140]) {
     const foot = screen(W).at(-1);
     assert.ok(width(foot) <= W, `${W} 폭`);
-    assert.match(foot, /\?\s+도움\s+q\s+나가기/, `${W}`);
+    assert.match(foot, /\?\s+(도움|키 전체)\s+q\s+나가기/, `${W}`);
   }
   assert.match(screen(140).at(-1), /f\s+파일.*⊘ 읽기전용/);
+  // 다 보이면 ? 칩은 짧은 라벨 그대로 (빠진 키가 있을 때의 키 전체 라벨은 help-wrap.test.mjs, #265).
+  assert.match(screen(140).at(-1), /\?\s+도움\s+q/);
   assert.doesNotMatch(screen(60).at(-1), /종료 포함/);
 });
 
 test('파일 목록·diff 에서도 Esc 와 ? q 는 남는다', () => {
   for (const focus of ['files', 'diff']) {
     const foot = screen(60, { focus, filePath: '/w/a.mjs', tab: 'all' }).at(-1);
-    assert.match(foot, /Esc.*\?\s+도움\s+q\s+나가기/, focus);
+    assert.match(foot, /Esc.*\?\s+(도움|키 전체)\s+q\s+나가기/, focus);
   }
 });

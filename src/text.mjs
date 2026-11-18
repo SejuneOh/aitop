@@ -97,6 +97,35 @@ export function truncate(s, max, mark = ellipsis(max)) {
 // 자른 자리 표시. 폭이 모호한 글자를 2칸으로 세는데 1칸만 남으면 … 대신 . 을 쓴다.
 export const ellipsis = (room = 2) => (width('…') <= room ? '…' : '.');
 
+// 글을 폭 w 칸 안의 줄들로 나눈다. 띄어쓰기에서 끊고, 한 낱말이 w 보다 길면 글자 단위로 끊는다.
+// 한글처럼 2칸인 글자도 width 로 세어 어느 줄도 w 를 넘지 않는다. 줄 앞뒤 공백은 지운다.
+export function wrapWords(s, w) {
+  const out = [];
+  let cur = '';
+  for (const word of String(s).split(/\s+/).filter(Boolean)) {
+    const joined = cur ? `${cur} ${word}` : word;
+    if (width(joined) <= w) {
+      cur = joined;
+      continue;
+    }
+    if (cur) out.push(cur);
+    cur = '';
+    let rest = word;
+    while (width(rest) > w) {
+      let head = '';
+      for (const ch of rest) {
+        if (head && width(head + ch) > w) break;
+        head += ch;
+      }
+      out.push(head);
+      rest = rest.slice(head.length);
+    }
+    cur = rest;
+  }
+  if (cur || !out.length) out.push(cur);
+  return out;
+}
+
 export function pad(s, n, align = 'left') {
   const t = truncate(s, n);
   const gap = ' '.repeat(Math.max(0, n - width(t)));
