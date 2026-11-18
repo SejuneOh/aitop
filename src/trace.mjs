@@ -531,7 +531,7 @@ const mdhm = (ms) => {
 };
 const costText = (n) => (n.unpriced && !(n.cost > 0) ? '-' : money(n.cost));
 const durText = (n) => (n.start != null && n.end != null ? fmtElapsed(n.end - n.start) : n.status === 'running' ? t('trace.running') : '-');
-const MARK = { done: 'traceDone', error: 'traceFail', running: 'live', waiting: 'waiting' };
+const MARK = { done: 'traceDone', error: 'traceFail', running: 'traceRun', waiting: 'waiting' };
 
 // 줄 하나의 이름 칸: 지시는 번호·시작 시각(·지시 글), 도구는 이름(×묶음 수, 서브에이전트 종류, 인자).
 function label(n) {

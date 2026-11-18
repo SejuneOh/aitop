@@ -43,16 +43,17 @@ export function glyph(s, frame) {
   const G = glyphs();
   if (s.status === 'waiting') return { t: frame % 8 < 5 ? G.waiting : G.waitingBlink, fg: PALETTE.waiting, bold: true };
   if (k === 'ended') return { t: G.ended, fg: PALETTE.ended };
-  if (k === 'done') return { t: '✓', fg: PALETTE.info };
+  if (k === 'done') return { t: G.done, fg: PALETTE.info };
   if (k === 'unseen') return { t: G.unseen, fg: PALETTE.busy, bold: true };
-  // 오류로 멈춤: 돌지 않는 ! 로 작업 중(스피너)과 구분한다.
-  if (k === 'stopped') return { t: '!', fg: PALETTE.alert, bold: true };
+  // 오류로 멈춤: 돌지 않는 기호(G.stopped)로 작업 중(스피너)과 구분한다.
+  if (k === 'stopped') return { t: G.stopped, fg: PALETTE.alert, bold: true };
   if (k === 'idle') return s.status === 'live' ? { t: G.live, fg: PALETTE.tools[s.tool] } : { t: G.idle, fg: PALETTE.idle };
   return { t: SPIN[frame % SPIN.length], fg: PHASE_COLOR[k] ?? PALETTE.busy, bold: true };
 }
 
 // glyph 가 frame 에 따라 모양을 바꾸는지 (응답 대기 깜빡임, 작업 중 스피너).
-export const glyphMoves = (s) => s.status === 'waiting' || !['ended', 'done', 'unseen', 'idle', 'stopped'].includes(s.phase?.kind);
+// SAFE 세트처럼 응답 대기 기호가 깜빡이지 않으면 응답 대기만으로는 다시 그리지 않는다.
+export const glyphMoves = (s) => (s.status === 'waiting' ? glyphs().waiting !== glyphs().waitingBlink : !['ended', 'done', 'unseen', 'idle', 'stopped'].includes(s.phase?.kind));
 
 // 막대는 같은 높이의 얇은 블록(▃)으로 그리고 채운 칸과 빈칸은 색으로 나눈다. 칸 높이가 모두 같아 끝이 튀어나오지 않는다.
 // 색이 없으면 빈칸을 가장 얇은 ▁ 로 그려 모양으로 구분한다. 기호는 glyphs().bar 에 있다.
