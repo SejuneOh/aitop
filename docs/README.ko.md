@@ -534,7 +534,7 @@ Claude Code 세션 하나를 지시 → 도구 호출 → 서브에이전트(그
 >
 > `aitop --on-waiting 'my-hook.sh'`
 
-- `--notify`: 데스크톱 알림. Linux 는 notify-send, WSL 은 Windows 알림, macOS 는 osascript. 없으면 조용히 건너뛴다 (`--doctor` 에 보임).
+- `--notify`: 데스크톱 알림. Linux 는 notify-send, WSL·Windows 는 Windows 알림, macOS 는 osascript. 없으면 조용히 건너뛴다 (`--doctor` 에 보임).
 - `--notify=waiting,done,context`: 알릴 종류를 고른다. `--notify` 만 주면 설정 파일 `notify` 배열의 종류, 없으면 `waiting` 만.
 - `--on-waiting`: 응답 대기가 새로 생길 때마다 `/bin/sh -c` (Windows 는 `cmd.exe /d /v:on /s /c`) 로 명령 실행 (`--on-waiting=<명령>` 도 됨).
 - `--bell` 처럼 aitop 을 켰을 때 이미 응답 대기인 세션은 알리지 않는다.
@@ -573,7 +573,7 @@ Claude Code 세션 하나를 지시 → 도구 호출 → 서브에이전트(그
 <details>
 <summary>세부: WSL, D-Bus, 알림 본문</summary>
 
-- WSL 에서는 `powershell.exe` 로 Windows 알림을 띄운다 (Windows PowerShell 이름으로 뜨고 따로 설정할 것은 없다).
+- WSL 과 Windows 에서는 `powershell.exe` 로 Windows 알림을 띄운다 (Windows PowerShell 이름으로 뜨고 따로 설정할 것은 없다). Windows 는 `%SystemRoot%` 아래 것을 먼저, 없으면 PATH 에서 찾는다.
 - PATH 에 `powershell.exe` 가 없으면 notify-send 를 쓴다.
 - notify-send 는 D-Bus 세션 버스가 있어야 뜬다.
 - `DBUS_SESSION_BUS_ADDRESS` 가 없거나 그 소켓 파일이 없으면 알림이 뜨지 않으므로 `--doctor` 가 알림 줄에 `!` 와 안내를 보인다.
@@ -1063,9 +1063,9 @@ end)
 <details>
 <summary>세부: Windows 네이티브</summary>
 
-- 설치와 실시간 화면·`--once`·`--json`·`--report`·`--doctor` 에서 Claude Code·Codex 세션이 보이고, `--on-waiting` 도 돈다 ([알림](#알림)의 실행 규칙 참고).
+- 설치와 실시간 화면·`--once`·`--json`·`--report`·`--doctor` 에서 Claude Code·Codex 세션이 보이고, `--notify`(WSL 과 같은 PowerShell 알림)·`--on-waiting` 도 돈다 ([알림](#알림)의 실행 규칙 참고).
 - 설정 파일의 `onWaiting` 은 권한(mode) 대신 파일이 사용자 프로필 아래인지로 받는다 ([설정 파일](#설정-파일) 참고).
-- 아직 안 되는 것: 프로세스 감지(#195), 데스크톱 알림(#197).
+- 아직 안 되는 것: 프로세스 감지(#195).
 - 프로세스를 못 세므로 Codex 는 10분 안에 기록이 바뀐 세션만 실행 중으로 본다 (pid 없음).
 - 그래서 10분 넘게 기록을 쓰지 않는 긴 작업 중에는 목록에서 빠지고, 비정상 종료된 세션은 최대 10분 남을 수 있다.
 - 구형 콘솔(conhost)에서는 `▕█░` 막대와 점자 글자(`⠋`, 로고)가 네모로 보일 수 있고 `--doctor` 가 알린다. Windows Terminal 을 권장하고, 이 콘솔에서는 `AITOP_AMBIGUOUS=wide`(표·막대를 ASCII 로)나 `NO_COLOR`(진행 막대를 `[#.]` 로)로 실행한다.

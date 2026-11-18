@@ -105,11 +105,25 @@ export function isWsl(env = process.env, readVersion = () => readFileSync('/proc
   }
 }
 
+// Windows 의 powershell.exe. SystemRoot 아래 Windows PowerShell 을 먼저 보고(PATH 앞의 다른 것을 부르지 않게), 없으면 PATH 에서 찾는다.
+// exists 는 테스트에서 바꿔 끼운다 (Linux 에서도 Windows 경로로 돌려 보게).
+export function windowsPowerShell(env = process.env, exists = executable) {
+  const root = env.SystemRoot ?? env.SYSTEMROOT ?? env.windir ?? env.WINDIR;
+  const list = root ? [win32.join(root, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')] : [];
+  for (const dir of String(env.PATH ?? env.Path ?? '').split(';')) if (dir) list.push(win32.join(dir, 'powershell.exe'));
+  return list.find((p) => exists(p)) ?? null;
+}
+
 // 쓸 수 있는 데스크톱 알림 도구. 없으면 null (조용히 건너뛴다).
 // WSL 은 powershell.exe 로 Windows 토스트를 먼저 띄운다 (WSL 에는 D-Bus 세션 버스가 없는 일이 흔하다, #250).
 // powershell.exe 가 없으면 notify-send 를 쓴다. 일반 Linux 는 notify-send 만 쓴다.
-// wsl 은 테스트에서 바꿔 끼운다.
-export function findNotifier({ platform = process.platform, env = process.env, wsl = platform === 'linux' && isWsl(env) } = {}) {
+// Windows 네이티브도 WSL 과 같은 PowerShell 토스트를 쓴다 (#197).
+// wsl·exists 는 테스트에서 바꿔 끼운다.
+export function findNotifier({ platform = process.platform, env = process.env, wsl = platform === 'linux' && isWsl(env), exists } = {}) {
+  if (platform === 'win32') {
+    const path = windowsPowerShell(env, exists);
+    return path ? { kind: 'powershell', path } : null;
+  }
   if (platform === 'darwin') {
     const path = which('osascript', env.PATH);
     return path ? { kind: 'osascript', path } : null;
@@ -156,7 +170,7 @@ export function busProblem(env = process.env, exists = existsSync) {
 export const PS_APP_ID = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe';
 const TOAST_MAX = 250;
 
-// Windows 토스트를 띄우는 PowerShell 스크립트. Windows 네이티브(#197)에서도 그대로 쓸 수 있게 따로 둔다.
+// Windows 토스트를 띄우는 PowerShell 스크립트. WSL 과 Windows 네이티브(#197)가 함께 쓴다.
 // 제목·본문은 UTF-8 base64 로만 스크립트에 들어가고(글자는 A-Z a-z 0-9 + / = 뿐), 스크립트 안에서 풀어
 // XML 글 노드(CreateTextNode)로 넣는다. 그래서 따옴표·$()·XML 특수문자가 명령이나 XML 구조를 바꾸지 못한다.
 export function toastScript(title, body, appId = PS_APP_ID) {
