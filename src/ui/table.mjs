@@ -9,6 +9,7 @@ import { NOW, SPIN, cacheState, clock, toolElapsed, costOf, gauge, glyph, levelB
 import { glyphs } from './glyphs.mjs';
 import { phaseText, t } from '../i18n.mjs';
 import { NO_FOLDER } from '../order.mjs';
+import { isStopped } from '../attention.mjs';
 
 // 검색어가 세션 이름·폴더·모델 중 하나에 들어 있으면 남긴다 (대소문자 무시).
 export function filterSessions(sessions, query) {
@@ -66,7 +67,9 @@ export function header(view, W) {
   const working = count((s) => ['busy', 'shell'].includes(s.status));
   const waiting = count((s) => s.status === 'waiting');
   const unseen = count((s) => s.unseen);
-  const idle = count((s) => (s.status === 'idle' || s.status === 'live') && !s.unseen);
+  // 오류로 멈춘 세션은 status 가 idle 이라도 대기에서 빼고 따로 센다 (#262).
+  const stopped = count(isStopped);
+  const idle = count((s) => (s.status === 'idle' || s.status === 'live') && !s.unseen && !isStopped(s));
   const B = PALETTE.bar;
   const G = glyphs();
   // 0 인 상태는 빼서 오른쪽 사용량 자리를 남긴다. 좁으면 이름을 줄인다.
@@ -77,7 +80,7 @@ export function header(view, W) {
           { t: `${n} ${t(key, null, { short: narrow })}`, fg: bold ? color : PALETTE.text, bg: B, bold },
         ]
       : [];
-  // drop: 0 은 모두 보이고, 1 은 live 수(다른 수의 합)를 빼고, 2 는 ○ 대기까지 뺀다.
+  // drop: 0 은 모두 보이고, 1 은 세션(live) 수(다른 수의 합)를 빼고, 2 는 ○ 지시 대기까지 뺀다.
   // 빼고 나서 남는 상태 수가 없으면 live 수는 남긴다.
   const leftOf = (narrow, drop = 0) => {
     const others = [
@@ -85,15 +88,16 @@ export function header(view, W) {
       ...stat(G.unseen, unseen, 'hdr.unseen', PALETTE.busy, true, narrow),
       ...(drop < 2 ? stat(G.idle, idle, 'hdr.idle', PALETTE.idle, false, narrow) : []),
     ];
+    const urgent = [...stat(G.waiting, waiting, 'hdr.waiting', PALETTE.waiting, true, narrow), ...stat(G.stopped, stopped, 'hdr.stopped', PALETTE.alert, true, narrow)].map((x, i) => (i === 0 ? { ...x, t: x.t.trimStart() } : x));
     const counts = [
-      ...(drop < 1 || !others.length ? [{ t: `${live.length} live`, fg: PALETTE.text, bg: B, bold: true }] : []),
+      ...(drop < 1 || !others.length ? [{ t: t('hdr.live', { n: live.length }), fg: PALETTE.text, bg: B, bold: true }] : []),
       ...others,
     ].map((x, i) => (i === 0 ? { ...x, t: x.t.trimStart() } : x));
     return [
       { t: ` ${BRAND.logo} `, fg: PALETTE.chipText, bg: PALETTE.brand, bold: true },
       { t: '  ', bg: B },
-      // 응답 대기가 있으면 사람이 할 일이므로 맨 앞에 둔다.
-      ...(waiting ? [...stat(G.waiting, waiting, 'hdr.waiting', PALETTE.waiting, true, narrow).map((x, i) => (i === 0 ? { ...x, t: x.t.trimStart() } : x)), ...(counts.length ? [{ t: '  ', bg: B }] : [])] : []),
+      // 응답 대기·멈춤은 사람이 할 일이므로 맨 앞에 둔다. 멈춤은 기호(!)와 글자를 함께 써 색이 없어도 갈린다.
+      ...(urgent.length ? [...urgent, ...(counts.length ? [{ t: '  ', bg: B }] : [])] : []),
       ...counts,
     ];
   };
@@ -350,7 +354,7 @@ export function sessionRow(s, c, W, selected, frame, hot, costMode = 'api', pinn
   segs.push(...pin, { t: pad(s.name ?? '', c.name - segsWidth(pin)) + ' ', fg: ended ? PALETTE.ended : PALETTE.text, bold: selected });
   if (c.showProject) segs.push({ t: pad(s.project ?? '', c.project) + ' ', fg: ended ? PALETTE.ended : PALETTE.muted });
   segs.push(
-    ...statusCell(status, cacheState(s) ?? toolElapsed(s), c.status, { fg: pc, bold: s.status === 'waiting' }),
+    ...statusCell(status, cacheState(s) ?? toolElapsed(s), c.status, { fg: pc, bold: s.status === 'waiting' }, briefStatus(s)),
     { t: pad(partial ? '…' : blank ? '' : fmtTokens(s.tokens.total), c.tokens, 'right') + ' ', fg: ended ? PALETTE.ended : partial ? PALETTE.info : PALETTE.muted },
   );
   if (c.showCost) segs.push(partial ? { t: pad('…', c.cost, 'right') + ' ', fg: PALETTE.info } : { t: pad(blank ? '' : (hot?.has(s.id) ? glyphs().hot : '') + money(costOf(s, costMode), s.costUnknown), c.cost, 'right') + ' ', fg: s.cost == null || ended ? PALETTE.info : hot?.has(s.id) ? PALETTE.money : PALETTE.muted, bold: Boolean(hot?.has(s.id)) });
@@ -362,16 +366,37 @@ export function sessionRow(s, c, W, selected, frame, hot, costMode = 'api', pinn
 // 세션 행의 STATUS 칸 (뒤 공백 포함). 덧붙일 짧은 글(tag)이 있으면 상태 글 뒤에 ' · 캐시 3:12' 처럼 붙인다.
 // tag 는 기다리는 세션의 캐시 남은 시간(cacheState) 또는 작업 중 세션의 도구 경과 시간(toolElapsed)이다. 두 상태가 달라 함께 붙지 않는다.
 // 덧붙인 글이 먼저 빠지는 정보다: 다 들어가면 그대로, 상태 글을 TAG_STATUS_MIN 칸까지 줄여 들어가면 줄여서 붙이고, 아니면 뺀다.
+// 경고 단계의 덧붙임(tag.warn: 캐시 1분 미만, 도구 10분 이상)은 거꾸로 상태 글보다 오래 남는다 (#264).
+// 그때 상태 글은 짧은 문구(brief, 예: '지시 대기')로 바꾸고, 그래도 넘치면 줄이고, 4칸도 안 남으면 덧붙임만 둔다.
 const TAG_STATUS_MIN = 12;
-export function statusCell(status, tag, w, look) {
+// 경고 덧붙임 앞에 남길 상태 글의 최소 칸. 이보다 좁으면 '지…' 처럼 줄임표만 남으므로 덧붙임만 둔다.
+const WARN_HEAD_MIN = 4;
+export function statusCell(status, tag, w, look, brief = null) {
   const plain = [{ t: pad(status, w) + ' ', ...look }];
   if (!tag) return plain;
-  const segs = [{ t: ' · ', fg: PALETTE.info }, { t: tag.text, fg: tag.fg, bold: tag.bold, dim: tag.dim }];
-  const room = w - segsWidth(segs);
-  if (room < Math.min(width(status), TAG_STATUS_MIN)) return plain;
-  const head = truncate(status, room);
-  return [{ t: head, ...look }, ...segs, { t: ' '.repeat(Math.max(0, room - width(head))) + ' ' }];
+  const tagSeg = { t: tag.text, fg: tag.fg, bold: tag.bold, dim: tag.dim };
+  const withHead = (text, sep = ' · ') => {
+    const room = w - width(sep) - width(tag.text);
+    const head = truncate(text, room);
+    return [{ t: head, ...look }, { t: sep, fg: PALETTE.info }, tagSeg, { t: ' '.repeat(Math.max(0, room - width(head))) + ' ' }];
+  };
+  const room = w - width(' · ') - width(tag.text);
+  if (room >= width(status)) return withHead(status);
+  if (tag.warn) {
+    // 경고 단계: 원문을 자르기보다 짧은 문구를 먼저 쓴다. · 와 함께 들어가지 않으면 사이를 한 칸으로 줄여 본다.
+    const head = brief && width(brief) < width(status) ? brief : status;
+    if (room >= width(head)) return withHead(head);
+    if (room + width(' · ') - 1 >= width(head)) return withHead(head, ' ');
+    // 줄임표만 남을 만큼 좁으면 상태 글을 빼고 덧붙임만 둔다.
+    if (room >= WARN_HEAD_MIN) return withHead(head);
+    return [{ ...tagSeg, t: pad(truncate(tag.text, w), w) + ' ' }];
+  }
+  if (room >= Math.min(width(status), TAG_STATUS_MIN)) return withHead(status);
+  return plain;
 }
+
+// 경고 덧붙임 앞에 둘 짧은 상태 글. 다음 지시 대기만 짧은 문구가 따로 있고, 나머지는 상태 글을 줄여 쓴다.
+const briefStatus = (s) => (s.phase?.kind === 'idle' && s.status === 'idle' ? t('status.idleBrief') : null);
 
 // 기록을 읽는 중인 세션의 CONTEXT 칸: 빈 막대와 … (gauge 와 같은 폭).
 const pendingGauge = (cells) => [{ t: glyphs().bar.empty.repeat(cells), fg: PALETTE.faint }, { t: pad('…', 5, 'right'), fg: PALETTE.info }];
@@ -386,7 +411,7 @@ export const statusText = (phase) => phaseText(phase, { short: true });
 // 스피너 틱(120ms)마다 다시 그리고 있고, 그 틱에 실려 바뀐다. 끝난 팀원(done)은 경과 시간을 그리지 않아 틱을 붙잡지 않는다.
 export function memberRow(m, last, c, W, frame, parentModel, costMode = 'api', parentStatus = null) {
   const done = m.status === 'done';
-  const g = done ? { t: '✓', fg: PALETTE.info } : { t: SPIN[(frame + 3) % SPIN.length], fg: PALETTE.team, bold: true };
+  const g = done ? { t: glyphs().done, fg: PALETTE.info } : { t: SPIN[(frame + 3) % SPIN.length], fg: PALETTE.team, bold: true };
   const branch = last ? glyphs().memberLast : glyphs().member;
   const segs = [
     { t: ' '.repeat(c.mark + c.glyph) },

@@ -43,16 +43,17 @@ export function glyph(s, frame) {
   const G = glyphs();
   if (s.status === 'waiting') return { t: frame % 8 < 5 ? G.waiting : G.waitingBlink, fg: PALETTE.waiting, bold: true };
   if (k === 'ended') return { t: G.ended, fg: PALETTE.ended };
-  if (k === 'done') return { t: '✓', fg: PALETTE.info };
+  if (k === 'done') return { t: G.done, fg: PALETTE.info };
   if (k === 'unseen') return { t: G.unseen, fg: PALETTE.busy, bold: true };
-  // 오류로 멈춤: 돌지 않는 ! 로 작업 중(스피너)과 구분한다.
-  if (k === 'stopped') return { t: '!', fg: PALETTE.alert, bold: true };
+  // 오류로 멈춤: 돌지 않는 기호(G.stopped)로 작업 중(스피너)과 구분한다.
+  if (k === 'stopped') return { t: G.stopped, fg: PALETTE.alert, bold: true };
   if (k === 'idle') return s.status === 'live' ? { t: G.live, fg: PALETTE.tools[s.tool] } : { t: G.idle, fg: PALETTE.idle };
   return { t: SPIN[frame % SPIN.length], fg: PHASE_COLOR[k] ?? PALETTE.busy, bold: true };
 }
 
 // glyph 가 frame 에 따라 모양을 바꾸는지 (응답 대기 깜빡임, 작업 중 스피너).
-export const glyphMoves = (s) => s.status === 'waiting' || !['ended', 'done', 'unseen', 'idle', 'stopped'].includes(s.phase?.kind);
+// SAFE 세트처럼 응답 대기 기호가 깜빡이지 않으면 응답 대기만으로는 다시 그리지 않는다.
+export const glyphMoves = (s) => (s.status === 'waiting' ? glyphs().waiting !== glyphs().waitingBlink : !['ended', 'done', 'unseen', 'idle', 'stopped'].includes(s.phase?.kind));
 
 // 막대는 같은 높이의 얇은 블록(▃)으로 그리고 채운 칸과 빈칸은 색으로 나눈다. 칸 높이가 모두 같아 끝이 튀어나오지 않는다.
 // 색이 없으면 빈칸을 가장 얇은 ▁ 로 그려 모양으로 구분한다. 기호는 glyphs().bar 에 있다.
@@ -162,6 +163,7 @@ export function levelBar(values) {
 // 초 단위로 바뀌지만 타이머를 따로 두지 않는다: 실시간 화면은 데이터 갱신(1초마다)에 맞춰 다시 그리므로 그때 바뀐다.
 // 그래서 animating() 에 넣지 않고, 스피너가 없는 화면에서 120ms 프레임 타이머를 깨우지 않는다.
 export const CACHE_WARN_MS = 60_000;
+// warn: 1분 미만 남은 경고 단계. STATUS 칸이 좁아도 상태 글보다 먼저 남는다 (table.mjs statusCell).
 export function cacheState(s, now = NOW) {
   if (s?.cacheExpiresAt == null || !s.live || (s.status !== 'waiting' && s.status !== 'idle')) return null;
   const left = s.cacheExpiresAt - now;
@@ -169,12 +171,12 @@ export function cacheState(s, now = NOW) {
   if (left <= 0) return { expired: true, ttl, text: tr('cache.expired'), fg: PALETTE.faint };
   const sec = Math.ceil(left / 1000);
   const t = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
-  return { expired: false, ttl, left: t, text: tr('cache.left', { t }), fg: left < CACHE_WARN_MS ? PALETTE.alert : PALETTE.info, bold: left < CACHE_WARN_MS };
+  return { expired: false, ttl, left: t, text: tr('cache.left', { t }), fg: left < CACHE_WARN_MS ? PALETTE.alert : PALETTE.info, bold: left < CACHE_WARN_MS, warn: left < CACHE_WARN_MS };
 }
 
 // 지금 도는 도구의 경과 시간 (수집기의 toolStartedAt). 작업 중이고 진행 단계가 도구 실행인 세션만 본다.
 // 1분 미만은 대부분의 도구 호출이 끝나는 시간이라 보이지 않는다 (짧은 도구마다 숫자가 깜빡이지 않게).
-// TOOL_LONG_MS(10분) 이상이면 흐린 경고색: Claude Code 의 Bash 시간 제한이 최대 10분이라 #233 의 '멈춘 듯' 긴 기준과 같은 값을 쓴다.
+// TOOL_LONG_MS(10분) 이상이면 흐린 경고색이고 warn 으로 표시해 STATUS 칸에서 상태 글보다 오래 남는다: Claude Code 의 Bash 시간 제한이 최대 10분이라 #233 의 '멈춘 듯' 긴 기준과 같은 값을 쓴다.
 // 형식은 팀원 행 경과 시간과 같은 fmtElapsed 다. 이 세션은 작업 중이라 스피너가 돌고(animating) 그 틱에 실려 바뀌므로 타이머를 따로 두지 않는다.
 export const TOOL_SHOW_MS = 60_000;
 export const TOOL_LONG_MS = MEMBER_STALL_LONG_MS;
@@ -183,5 +185,5 @@ export function toolElapsed(s, now = NOW) {
   const ms = now - s.toolStartedAt;
   if (ms < TOOL_SHOW_MS) return null;
   const long = ms >= TOOL_LONG_MS;
-  return { text: fmtElapsed(ms), fg: long ? PALETTE.alert : PALETTE.info, dim: long, long };
+  return { text: fmtElapsed(ms), fg: long ? PALETTE.alert : PALETTE.info, dim: long, long, warn: long };
 }

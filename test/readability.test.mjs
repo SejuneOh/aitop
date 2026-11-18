@@ -32,7 +32,7 @@ test('팀원 행: 부모와 같은 모델은 비우고, 하는 일 글을 PROJEC
 
 test('헤더: 응답 대기가 있으면 로고 바로 뒤에 둔다', () => {
   const head = draw(view([sess('w', { status: 'waiting', phase: { kind: 'waiting' } })]))[0];
-  assert.match(head, /^ ⣠⣴⣾ +◆ 1 응답 대기 +1 live/);
+  assert.match(head, /^ ⣠⣴⣾ +◆ 1 응답 대기 +세션 1/);
   assert.doesNotMatch(draw(view([sess('a')]))[0], /◆/, '없으면 보이지 않는다');
 });
 
@@ -46,10 +46,10 @@ test('좁은 헤더는 live 수와 ○ 대기를 먼저 빼서 오늘 비용을 
       assert.ok(width(head) <= W, `W=${W}`);
       assert.match(head, /◆ 1 응답 .*⠿ 1 작업/, `W=${W} ${costMode}: ${head}`);
       assert.match(head, costMode === 'net' ? /캐시제외 오늘 \$5\.20/ : /오늘 \$/, `W=${W} ${costMode}: ${head}`);
-      if (W <= 64) assert.doesNotMatch(head, /live/, `W=${W}`);
+      if (W <= 64) assert.doesNotMatch(head, /세션/, `W=${W}`);
     }
   }
-  assert.match(draw(view(list), 160)[0], /4 live +⠿ 1 작업 중 +○ 2 대기/, '넓으면 그대로 보인다');
+  assert.match(draw(view(list), 160)[0], /세션 4 +⠿ 1 작업 중 +○ 2 지시 대기/, '넓으면 그대로 보인다');
 });
 
 test('좁은 헤더: 빼고 나서 남는 상태 수가 없으면 live 수를 남긴다', () => {
@@ -57,7 +57,7 @@ test('좁은 헤더: 빼고 나서 남는 상태 수가 없으면 live 수를 �
   for (const [costMode, W] of [['net', 36], ['api', 36]]) {
     const head = draw(view([sess('i1')], { costMode }), W)[0];
     assert.ok(width(head) <= W);
-    assert.match(head, /1 live/, head);
+    assert.match(head, /세션 1/, head);
   }
 });
 
@@ -74,10 +74,10 @@ test('도구 줄: 종료 세션 표시가 들어가지 않으면 조각 없이 �
 
 test('헤더: 0 인 상태 수는 빼고 live 수는 남긴다', () => {
   const head = draw(view([sess('a'), sess('b')]))[0];
-  assert.match(head, /2 live +○ 2 대기/);
+  assert.match(head, /세션 2 +○ 2 지시 대기/);
   assert.doesNotMatch(head, /[⠿◆●] |\b0 /);
   const busy = draw(view([sess('a', { status: 'busy', phase: { kind: 'think' } })]))[0];
-  assert.match(busy, /1 live +⠿ 1 작업 중 /);
+  assert.match(busy, /세션 1 +⠿ 1 작업 중 /);
   assert.doesNotMatch(busy, /○|\b0 /);
 });
 
@@ -89,13 +89,13 @@ test('헤더: 80 칸에서 live 7·작업 2·대기 5 여도 7일 비용이 잘�
     const v = view(list, { costMode });
     v.data.usage = big;
     const head = draw(v, 80)[0];
-    assert.match(head, /7 live +⠿ 2 작업.*○ 5 대기 .*7일 \$75.* \d\d:\d\d:\d\d/, `${costMode}: ${head}`);
+    assert.match(head, /세션 7 +⠿ 2 작업.*○ 5 (지시 )?대기 .*7일 \$75.* \d\d:\d\d:\d\d/, `${costMode}: ${head}`);
     assert.ok(width(head) <= 80);
   }
   const waiting = sess('w', { status: 'waiting', phase: { kind: 'waiting' } });
   const v = view([waiting, ...list.slice(1)]);
   v.data.usage = big;
-  assert.match(draw(v, 80)[0], /◆ 1 응답 +7 live .*7일 \$751/, '응답 대기가 앞에 붙어도 7일은 남는다');
+  assert.match(draw(v, 80)[0], /◆ 1 응답 +세션 7 .*7일 \$751/, '응답 대기가 앞에 붙어도 7일은 남는다');
 });
 
 test('c 키로 비용 기준을 바꾸면 표·헤더·상세가 같이 바뀐다', () => {

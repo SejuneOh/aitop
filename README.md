@@ -37,8 +37,8 @@ Native Windows support is early (Windows Terminal recommended): Claude Code and 
 
 ## Features
 
-- **Live status** of every session and its subagents: thinking, running a tool, waiting for you, idle, or stopped by an error (`! Login needed`, `! Connection lost`, read from the API error lines Claude Code already logs; it sorts right under waiting and pinned sessions and never counts as done). Subagent rows show how long they have run ([details](#subagents))
-- **Prompt cache countdown** for Claude sessions waiting on you or idle: `cache 3:12` after the status text (warning color under a minute, dim `cache expired` after), estimated from the log's `cache_creation` 5m/1h tokens and the last request start, per the [prompt caching docs](https://platform.claude.com/docs/en/build-with-claude/prompt-caching). Dropped first on narrow screens; `--json` has `cacheExpiresAt`
+- **Live status** of every session and its subagents: thinking, running a tool, waiting for you, idle, or stopped by an error (`! Login needed`, `! Connection lost`, read from the API error lines Claude Code already logs; it sorts right under waiting and pinned sessions, is counted on its own as `! 1 stopped` in the header, the window title (`(2◆ 1! 1●)`), `n` and `--line`, and never counts as done). Subagent rows show how long they have run ([details](#subagents))
+- **Prompt cache countdown** for Claude sessions waiting on you or idle: `cache 3:12` after the status text (warning color under a minute, dim `cache expired` after), estimated from the log's `cache_creation` 5m/1h tokens and the last request start, per the [prompt caching docs](https://platform.claude.com/docs/en/build-with-claude/prompt-caching). Dropped first on narrow screens, except under a minute, when the status text is shortened instead; `--json` has `cacheExpiresAt`
 - **Tool run time** while a session runs a tool: `Tool · Bash · 4m12s`, from the open tool call's start (Claude `tool_use`, Codex `function_call`, Antigravity running step). Shown after one minute, dim warning color from ten minutes (Claude Code's Bash timeout max), not counted while waiting for approval. Dropped first on narrow screens; `--json` has `toolStartedAt`
 - **Waiting alerts**: blocked sessions jump to the top, with optional bell, desktop notification or hook command
 - **Tokens and cost** per session and for today / last 7 days, estimated at public API list prices. This is not your bill
@@ -58,6 +58,7 @@ aitop --line     print one short status line and exit (for tmux, e.g. $54.13 wai
 aitop --report daily  daily cost table and exit
 aitop --report monthly  monthly cost table (last 12 months) and exit
 aitop --report sessions  yesterday's sessions with cost, for standups (--md, --json)
+aitop --report trace <session>  call tree of one Claude Code session with cost per tool call (--md, --json)
 aitop --help     all options
 aitop --lang ko  Korean screen, help, doctor and error messages (also AITOP_LANG=ko or "lang": "ko" in the config file)
 ```
@@ -104,6 +105,15 @@ aitop --report sessions --md --plan 200
 aitop --report sessions --since 7d --json
 ```
 
+### Call tree
+
+`aitop --report trace <session> [--md|--json] [--show-prompts]` prints the call tree of one Claude Code session: each prompt, the tool calls under it and subagents under their `Agent`/`Task` call, with duration, tokens and estimated cost (API list price) per line. The session is the start of its id (as in `--json` and the resume command), a log file path, or a `/rename` name or title. A tool line gets the cost of the reply that called it, split across the tools that reply called; subagent and prompt lines total their whole branch. Totals can differ slightly from the session cost in other reports (subagent lines in very old logs are not placed in the tree). Repeated calls of one tool are grouped (`Grep ×38`), branches deeper than a subagent's own steps are folded, and past 300 lines the oldest prompts, and then the earliest steps inside a prompt or subagent, are left out and marked `N earlier steps left out`. Failed calls show `✗`, calls without a result yet `●`, and `(no result)` when a later prompt came first or the log has not changed for over 15 minutes. Commands, paths and prompt text are hidden unless you pass `--show-prompts`, and secrets are masked either way. It reads the log once and writes nothing. Codex and Antigravity sessions are not supported yet.
+
+```
+aitop --report trace fix-login
+aitop --report trace 1a2b3c4d --json
+```
+
 ### Notifications
 
 Off by default and only on the live screen. Sessions already waiting (or already over 90% context) when aitop starts are not reported.
@@ -126,7 +136,7 @@ The notification body shows the session's own name when it has one (Claude Code 
 
 ### tmux status line
 
-`aitop --line` prints today's cost (API list price, `/$<budget>` when a daily budget is set), the sessions waiting for you with the longest waiting one's name and wait time (`wait fix-login 3m` for one, `wait 2 fix-login 3m` for more; Claude Code read live, names cut to 12 columns with `~`), the number of sessions running (`run 3`), and spend over the last hour. Items that are 0 are left out, and `--line-width N` (default 40) drops items from the end (the waiting name goes before the waiting count; with a daily budget and a waiting name, `$/h` often does not fit in 40, so raise `--line-width` to keep it). It reads only aitop's cache, so it is fast once `aitop` has run before; with no cache yet it prints `...` after about 1.5 seconds. The running count (and waiting Antigravity sessions with their names) come from a small summary that the live screen, `--once` and `--json` write to the cache; when no summary is newer than 60 seconds, `run` is left out rather than shown wrong. `--line=tmux` adds tmux colors, `NO_COLOR` turns them off.
+`aitop --line` prints today's cost (API list price, `/$<budget>` when a daily budget is set), the sessions waiting for you with the longest waiting one's name and wait time (`wait fix-login 3m` for one, `wait 2 fix-login 3m` for more; Claude Code read live, names cut to 12 columns with `~`), the Claude Code sessions stopped by an API error (`stop 1`, read live), the number of sessions running (`run 3`), and spend over the last hour. Items that are 0 are left out, and `--line-width N` (default 40) drops items from the end (the waiting name goes before the waiting count, after `stop`; with a daily budget and a waiting name, `$/h` often does not fit in 40, so raise `--line-width` to keep it). It reads only aitop's cache, so it is fast once `aitop` has run before; with no cache yet it prints `...` after about 1.5 seconds. The running count (and waiting Antigravity sessions with their names) come from a small summary that the live screen, `--once` and `--json` write to the cache; when no summary is newer than 60 seconds, `run` is left out rather than shown wrong. `--line=tmux` adds tmux colors, `NO_COLOR` turns them off.
 
 Session names come from your sessions, so in tmux always use `--line=tmux`: it escapes `#` in names, while plain output could let tmux expand a `#{...}` or `#(...)` inside a name. In a zsh prompt with `PROMPT_SUBST`, a `%` in a name can be expanded by zsh, so escape `%` (for example `${$(aitop --line)//\%/%%}`) or use the line only in tmux.
 

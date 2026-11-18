@@ -22,6 +22,7 @@ const LEGEND_IDS = [
   ['◆', 'legend.waiting'],
   ['●', 'legend.unseen'],
   ['○', 'legend.idle'],
+  ['◐', 'legend.live'],
   ['!', 'legend.stopped'],
   ['·', 'legend.ended'],
   ['★', 'legend.pin'],
@@ -36,6 +37,14 @@ const LEGEND_IDS = [
   ['+N', 'legend.folded'],
   ['legend.periodKey', 'legend.period'],
   ['legend.filesKey', 'legend.files'],
+  ['', ''],
+  // 상태 글·행 끝에 덧붙는 표시 (#264). 열 설명보다 덜 찾으므로 맨 뒤에 둔다.
+  ['help.extras', null],
+  ['✓', 'legend.done'],
+  ['▲', 'legend.hot'],
+  ['legend.cacheKey', 'legend.cache'],
+  ['legend.toolKey', 'legend.tool'],
+  ['legend.stalledKey', 'legend.stalled'],
 ];
 
 // 지금 언어의 상태 기호·열 설명. 제목 줄은 설명이 null 이다.
