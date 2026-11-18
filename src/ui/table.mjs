@@ -9,6 +9,7 @@ import { NOW, SPIN, cacheState, clock, toolElapsed, costOf, gauge, glyph, levelB
 import { glyphs } from './glyphs.mjs';
 import { phaseText, t } from '../i18n.mjs';
 import { NO_FOLDER } from '../order.mjs';
+import { isStopped } from '../attention.mjs';
 
 // 검색어가 세션 이름·폴더·모델 중 하나에 들어 있으면 남긴다 (대소문자 무시).
 export function filterSessions(sessions, query) {
@@ -66,7 +67,9 @@ export function header(view, W) {
   const working = count((s) => ['busy', 'shell'].includes(s.status));
   const waiting = count((s) => s.status === 'waiting');
   const unseen = count((s) => s.unseen);
-  const idle = count((s) => (s.status === 'idle' || s.status === 'live') && !s.unseen);
+  // 오류로 멈춘 세션은 status 가 idle 이라도 대기에서 빼고 따로 센다 (#262).
+  const stopped = count(isStopped);
+  const idle = count((s) => (s.status === 'idle' || s.status === 'live') && !s.unseen && !isStopped(s));
   const B = PALETTE.bar;
   const G = glyphs();
   // 0 인 상태는 빼서 오른쪽 사용량 자리를 남긴다. 좁으면 이름을 줄인다.
@@ -85,6 +88,7 @@ export function header(view, W) {
       ...stat(G.unseen, unseen, 'hdr.unseen', PALETTE.busy, true, narrow),
       ...(drop < 2 ? stat(G.idle, idle, 'hdr.idle', PALETTE.idle, false, narrow) : []),
     ];
+    const urgent = [...stat(G.waiting, waiting, 'hdr.waiting', PALETTE.waiting, true, narrow), ...stat(G.stopped, stopped, 'hdr.stopped', PALETTE.alert, true, narrow)].map((x, i) => (i === 0 ? { ...x, t: x.t.trimStart() } : x));
     const counts = [
       ...(drop < 1 || !others.length ? [{ t: `${live.length} live`, fg: PALETTE.text, bg: B, bold: true }] : []),
       ...others,
@@ -92,8 +96,8 @@ export function header(view, W) {
     return [
       { t: ` ${BRAND.logo} `, fg: PALETTE.chipText, bg: PALETTE.brand, bold: true },
       { t: '  ', bg: B },
-      // 응답 대기가 있으면 사람이 할 일이므로 맨 앞에 둔다.
-      ...(waiting ? [...stat(G.waiting, waiting, 'hdr.waiting', PALETTE.waiting, true, narrow).map((x, i) => (i === 0 ? { ...x, t: x.t.trimStart() } : x)), ...(counts.length ? [{ t: '  ', bg: B }] : [])] : []),
+      // 응답 대기·멈춤은 사람이 할 일이므로 맨 앞에 둔다. 멈춤은 기호(!)와 글자를 함께 써 색이 없어도 갈린다.
+      ...(urgent.length ? [...urgent, ...(counts.length ? [{ t: '  ', bg: B }] : [])] : []),
       ...counts,
     ];
   };

@@ -143,3 +143,17 @@ test('정렬: 응답 대기 > 고정 > 멈춤 > 나머지. 묶을 때는 제 묶
   const g = arrange(list, { group: 'project' });
   assert.deepEqual(g.groups.map((x) => x.name), ['응답 대기', 'q', 'p']);
 });
+
+test('--line 의 멈춤 수(claudeStopped)는 세션 파일과 기록 끝만 보고 센다 (#262)', async () => {
+  const { claudeStopped } = await import('../src/sources/claude.mjs');
+  fx.session({ sessionId: 'line-stop', status: 'idle' });
+  fx.transcript('line-stop', [user('해줘'), authLine(), ...tailRows]);
+  assert.equal(claudeStopped(), 1);
+  fx.session({ sessionId: 'line-stop', status: 'idle', waitingFor: 'approve Bash' });
+  assert.equal(claudeStopped(), 0, '응답 대기는 멈춤이 아니다');
+  fx.session({ sessionId: 'line-stop', status: 'busy' });
+  assert.equal(claudeStopped(), 0, '작업 중도 아니다');
+  fx.session({ sessionId: 'line-ok', status: 'idle' });
+  fx.transcript('line-ok', [user('해줘'), assistant('ok', [{ type: 'text', text: '끝' }], usage(1, 1))]);
+  assert.equal(claudeStopped(), 0, '정상으로 끝난 대기');
+});
