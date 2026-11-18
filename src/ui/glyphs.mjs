@@ -80,7 +80,7 @@ const SAFE = {
 export const glyphs = () => (ambiguousWide() ? SAFE : NORMAL);
 
 // 도움말 범례처럼 기본 기호로 적어 둔 글을 지금 기호로 바꾼다.
-const SWAP = { '◆': 'waiting', '●': 'unseen', '◐': 'live', '○': 'idle', '!': 'stopped', '✓': 'done', '·': 'ended', '★': 'pin' };
+const SWAP = { '◆': 'waiting', '●': 'unseen', '◐': 'live', '○': 'idle', '!': 'stopped', '✓': 'done', '·': 'ended', '★': 'pin', '▲': 'hot' };
 
 // 표의 상태 칸과 그 앞뒤에 서는 기호. 세트마다 서로 달라야 한다 (응답 대기 깜빡임은 응답 대기와 같아도 된다).
 export const STATUS_KEYS = ['waiting', 'unseen', 'live', 'idle', 'stopped', 'done', 'ended', 'select', 'pin'];
