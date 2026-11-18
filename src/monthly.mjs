@@ -11,7 +11,8 @@
 // (다음 기회에 다시 접는다), pid 별 임시 파일에 쓴 뒤 rename 한다.
 //
 // 값마다 사용량 벡터(입력·출력·캐시 읽기·캐시 쓰기 5분·1시간, fast 모드는 따로)를 남겨, 가격표가 바뀌면 지금 가격으로 다시 계산한다.
-import { readFileSync, writeFileSync, mkdirSync, renameSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { renameSync } from './rename.mjs';
 import { dirname, join } from 'node:path';
 import { CACHE_ROOT } from './cache.mjs';
 import { PRICE_TAG, vecCost } from './pricing.mjs';

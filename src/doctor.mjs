@@ -213,7 +213,17 @@ export function checkTools({ home = HOME } = {}) {
     r.hint = hintOf(r, 'ko');
     tools[r.tool] = r;
   }
-  return { platform: platform(), processes: canListProcesses(), tools, notifier: notifierCheck() };
+  const con = consoleCheck();
+  return { platform: platform(), processes: canListProcesses(), tools, notifier: notifierCheck(), ...(con ? { console: con } : {}) };
+}
+
+// Windows 의 터미널이 구형 콘솔(conhost)로 보이는지. Windows Terminal(WT_SESSION), VS Code·WezTerm(TERM_PROGRAM),
+// ConEmu(ConEmuANSI), mintty 같은 TERM 을 넣는 터미널이면 아니라고 본다. win32 가 아니면 null.
+// 구형 콘솔의 기본 글꼴에는 ▕█░ 막대와 점자(⠋, 로고 ⣠⣴⣾)가 없어 네모로 보일 수 있다 (#198).
+export function consoleCheck({ platform: plat = platform(), env = process.env } = {}) {
+  if (plat !== 'win32') return null;
+  const modern = Boolean(env.WT_SESSION || env.TERM_PROGRAM || env.ConEmuANSI || env.TERM);
+  return { legacy: !modern };
 }
 
 // 알림 도구와, notify-send 면 D-Bus 세션 버스를 찾을 수 있는지 (#250). 알림을 실제로 보내 보지는 않는다.
@@ -284,6 +294,7 @@ export function doctorText(result, version, now = Date.now(), lang = getLang()) 
     }
   }
   if ('notifier' in result) out.push('', notifierText(result.notifier, result.platform, lang));
+  if (result.console?.legacy) out.push('', tr('doctor.legacyConsole', null, o), `         → ${tr('doctor.legacyConsoleHint', null, o)}`);
   // 설정 파일: 무시한 키와 값, 받지 않은 onWaiting 을 알린다.
   const cfg = result.config;
   if (cfg) {

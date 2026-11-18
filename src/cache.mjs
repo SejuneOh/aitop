@@ -1,6 +1,7 @@
 // 큰 세션 기록을 매번 처음부터 다시 읽지 않도록, 파일별로 "어디까지 읽었고 그때 합계가 얼마였는지"를
 // ~/.cache/aitop 에 저장한다. 이 프로그램이 디스크에 쓰는 곳은 여기와 --debug 때의 디버그 로그(log.mjs)뿐이다.
-import { readFileSync, writeFileSync, mkdirSync, renameSync, statSync, readdirSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, statSync, readdirSync, rmSync } from 'node:fs';
+import { renameSync, RENAME_RETRIES } from './rename.mjs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { appDir } from './paths.mjs';
@@ -70,13 +71,21 @@ export function flushCache() {
     return;
   }
   if (!cleaned) removeOldDirs();
+  // 교체가 재시도 뒤에도 실패하면(권한 등 계속되는 오류) 이번 저장의 남은 파일은 재시도 없이 한 번만 해 본다.
+  // 파일마다 재시도로 멈추는 시간이 쌓이지 않게 한다 (Windows, #198).
+  let retries = RENAME_RETRIES;
   for (const [key, { path, build }] of dirty) {
     try {
       const data = build();
       if (!data) continue;
       const file = join(DIR, key + '.json');
       writeFileSync(file + '.tmp', JSON.stringify({ ...data, path, ino: statSync(path).ino }), { mode: 0o600 });
-      renameSync(file + '.tmp', file);
+      try {
+        renameSync(file + '.tmp', file, { retries });
+      } catch (e) {
+        retries = 0;
+        throw e;
+      }
     } catch (e) {
       debugIo('cache', 'cache write failed', e);
     }

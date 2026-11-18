@@ -537,7 +537,9 @@ Requires Node.js 22+ on Linux, macOS, WSL or Windows.
 <details>
 <summary>Windows: what works and what does not yet</summary>
 
-- Native Windows support is early (Windows Terminal recommended).
+- Native Windows support is early. Windows Terminal is recommended.
+- In the old console (conhost) the `▕█░` bars and braille (`⠋`, the logo) may show as boxes, and `--doctor` says so. Run with `AITOP_AMBIGUOUS=wide` (ASCII tables and bars) or `NO_COLOR` (progress bar as `[#.]`) there.
+- When antivirus or another aitop briefly holds a cache or summary file, replacing it is retried 3 times, 50ms apart.
 - Works: Claude Code and Codex sessions, `--once`, `--json`, `--report` and `--doctor`.
 - Not there yet: process detection, desktop notifications and `--on-waiting` ([#195](https://github.com/SejuneOh/aitop/issues/195)-[#197](https://github.com/SejuneOh/aitop/issues/197)).
 - Until then a Codex session counts as running while its log was written in the last 10 minutes.
