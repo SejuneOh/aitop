@@ -90,6 +90,7 @@ aitop --line     tmux 상태줄용 한 줄 (예: $54.13 wait 2 fix-login 3m run 
 aitop --report daily [--by tool|model|project] [--days N] [--json]  최근 N일의 날짜별 토큰·비용 표. 아래 '기간 리포트' 참고
 aitop --report monthly [--by tool|model|project] [--months N] [--json]  최근 N달(최대 12)의 달별 표. 아래 '기간 리포트' 참고
 aitop --report sessions [--since yesterday|7d|YYYY-MM-DD] [--md|--json] [--plan USD]  기간 안 세션별 비용. 아래 '세션 리포트' 참고
+aitop --report trace <세션> [--md|--json] [--show-prompts]  세션 하나의 호출 트리와 도구 호출별 비용. 아래 '호출 트리' 참고
 aitop --lang ko|en  화면·--help·--doctor·오류 문구의 언어 (AITOP_LANG, 설정 파일 lang). 아래 '언어' 참고
 ```
 
@@ -160,6 +161,21 @@ Total       1.69B $677  26.1M $4.45  1.71B $681
 ```
 aitop --report sessions --md --plan 200
 aitop --report sessions --since 7d --json
+```
+
+### 호출 트리 (`--report trace`)
+
+`aitop --report trace <세션> [--md|--json] [--show-prompts]` 는 Claude Code 세션 하나를 지시 → 도구 호출 → 서브에이전트(그 `Agent`·`Task` 호출 아래) 트리로 보이고, 줄마다 걸린 시간·토큰·추정 비용(API 정가 환산)을 붙인다.
+
+- 세션은 id 앞부분(`--json`·이어 열기 명령의 id), 기록 파일 경로, 또는 `/rename` 이름·제목으로 준다. 여럿이 맞으면 후보를 보이고 끝난다.
+- 도구 줄 비용은 그 도구를 부른 응답의 비용을 그 응답이 부른 도구 수로 나눈 몫이다. 서브에이전트 줄과 지시 줄은 그 가지 전체 합이다. 아주 오래된 기록의 서브에이전트 줄은 트리에 넣지 못해 다른 리포트의 세션 비용과 조금 다를 수 있다.
+- 같은 도구 연속 호출은 `Grep ×38` 처럼 묶고, 서브에이전트 안 단계보다 깊은 가지는 접어 수만 보인다. 300줄을 넘으면 오래된 지시부터, 그다음 지시·서브에이전트 안의 앞쪽 단계부터 빼고 `앞 N개 생략` 으로 알린다.
+- 실패한 호출은 `✗`, 아직 결과가 없는 호출은 `●` 이다. 다음 지시가 먼저 왔거나 기록이 15분 넘게 바뀌지 않았는데 결과가 없는 호출은 `(결과 없음)` 이다.
+- 명령·경로 같은 인자와 지시 글은 `--show-prompts` 일 때만 보이고, 그때도 비밀값은 가린다. 기록을 한 번 읽을 뿐 아무것도 쓰지 않는다. Codex·Antigravity 세션은 아직 지원하지 않는다.
+
+```
+aitop --report trace fix-login
+aitop --report trace 1a2b3c4d --json
 ```
 
 ### 설정 파일

@@ -4,6 +4,7 @@
 // 처음 읽는 동안 stderr 가 터미널이면 진행률을 보이고, 시간 상한을 넘으면 읽은 만큼으로 표를 내고 덜 읽었다고 알린다.
 // --report monthly: 최근 N달(기본·최대 12)의 달별 표. 지난 날은 월별 보관함(monthly.mjs), 접기 전의 날은 장부에서 센다.
 // --report sessions: 기간 안 세션별 한 줄과 요약 카드 (sessions-report.mjs).
+// --report trace <세션>: 세션 하나의 호출 트리 (trace.mjs).
 import { t } from './i18n.mjs';
 import { fmtTokens, pad, stripControl, truncate, width } from './text.mjs';
 import { money } from './line.mjs';
@@ -11,7 +12,7 @@ import { KEEP_DAYS, lastDays } from './sources/common.mjs';
 import { projectLabels } from './sources/projects.mjs';
 import { KEEP_MONTHS, lastMonths, monthOf, monthEnd } from './monthly.mjs';
 
-export const KINDS = ['daily', 'monthly', 'sessions'];
+export const KINDS = ['daily', 'monthly', 'sessions', 'trace'];
 export const BY = ['tool', 'model', 'project'];
 // --by project 의 특별한 열: 프로젝트를 못 찾은 기록, 열 수 상한을 넘어 합친 나머지. --json 에도 이 이름 그대로 나간다.
 export const UNKNOWN = '(unknown)';
@@ -61,6 +62,7 @@ export function parseSince(raw, now = Date.now()) {
 // kind 는 --report 를 주지 않았으면 null. --by·--days·--months 는 --report 와 함께일 때만 받는다.
 // --days 는 daily, --months 는 monthly 와만 쓴다. capped: --days 를 30으로(--months 를 12로, --since 를 30일 전으로) 줄였는지.
 // --report sessions 는 --since, --plan <USD>, --md, --show-prompts 를 받는다 (이 넷은 sessions 와만 쓴다). --by·--days·--months 는 받지 않는다.
+// --report trace 는 바로 뒤(옵션 사이 어디든)의 세션 하나(session)와 --md, --show-prompts 만 받는다.
 export function reportOption(argv, now = Date.now()) {
   let kind = null;
   let by = 'tool';
@@ -75,12 +77,13 @@ export function reportOption(argv, now = Date.now()) {
   let md = false;
   let prompts = false;
   let sessionsOnly = null;
+  let mdOnly = null;
   let sinceRaw = DEFAULT_SINCE;
   const rest = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--md' || a === '--show-prompts') {
-      sessionsOnly ??= a;
+      mdOnly ??= a;
       if (a === '--md') md = true;
       else prompts = true;
       continue;
@@ -122,16 +125,25 @@ export function reportOption(argv, now = Date.now()) {
       } else error ??= raw === '' ? t(`opt.${name}Missing`) : t(`opt.${name}Bad`, { value: JSON.stringify(raw) });
     }
   }
-  if (!error && sessionsOnly && kind !== 'sessions') error = t('opt.sessionsOnly', { opt: sessionsOnly });
+  // trace 의 세션: 옵션이 아닌 첫 인자 (--theme 값은 빼고). 나머지 옵션 처리는 bin 이 한다.
+  let session = null;
+  if (kind === 'trace') {
+    const i = rest.findIndex((a, j) => !a.startsWith('-') && !/^--theme$/.test(rest[j - 1] ?? ''));
+    if (i >= 0) session = rest.splice(i, 1)[0];
+  }
+  if (!error && mdOnly && kind !== 'sessions' && kind !== 'trace') error = t('opt.mdOnly', { opt: mdOnly });
+  if (!error && sessionsOnly && kind !== 'sessions') error = t(kind === 'trace' ? 'opt.notTrace' : 'opt.sessionsOnly', { opt: sessionsOnly });
   if (!error && extra && !kind) error = t('opt.reportOnly');
   if (!error && kind === 'sessions' && gave) error = t('opt.notSessions', { opt: `--${gave}` });
+  if (!error && kind === 'trace' && gave) error = t('opt.notTrace', { opt: `--${gave}` });
+  if (!error && kind === 'trace' && !session) error = t('opt.traceMissing');
   if (!error && gave && gave !== 'by' && kind && (gave === 'days') !== (kind === 'daily')) error = t(gave === 'days' ? 'opt.daysDaily' : 'opt.monthsMonthly');
   if (!error && kind === 'sessions') {
     const r = parseSince(sinceRaw, now);
     since = r.from;
     capped = r.capped;
   }
-  return { kind, by, days, months, capped, rest, error, since, plan, md, prompts };
+  return { kind, by, days, months, capped, rest, error, since, plan, md, prompts, session };
 }
 
 const zero = () => ({ tokens: 0, cost: 0, unpriced: false });

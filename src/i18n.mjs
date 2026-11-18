@@ -77,6 +77,9 @@ const HELP_KO = `{logo} aitop - 터미널에서 Claude Code · Codex · Antigrav
                    기간(기본: 어제 0시부터 지금까지, 최대 30일 전) 안에 사용량이 있는 세션을 비용이 큰 순서로 한 줄씩 보인다
                    (도구, 모델, 프로젝트, 세션 이름, 시작·끝, 토큰, API 정가 환산 비용, 고친 파일 수). 맨 위 요약 카드에 합계와 도구별 비중.
                    --plan 월 구독료를 주면 기간 몫의 몇 배인지 보인다. --md 는 붙여 넣을 Markdown. 첫 지시는 --show-prompts 일 때만
+  aitop --report trace <세션> [--md|--json] [--show-prompts]  Claude Code 세션 하나의 호출 트리 (지시 → 도구 호출 → 서브에이전트)에
+                   시간·토큰·추정 비용(API 정가 환산)을 붙여 보인다. 세션은 id 앞부분, 기록 파일 경로, 또는 /rename 이름·제목.
+                   같은 도구 연속 호출은 Grep ×38 처럼 묶고, 깊은 가지는 접는다. 명령·경로 같은 인자와 지시 글은 --show-prompts 일 때만
   aitop --doctor   Claude · Codex · Antigravity · Gemini 기록과 실행 중인 프로세스, 설정 파일을 점검한다 (--json 과 함께 쓸 수 있다)
   aitop --bell     응답 대기 세션이 새로 생기면 터미널 벨을 울린다
   aitop --notify   응답 대기 세션이 새로 생기면 데스크톱 알림을 띄운다 (Linux notify-send · macOS osascript · WSL 은 powershell.exe 로 Windows 알림, 없으면 건너뜀)
@@ -136,6 +139,9 @@ const HELP_EN = `{logo} aitop - watch Claude Code, Codex, Antigravity and Gemini
                    (tool, model, project, session name, start and end, tokens, API list price cost, files changed), with a summary card on top.
                    --plan with your monthly subscription shows how many times its share for the period you used. --md prints pasteable Markdown.
                    First prompts are shown only with --show-prompts
+  aitop --report trace <session> [--md|--json] [--show-prompts]  show the call tree of one Claude Code session (prompt, tool calls, subagents)
+                   with time, tokens and estimated cost (API list price). The session is the start of its id, a log file path, or a /rename name or title.
+                   Repeated calls of one tool are grouped like Grep ×38 and deep branches are folded. Arguments and prompt text only with --show-prompts
   aitop --doctor   check Claude, Codex, Antigravity and Gemini logs, running processes and the config file (works with --json)
   aitop --bell     ring the terminal bell when a session starts waiting for you
   aitop --notify   show a desktop notification when a session starts waiting (notify-send on Linux, osascript on macOS, a Windows toast via powershell.exe on WSL; skipped if missing)
@@ -229,8 +235,8 @@ export const STRINGS = {
     'opt.lineBad': '--line 값 {value} 이 잘못되었습니다 (plain 또는 tmux)',
     'opt.lineWidthMissing': '--line-width 값이 없습니다 (글자 수)',
     'opt.lineWidthBad': '--line-width 값 {value} 이 잘못되었습니다 (0 보다 큰 정수)',
-    'opt.reportMissing': '--report 값이 없습니다 (daily, monthly 또는 sessions)',
-    'opt.reportBad': '--report 값 {value} 이 잘못되었습니다 (daily, monthly 또는 sessions)',
+    'opt.reportMissing': '--report 값이 없습니다 (daily, monthly, sessions 또는 trace)',
+    'opt.reportBad': '--report 값 {value} 이 잘못되었습니다 (daily, monthly, sessions 또는 trace)',
     'opt.sinceMissing': '--since 값이 없습니다 (yesterday, today, 7d 같은 일 수, 또는 YYYY-MM-DD)',
     'opt.sinceBad': '--since 값 {value} 이 잘못되었습니다 (yesterday, today, 7d 같은 일 수, 또는 YYYY-MM-DD)',
     'opt.sinceFuture': '--since 값 {value} 이 오늘보다 뒤입니다',
@@ -239,6 +245,9 @@ export const STRINGS = {
     'opt.sessionsOnly': '{opt} 는 --report sessions 와 함께 쓴다',
     'opt.notSessions': '{opt} 는 --report sessions 와 함께 쓸 수 없다 (기간은 --since)',
     'opt.mdJson': '--md 와 --json 은 함께 쓸 수 없다',
+    'opt.mdOnly': '{opt} 는 --report sessions 또는 --report trace 와 함께 쓴다',
+    'opt.notTrace': '{opt} 는 --report trace 와 함께 쓸 수 없다',
+    'opt.traceMissing': '--report trace 뒤에 세션을 준다 (세션 id 앞부분, 기록 파일 경로, 또는 세션 이름)',
     'opt.byMissing': '--by 값이 없습니다 (tool, model 또는 project)',
     'opt.byBad': '--by 값 {value} 이 잘못되었습니다 (tool, model 또는 project)',
     'opt.daysMissing': '--days 값이 없습니다 (일 수)',
@@ -291,6 +300,24 @@ export const STRINGS = {
     'sessions.empty': '이 기간에 사용량이 있는 세션이 없습니다',
     'sessions.noteBasis': '비용은 API 정가 환산이며 실제 청구액이 아닙니다. 시작·끝은 기간 안의 활동 시각, 파일은 고친 파일 수 (- 는 모름). 기다림은 응답을 끝낸 뒤 다음 입력·허락까지의 추정 (간격 하나당 2시간까지, 자리 비움과 구분하지 못함)',
     'sessions.capped': '--since 는 장부가 남기는 {n}일 전까지만 볼 수 있어 {n}일 전으로 줄입니다',
+    'trace.title': '호출 트리 · {name} · {id}',
+    'trace.summary': '{span} · 지시 {prompts} · 도구 호출 {tools} (서브에이전트 {agents}) · 토큰 {tokens} · {cost}',
+    'trace.col.time': '시간',
+    'trace.col.tokens': '토큰',
+    'trace.col.cost': '비용',
+    'trace.prompt': '지시',
+    'trace.reply': '응답',
+    'trace.running': '진행 중',
+    'trace.errors': '(실패 {n})',
+    'trace.lost': '(결과 없음)',
+    'trace.folded': '(+{n} 접힘)',
+    'trace.omittedSteps': '앞 {n}개 생략',
+    'trace.omitted': '줄이 많아 오래된 지시 {n}개를 뺐습니다',
+    'trace.noteBasis': '비용은 API 정가 환산 추정이며 실제 청구액이 아닙니다. 도구 줄은 그 도구를 부른 응답의 비용을 도구 수로 나눈 몫, 서브에이전트 줄과 지시 줄은 그 가지 전체 합입니다',
+    'trace.empty': '이 기록에는 지시나 응답이 없습니다',
+    'trace.unsupported': '{tool} 세션은 아직 호출 트리를 만들지 않습니다 (지금은 Claude Code 세션만)',
+    'trace.notFound': '세션 {query} 를 찾지 못했습니다 (세션 id 앞부분, 기록 파일 경로, 또는 /rename 이름·제목)',
+    'trace.many': '세션 {query} 에 맞는 것이 여럿입니다. id 를 더 길게 준다:',
 
     'cfg.notFile': '설정 파일이 일반 파일이 아니라 읽지 않습니다',
     'cfg.tooBig': '설정 파일이 {kb}KB 를 넘어 읽지 않습니다',
@@ -652,8 +679,8 @@ export const STRINGS = {
     'opt.lineBad': 'bad --line value {value} (plain or tmux)',
     'opt.lineWidthMissing': '--line-width needs a value (characters)',
     'opt.lineWidthBad': 'bad --line-width value {value} (a whole number above 0)',
-    'opt.reportMissing': '--report needs a value (daily, monthly or sessions)',
-    'opt.reportBad': 'bad --report value {value} (daily, monthly or sessions)',
+    'opt.reportMissing': '--report needs a value (daily, monthly, sessions or trace)',
+    'opt.reportBad': 'bad --report value {value} (daily, monthly, sessions or trace)',
     'opt.sinceMissing': '--since needs a value (yesterday, today, a number of days like 7d, or YYYY-MM-DD)',
     'opt.sinceBad': 'bad --since value {value} (yesterday, today, a number of days like 7d, or YYYY-MM-DD)',
     'opt.sinceFuture': '--since value {value} is after today',
@@ -662,6 +689,9 @@ export const STRINGS = {
     'opt.sessionsOnly': '{opt} only works with --report sessions',
     'opt.notSessions': '{opt} does not work with --report sessions (use --since for the period)',
     'opt.mdJson': '--md and --json cannot be used together',
+    'opt.mdOnly': '{opt} only works with --report sessions or --report trace',
+    'opt.notTrace': '{opt} does not work with --report trace',
+    'opt.traceMissing': '--report trace needs a session (the start of a session id, a log file path, or a session name)',
     'opt.byMissing': '--by needs a value (tool, model or project)',
     'opt.byBad': 'bad --by value {value} (tool, model or project)',
     'opt.daysMissing': '--days needs a value (number of days)',
@@ -712,6 +742,24 @@ export const STRINGS = {
     'sessions.empty': 'No session used tokens in this period',
     'sessions.noteBasis': 'Cost is the API list price, not your actual bill. Start and end are activity times within the period; Files is the number of files changed (- means unknown). Waited estimates the time from a finished reply to your next prompt or approval (up to 2 hours per gap; time away is counted too)',
     'sessions.capped': '--since is limited to {n} days back, which the ledger keeps, using {n} days',
+    'trace.title': 'Call tree · {name} · {id}',
+    'trace.summary': '{span} · prompts {prompts} · tool calls {tools} (subagents {agents}) · tokens {tokens} · {cost}',
+    'trace.col.time': 'Time',
+    'trace.col.tokens': 'Tokens',
+    'trace.col.cost': 'Cost',
+    'trace.prompt': 'prompt',
+    'trace.reply': 'reply',
+    'trace.running': 'running',
+    'trace.errors': '({n} failed)',
+    'trace.lost': '(no result)',
+    'trace.folded': '(+{n} folded)',
+    'trace.omittedSteps': '{n} earlier steps left out',
+    'trace.omitted': 'Too many lines, so the {n} oldest prompts were left out',
+    'trace.noteBasis': 'Cost is an API list price estimate, not your actual bill. A tool line gets the cost of the reply that called it, split across the tools it called; subagent and prompt lines total their whole branch',
+    'trace.empty': 'This log has no prompts or replies',
+    'trace.unsupported': '{tool} sessions have no call tree yet (only Claude Code sessions for now)',
+    'trace.notFound': 'no session matches {query} (the start of a session id, a log file path, or a /rename name or title)',
+    'trace.many': 'more than one session matches {query}. Give more of the id:',
 
     'cfg.notFile': 'config file is not a regular file, not reading it',
     'cfg.tooBig': 'config file is over {kb}KB, not reading it',

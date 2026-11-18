@@ -58,6 +58,7 @@ aitop --line     print one short status line and exit (for tmux, e.g. $54.13 wai
 aitop --report daily  daily cost table and exit
 aitop --report monthly  monthly cost table (last 12 months) and exit
 aitop --report sessions  yesterday's sessions with cost, for standups (--md, --json)
+aitop --report trace <session>  call tree of one Claude Code session with cost per tool call (--md, --json)
 aitop --help     all options
 aitop --lang ko  Korean screen, help, doctor and error messages (also AITOP_LANG=ko or "lang": "ko" in the config file)
 ```
@@ -102,6 +103,15 @@ Waited is an **estimate**: the sum of gaps from the agent's last line (reply or 
 ```
 aitop --report sessions --md --plan 200
 aitop --report sessions --since 7d --json
+```
+
+### Call tree
+
+`aitop --report trace <session> [--md|--json] [--show-prompts]` prints the call tree of one Claude Code session: each prompt, the tool calls under it and subagents under their `Agent`/`Task` call, with duration, tokens and estimated cost (API list price) per line. The session is the start of its id (as in `--json` and the resume command), a log file path, or a `/rename` name or title. A tool line gets the cost of the reply that called it, split across the tools that reply called; subagent and prompt lines total their whole branch. Totals can differ slightly from the session cost in other reports (subagent lines in very old logs are not placed in the tree). Repeated calls of one tool are grouped (`Grep ×38`), branches deeper than a subagent's own steps are folded, and past 300 lines the oldest prompts, and then the earliest steps inside a prompt or subagent, are left out and marked `N earlier steps left out`. Failed calls show `✗`, calls without a result yet `●`, and `(no result)` when a later prompt came first or the log has not changed for over 15 minutes. Commands, paths and prompt text are hidden unless you pass `--show-prompts`, and secrets are masked either way. It reads the log once and writes nothing. Codex and Antigravity sessions are not supported yet.
+
+```
+aitop --report trace fix-login
+aitop --report trace 1a2b3c4d --json
 ```
 
 ### Notifications
