@@ -16,7 +16,7 @@ const mk = (id, extra = {}) => ({ tool: 'claude', id, name: `세션-${id}`, cwd:
 const view = (sessions, extra = {}) => ({ data: { sessions, usage: null, errors: [], at, tools: { tools: {} } }, selectedId: sessions[0]?.id, showDetail: true, frame: 0, ...extra });
 
 // 칸 수가 정해진 자리에 쓰던 기호들. wide 에서는 화면에 하나도 남지 않아야 한다.
-const GRID = /[╭╮╰╯─│┏┓┗┛━┃├└▁▂▃▄▅▆▇█▌▍▏◆◇●○▲★]/u;
+const GRID = /[╭╮╰╯─│┏┓┗┛━┃├└▁▂▃▄▅▆▇█▌▍▏◆◇●◐○▲★]/u;
 
 test('wide 이면 폭이 모호한 글자를 2칸으로 세고, 한글·ASCII 폭은 그대로다', () => {
   assert.equal(width('a·b→c…'), 6);
@@ -53,7 +53,7 @@ test('wide 화면은 상자·막대·상태 기호를 1칸 ASCII 로 그리고 �
   const boxed = render(view(sessions), 80, 32).map(strip);
   assert.match(boxed[2], /^\+- 세션 3 -+\+$/);
   assert.ok(boxed.some((l) => /^\| >o claude/.test(l)), '고른 행은 > 와 o 로');
-  assert.ok(boxed.some((l) => /^\|  ! claude/.test(l)), '응답 대기는 !');
+  assert.ok(boxed.some((l) => /^\|  \? claude/.test(l)), '응답 대기는 ?');
 });
 
 test('기본(narrow)은 지금 기호 그대로다', () => {
@@ -109,7 +109,7 @@ test('wide 에서 고정 표시(★)와 활동·7일 막대도 1칸 기호로 �
     const row = strip(sessionRow(mk('a'), c, W, false, 0, null, 'api', true));
     assert.equal(width(row), W);
     assert.doesNotMatch(row, GRID);
-    assert.match(row, /\* 세션-a/);
+    assert.match(row, /# 세션-a/, '고정은 확인 전 * 와 겹치지 않는 #');
   }
   setAmbiguous('narrow');
   assert.match(strip(sessionRow(mk('a'), columns(100), 100, false, 0, null, 'api', true)), /★ 세션-a/);

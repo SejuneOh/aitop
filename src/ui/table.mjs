@@ -386,7 +386,7 @@ export const statusText = (phase) => phaseText(phase, { short: true });
 // 스피너 틱(120ms)마다 다시 그리고 있고, 그 틱에 실려 바뀐다. 끝난 팀원(done)은 경과 시간을 그리지 않아 틱을 붙잡지 않는다.
 export function memberRow(m, last, c, W, frame, parentModel, costMode = 'api', parentStatus = null) {
   const done = m.status === 'done';
-  const g = done ? { t: '✓', fg: PALETTE.info } : { t: SPIN[(frame + 3) % SPIN.length], fg: PALETTE.team, bold: true };
+  const g = done ? { t: glyphs().done, fg: PALETTE.info } : { t: SPIN[(frame + 3) % SPIN.length], fg: PALETTE.team, bold: true };
   const branch = last ? glyphs().memberLast : glyphs().member;
   const segs = [
     { t: ' '.repeat(c.mark + c.glyph) },
