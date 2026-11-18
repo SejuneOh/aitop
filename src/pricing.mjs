@@ -1,28 +1,40 @@
 // Claude API 정가 기준 환산 비용 (USD / 100만 토큰). 구독 요금제 사용분도 "API 로 썼다면" 기준으로 계산한다.
-// 출처: Anthropic 모델 가격표(2026-10). 캐시 읽기는 입력가의 0.1배, 캐시 쓰기는 5분 1.25배·1시간 2배.
+// 출처: Anthropic 공식 가격표 https://platform.claude.com/docs/en/about-claude/pricing (2026-11-18 확인).
+// 캐시 읽기는 기본 입력가의 0.1배이고 표에 cacheRead 가 있는 모델만 다르다 (Fable·Mythos 5.1/5.2 는 0.025배, Opus·Sonnet 5.5 는 0.05배).
+// 캐시 쓰기는 5분 1.25배·1시간 2배. Haiku 5.5 의 10만 토큰 초과 요청 단가(5배)는 반영하지 않는다:
+// 보관 벡터(monthly.mjs)에는 요청별 크기가 남지 않아서, 모두 기본 단가로 계산한다.
 import { createHash } from 'node:crypto';
 
 const PRICES = {
+  'claude-fable-5-2': { input: 8, output: 40, cacheRead: 0.2, fast: 2 },
+  'claude-mythos-5-2': { input: 8, output: 40, cacheRead: 0.2, fast: 2 },
   'claude-fable-5-1': { input: 10, output: 50, cacheRead: 0.25 },
   'claude-mythos-5-1': { input: 10, output: 50, cacheRead: 0.25 },
   'claude-fable-5': { input: 10, output: 50 },
+  'claude-mythos-5': { input: 10, output: 50 },
   'claude-opus-5-5': { input: 4, output: 20, cacheRead: 0.2, fast: 2 },
   'claude-opus-5': { input: 5, output: 25, fast: 2 },
   'claude-opus-4-8': { input: 5, output: 25, fast: 2 },
   'claude-opus-4-7': { input: 5, output: 25 },
   'claude-opus-4-6': { input: 5, output: 25 },
-  'claude-sonnet-5-5': { input: 2, output: 10, cacheRead: 0.2 },
+  'claude-opus-4-5': { input: 5, output: 25 },
+  'claude-opus-4-1': { input: 15, output: 75 },
+  'claude-opus-4': { input: 15, output: 75 },
+  'claude-sonnet-5-5': { input: 2, output: 10, cacheRead: 0.1 },
   'claude-sonnet-5': { input: 2, output: 10 },
   'claude-sonnet-4-6': { input: 3, output: 15 },
+  'claude-sonnet-4-5': { input: 3, output: 15 },
+  'claude-sonnet-4': { input: 3, output: 15 },
   'claude-haiku-5-5': { input: 0.1, output: 0.5 },
   'claude-haiku-4-5': { input: 1, output: 5 },
 };
 
 // Gemini API 정가 (USD / 100만 토큰, 유료 등급 standard). Antigravity CLI(agy) 사용분을 "API 로 썼다면" 기준으로 계산한다.
-// 출처: Google 공식 가격표 https://aistudio.google.com/docs/pricing (2026-11-06 확인). 긴 컨텍스트 구간은 따로 없다.
+// 출처: Google 공식 가격표 https://aistudio.google.com/docs/pricing (2026-11-18 확인). 긴 컨텍스트 구간은 따로 없다.
 // 출력에는 생각 토큰이 들어 있고, cacheRead 는 context caching 가격이다. 가격이 바뀌는 모델은 날짜순 목록이며,
 // from 은 그 가격이 시작되는 날(UTC 0시)이다.
 const GEMINI_PRICES = {
+  'gemini-4-hydrogen': [{ input: 1.5, output: 7.5, cacheRead: 0.075 }],
   'gemini-4-argon': [
     { input: 2, output: 10, cacheRead: 0.1 },
     { from: '2026-12-01', input: 4, output: 20, cacheRead: 0.2 },
@@ -42,21 +54,29 @@ const GEMINI_PRICES = {
 // 가격표의 지문(8자리). 표의 값이 하나라도 바뀌면 지문도 바뀐다.
 export const priceTag = (tables) => createHash('sha1').update(JSON.stringify(tables)).digest('hex').slice(0, 8);
 
-// 모델별 컨텍스트 창 크기(토큰). 출처: Anthropic 모델 표(2026-10). 표에 없는 모델은 contextWindow 가 추측한다.
+// 모델별 컨텍스트 창 크기(토큰). 출처: Anthropic 모델 표 https://platform.claude.com/docs/en/about-claude/models/overview (2026-11-18 확인). 표에 없는 모델은 contextWindow 가 추측한다.
 const WINDOWS = {
   // Gemini 계열의 입력 한도(1,048,576 토큰). Antigravity 의 내부 모델 이름(gemini-4-argon 등)도 같다고 본다.
   'gemini-': 1_048_576,
+  'claude-fable-5-2': 1_000_000,
+  'claude-mythos-5-2': 1_000_000,
   'claude-fable-5-1': 1_000_000,
   'claude-mythos-5-1': 1_000_000,
   'claude-fable-5': 1_000_000,
+  'claude-mythos-5': 1_000_000,
   'claude-opus-5-5': 1_000_000,
   'claude-opus-5': 1_000_000,
   'claude-opus-4-8': 1_000_000,
   'claude-opus-4-7': 1_000_000,
   'claude-opus-4-6': 1_000_000,
+  'claude-opus-4-5': 200_000,
+  'claude-opus-4-1': 200_000,
+  'claude-opus-4': 200_000,
   'claude-sonnet-5-5': 1_000_000,
   'claude-sonnet-5': 1_000_000,
   'claude-sonnet-4-6': 1_000_000,
+  'claude-sonnet-4-5': 200_000,
+  'claude-sonnet-4': 200_000,
   'claude-haiku-5-5': 1_000_000,
   'claude-haiku-4-5': 200_000,
 };
@@ -71,8 +91,11 @@ function lookup(table, model) {
 }
 
 // 모르는 모델은 사용량으로 추측한다: 200k 를 넘었으면 1M 창, 아니면 200k 창.
+// 표에 있어도 사용량이 표 값을 넘으면 추측 값을 쓴다: Sonnet 4/4.5 는 1M 베타로 200K 를 넘을 수 있는데, 기록의 모델 이름으로는 구분되지 않는다.
 export function contextWindow(model, used = 0) {
-  return lookup(WINDOWS, model) ?? (used > 200_000 ? 1_000_000 : 200_000);
+  const guess = used > 200_000 ? 1_000_000 : 200_000;
+  const w = lookup(WINDOWS, model);
+  return w ? Math.max(w, guess) : guess;
 }
 
 function priceOf(model) {
@@ -123,9 +146,9 @@ export function vecCost(tool, model, v, f, at = Date.now()) {
 
 // Codex(OpenAI) API 정가 기준 환산 비용 (USD / 100만 토큰). Claude 와 같이 "API 로 썼다면" 기준이다.
 // 출처: OpenAI 공식 가격표 https://developers.openai.com/api/docs/pricing 와 모델별 문서
-// https://developers.openai.com/api/docs/models/<모델 이름> (2026-11-11 확인, 표의 모든 모델이 공식 값과 같다).
+// https://developers.openai.com/api/docs/models/<모델 이름> (2026-11-18 확인, 표의 모든 모델이 공식 값과 같다).
 // cacheRead 는 cached input 가격이다. gpt-5.1-codex, gpt-5.1-codex-max, gpt-5-codex 는 가격표에는 없고 모델별 문서에만 있다
-// (세 모델 모두 지원 종료). gpt-5.6-sol 값은 2026-11-30 까지의 프로모션 가격이며, 그 뒤 가격은 아직 공개되지 않았다.
+// (세 모델 모두 지원 종료). gpt-5.6-sol 값은 2026-11-30 까지의 프로모션 가격이며, 그 뒤 가격은 2026-11-18 에도 공식 가격표에 없다.
 // 긴 컨텍스트 단가(입력 272K 초과 요청은 입력 2배·출력 1.5배, gpt-5.6-*, gpt-5.5, gpt-5.4)는 반영하지 않는다:
 // 세션 누적 토큰만으로는 요청마다 272K 를 넘었는지 알 수 없어서, 모두 기본 단가로 계산한다.
 // 컨텍스트 창은 Codex 기록의 model_context_window 를 그대로 쓰므로 WINDOWS 표에 넣지 않는다.
