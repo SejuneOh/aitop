@@ -2,7 +2,8 @@
 // 기록 형식이 바뀌어 값이 비는 원인을 찾기 위한 것이라, 오류 이름·코드와 짧은 맥락(출처, 파일 이름)만 쓴다.
 // 기록 내용·도구 입력은 쓰지 않고, 쓰는 글은 모두 mask() 와 stripControl() 을 거친다.
 // 꺼져 있으면 파일을 만들지 않고 debug() 는 바로 돌아간다.
-import { closeSync, constants, fchmodSync, fstatSync, mkdirSync, openSync, renameSync, statSync, writeSync } from 'node:fs';
+import { closeSync, constants, fchmodSync, fstatSync, mkdirSync, openSync, statSync, writeSync } from 'node:fs';
+import { renameSync } from './rename.mjs';
 import { homedir } from 'node:os';
 import { basename, dirname, posix, win32 } from 'node:path';
 import { appDir } from './paths.mjs';

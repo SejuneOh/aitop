@@ -1062,6 +1062,8 @@ end)
 - 아직 안 되는 것: 프로세스 감지(#195), `onWaiting` 설정 파일 권한 확인(#196), 알림·`--on-waiting`(#197).
 - 프로세스를 못 세므로 Codex 는 10분 안에 기록이 바뀐 세션만 실행 중으로 본다 (pid 없음).
 - 그래서 10분 넘게 기록을 쓰지 않는 긴 작업 중에는 목록에서 빠지고, 비정상 종료된 세션은 최대 10분 남을 수 있다.
+- 구형 콘솔(conhost)에서는 `▕█░` 막대와 점자 글자(`⠋`, 로고)가 네모로 보일 수 있고 `--doctor` 가 알린다. Windows Terminal 을 권장하고, 이 콘솔에서는 `AITOP_AMBIGUOUS=wide`(표·막대를 ASCII 로)나 `NO_COLOR`(진행 막대를 `[#.]` 로)로 실행한다.
+- 백신이나 다른 aitop 이 캐시·요약 파일을 잠깐 잡고 있으면 파일 교체를 50ms 간격으로 3번 더 해 본다.
 - 캐시·로그·설정은 `XDG_*` 가 없으면 `%LOCALAPPDATA%\aitop\cache`, `%LOCALAPPDATA%\aitop\state`, `%APPDATA%\aitop` 에 둔다.
 
 </details>
