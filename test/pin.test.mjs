@@ -126,7 +126,7 @@ test('키 안내 줄과 도움말에 p 가 있다', () => {
   // 좁으면 먼저 빠지고 ? · q 는 남는다.
   const narrow = draw(v, 70).at(-1);
   assert.doesNotMatch(narrow, /고정/);
-  assert.match(narrow, /\? +도움/);
+  assert.match(narrow, /\? +(도움|키 전체)/);
   assert.ok(VIEWS.table.keys.some(([k, t]) => k === 'p' && /고정/.test(t)));
   assert.match(keysText(), /p 고정/);
   assert.match(draw({ ...view(), help: true }, 140, 60).join('\n'), /p +고른 세션을 맨 위/);

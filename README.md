@@ -116,7 +116,7 @@ Subagents show as `├─` rows under their session, on the live screen.
 
 > `aitop`
 
-- While one works, its row shows how long it has run (`42s`, `3m12s`, `1h05m`).
+- While one works, its row shows how long it has run, marked with `◷` so it is not read as IDLE (`◷42s`, `◷3m12s`, `◷1h05m`; `~3m12s` with `AITOP_AMBIGUOUS=wide`).
 - A dim `stalled?` appears when a working subagent's log has not changed for 3 minutes. It is only a guess.
 - While it runs a tool that can be slow, the limit is 10 minutes.
 - When an Antigravity subagent waits for your approval, its parent row waits too, as `<agent>: <tool>`.

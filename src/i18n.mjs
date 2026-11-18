@@ -460,6 +460,8 @@ export const STRINGS = {
     'empty.or': ' 또는 ',
 
     'foot.help': '도움',
+    // 폭이 모자라 키 안내가 빠졌을 때 ? 칩 라벨.
+    'foot.helpAll': '키 전체',
     'foot.closeHelp': '도움 닫기',
     'foot.readOnly': '⊘ 읽기전용',
     'foot.count': '{n}개',
@@ -505,6 +507,8 @@ export const STRINGS = {
     'legend.cache': '캐시 남은 시간 (추정). 1분 미만은 굵은 경고색',
     'legend.toolKey': '· 4m12s',
     'legend.tool': '도구가 돈 시간 (1분부터). 10분 넘으면 경고색',
+    'legend.elapsedKey': '{g}3m12s',
+    'legend.elapsed': '팀원 행 끝: 팀원이 일을 시작한 뒤 지난 시간',
     'legend.stalledKey': '멈춘 듯',
     'legend.stalled': '팀원 기록이 3분(느린 도구 10분) 그대로. 짐작',
     'legend.status': '지금 단계. 큰 기록을 처음 읽는 동안은 기록 읽는 중 N%',
@@ -911,6 +915,7 @@ export const STRINGS = {
     'empty.or': ' or ',
 
     'foot.help': 'help',
+    'foot.helpAll': 'all keys',
     'foot.closeHelp': 'close help',
     'foot.readOnly': '⊘ read-only',
     'foot.count': '{n} found',
@@ -956,6 +961,8 @@ export const STRINGS = {
     'legend.cache': 'Cache time left (estimate). Bold under 1 min',
     'legend.toolKey': '· 4m12s',
     'legend.tool': 'Tool run time (from 1 min). Warning at 10 min',
+    'legend.elapsedKey': '{g}3m12s',
+    'legend.elapsed': 'Subagent row end: time since it started',
     'legend.stalledKey': 'stalled?',
     'legend.stalled': 'No log change 3 min (slow tools 10). A guess',
     'legend.status': 'Current step (Reading log N% on first load)',

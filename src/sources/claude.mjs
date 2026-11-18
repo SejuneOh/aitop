@@ -29,30 +29,40 @@ function readJson(p) {
   }
 }
 
-function findTranscript(sessionId) {
+// projects/ 아래 프로젝트 폴더 이름 [[root, dirs]]. 읽지 못한 root 는 null 이다.
+function projectDirs() {
+  return claudeProjectRoots().map((root) => {
+    try {
+      return [root, readdirSync(root)];
+    } catch (e) {
+      debugIo('claude', 'projects read failed', e, root);
+      return [root, null];
+    }
+  });
+}
+
+// listing: projectDirs() 결과. 여러 세션을 한 번에 찾을 때 넘기면 projects/ 를 세션마다 다시 읽지 않는다.
+function findTranscript(sessionId, listing = null) {
   const cached = pathCache.get(sessionId);
   if (cached && (cached.path ? existsSync(cached.path) : Date.now() - cached.at < 5000)) return cached.path;
   // 같은 세션 기록이 두 폴더에 있으면 더 최근에 바뀐 쪽 (끝난 세션 목록과 같은 기준). 폴더 하나에서는 처음 찾은 것.
   let path = null;
   let best = -Infinity;
-  for (const root of claudeProjectRoots()) {
-    try {
-      for (const dir of readdirSync(root)) {
-        const p = join(root, dir, `${sessionId}.jsonl`);
-        let m;
-        try {
-          m = statSync(p).mtimeMs;
-        } catch {
-          continue;
-        }
-        if (m > best) {
-          path = p;
-          best = m;
-        }
-        break;
+  for (const [root, dirs] of listing ?? projectDirs()) {
+    if (!dirs) continue;
+    for (const dir of dirs) {
+      const p = join(root, dir, `${sessionId}.jsonl`);
+      let m;
+      try {
+        m = statSync(p).mtimeMs;
+      } catch {
+        continue;
       }
-    } catch (e) {
-      debugIo('claude', 'projects read failed', e, root);
+      if (m > best) {
+        path = p;
+        best = m;
+      }
+      break;
     }
   }
   pathCache.set(sessionId, { path, at: Date.now() });
@@ -468,27 +478,38 @@ function sessionLabel(e, t) {
 // 이름은 표와 같은 순서: 기록 끝부분의 /rename 이름, 세션 파일 이름, 자리표시 이름이면 작업 폴더 이름 (대화 제목은 기록을 다 읽어야 안다).
 // 대기 시작은 상태가 바뀐 시각(statusUpdatedAt), 없으면 세션 파일이 바뀐 시각.
 export function claudeWaiting() {
-  const out = [];
-  for (const e of sessionEntries()?.values() ?? []) {
-    if (!e.alive || !e.waitingFor) continue;
-    const transcript = findTranscript(e.sessionId);
-    const custom = transcript ? tailCustomTitle(transcript) : undefined;
-    const since = [e.statusUpdatedAt, e.updatedAt, e.startedAt].find(Number.isFinite) ?? null;
-    out.push({ tool: 'claude', name: givenName(e, custom) ?? (isAutoName(e) ? basename(e.cwd ?? '') : String(e.name)), since });
-  }
-  return out;
+  return claudeLineCounts().waiting;
 }
 
 // --line 용: 오류로 멈춘 살아 있는 Claude 세션 수. 화면과 같이 대기(idle) 세션의 마지막 대화 줄이 API 오류인지 기록 끝만 본다.
 // 세션 파일에 상태가 없는 예전 Claude Code 는 기록 수정 시각으로 상태를 짐작해야 해서 세지 않는다.
 export function claudeStopped() {
-  let n = 0;
-  for (const e of sessionEntries()?.values() ?? []) {
-    if (!e.alive || e.waitingFor || e.status !== 'idle') continue;
-    const transcript = findTranscript(e.sessionId);
-    if (transcript && tailStopReason(transcript)) n++;
+  return claudeLineCounts().stopped;
+}
+
+// --line 이 쓰는 두 값(응답 대기 목록, 멈춤 수)을 세션 목록 한 번, projects/ 폴더 목록 한 번으로 모은다.
+// 멈춤 수는 지시 대기 세션마다 기록 끝(최대 256KB)을 읽으므로 deadline(Date.now() 기준 ms) 안에서만 센다.
+// 다 세기 전에 시간이 다 되면 stopped 는 null(모름)이고, 줄은 멈춤 칸을 뺀다 (모자라게 센 수를 보이지 않는다).
+export function claudeLineCounts({ deadline = Infinity } = {}) {
+  const entries = [...(sessionEntries()?.values() ?? [])].filter((e) => e.alive);
+  let listing = null;
+  const find = (id) => findTranscript(id, (listing ??= projectDirs()));
+  const waiting = [];
+  for (const e of entries) {
+    if (!e.waitingFor) continue;
+    const transcript = find(e.sessionId);
+    const custom = transcript ? tailCustomTitle(transcript) : undefined;
+    const since = [e.statusUpdatedAt, e.updatedAt, e.startedAt].find(Number.isFinite) ?? null;
+    waiting.push({ tool: 'claude', name: givenName(e, custom) ?? (isAutoName(e) ? basename(e.cwd ?? '') : String(e.name)), since });
   }
-  return n;
+  let stopped = 0;
+  for (const e of entries) {
+    if (e.waitingFor || e.status !== 'idle') continue;
+    if (Date.now() >= deadline) return { waiting, stopped: null };
+    const transcript = find(e.sessionId);
+    if (transcript && tailStopReason(transcript)) stopped++;
+  }
+  return { waiting, stopped };
 }
 
 export function collectClaude({ showEnded, budget, selectedId }) {

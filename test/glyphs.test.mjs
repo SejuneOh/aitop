@@ -24,6 +24,17 @@ for (const [name, G] of Object.entries(glyphSets())) {
   });
 }
 
+test('팀원 경과 시간 앞 표시도 상태 기호 검사에 들어 있다: 기본 ◷, SAFE ~ (#265)', () => {
+  assert.ok(STATUS_KEYS.includes('elapsed'));
+  const { NORMAL, SAFE } = glyphSets();
+  assert.equal(NORMAL.elapsed, '◷');
+  assert.equal(SAFE.elapsed, '~');
+  setAmbiguous('wide');
+  assert.equal(glyphs().elapsed, '~', 'AITOP_AMBIGUOUS=wide 는 ASCII');
+  setAmbiguous('narrow');
+  assert.equal(glyphs().elapsed, '◷');
+});
+
 const S = (status, kind, extra = {}) => ({ tool: 'claude', status, phase: { kind }, ...extra });
 const ROWS = [S('waiting', 'waiting'), S('idle', 'unseen'), S('live', 'idle', { tool: 'gemini' }), S('idle', 'idle'), S('idle', 'stopped'), S('idle', 'done'), S('ended', 'ended')];
 

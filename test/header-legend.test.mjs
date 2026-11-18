@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { header, sessionRow, statusCell, columns } from '../src/ui/table.mjs';
 import { cacheState, toolElapsed } from '../src/ui/draw.mjs';
 import { legend } from '../src/ui/chrome.mjs';
-import { legendMark } from '../src/ui/glyphs.mjs';
+import { glyphs, legendMark } from '../src/ui/glyphs.mjs';
 import { setLang, t } from '../src/i18n.mjs';
 import { setAmbiguous, width } from '../src/text.mjs';
 import { PALETTE } from '../src/ui/theme.mjs';
@@ -40,7 +40,7 @@ test('범례에 상태 덧붙임 묶음이 있고, 기호는 지금 세트를 �
     const at = L.findIndex(([k]) => k === t('help.extras'));
     assert.ok(at > 0, lang);
     const keys = L.slice(at + 1).map(([k]) => k);
-    assert.deepEqual(keys, ['✓', '▲', t('legend.cacheKey'), t('legend.toolKey'), t('legend.stalledKey')]);
+    assert.deepEqual(keys, ['✓', '▲', t('legend.cacheKey'), t('legend.toolKey'), `${glyphs().elapsed}3m12s`, t('legend.stalledKey')]);
     assert.equal(t('legend.stalledKey'), t('member.stalled'), '팀원 행에 보이는 글 그대로');
     assert.ok(L.slice(at + 1).every(([, d]) => d && width(d) <= 48), `${lang}: 도움말 오른쪽 칸에 잘리지 않는다`);
   }
