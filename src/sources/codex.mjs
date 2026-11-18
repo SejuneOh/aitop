@@ -17,7 +17,7 @@ import { codexHomes, codexSessionRoots, dedupeBy, homeOf } from './dirs.mjs';
 const MAX_TURNS = 50;
 
 const RECENT_MS = 24 * 3600 * 1000;
-// 프로세스 목록을 못 얻는 OS(지금은 Windows)에서는 이 시간 안에 바뀐 기록을 실행 중으로 본다.
+// 프로세스 목록을 못 얻을 때(Windows 에서 PowerShell CIM 이 실패할 때 등)는 이 시간 안에 바뀐 기록을 실행 중으로 본다.
 // codex 는 답할 때마다 기록에 쓰므로, 답을 읽고 다음 지시를 쓰는 동안(대개 몇 분)은 남고 닫은 세션은 곧 빠진다.
 // Claude 팀원의 MEMBER_STALE_MS(15분)보다 짧게 둔다. 실제 프로세스가 없으니 끝난 세션이 오래 남는 쪽이 더 헷갈린다.
 export const NO_PROC_LIVE_MS = 10 * 60_000;
@@ -361,10 +361,48 @@ export function codexIndexName(path, id) {
 
 export const _test = { newState, applyLine, phaseOf, toolStartOf, snapshot, readIndex, indexName };
 
-export function collectCodex({ showEnded, budget, filesOf = openFiles, startOf = processStart, canList = canListProcesses }) {
+// 작업 폴더를 모르는 프로세스(Windows, cwdUnknown)와 rollout 을 시작 시각으로 짝짓는다. 돌려주는 값은 경로 → pid.
+// files 는 최근에 바뀐 순서, sessionStartOf(path) 는 세션이 시작한 시각(ms), startOf(pid) 는 프로세스가 뜬 시각.
+// 1) 프로세스 기준: 늦게 뜬 프로세스부터, 그 프로세스가 뜬 뒤 시작한 세션 중 가장 최근에 기록된 것을 준다.
+//    codex 안에서 /new 로 새 세션을 열면 예전 세션은 조용해지고 새 세션이 기록되므로, 지금 쓰는 세션이 숨지 않는다.
+//    알려진 한계: 시각만으로는 다른 터미널에서 방금 끝난 세션과 구별할 수 없어, 오래 쉬는 세션 대신 그 세션이 잠시
+//    실행 중으로 보일 수 있다. 쉬던 세션이 다시 기록하면 바로잡힌다 (지금 쓰는 세션이 숨는 쪽이 더 나빠서 이렇게 고른다).
+// 2) 남은 프로세스(이어 연 세션)에는 최근에 바뀐 파일부터, 파일이 쓰이기 전에 뜬 프로세스 중 가장 늦게 뜬 것을 준다.
+// 어느 쪽이든 프로세스가 뜨기 전에 마지막으로 쓰인 파일은 받지 않는다.
+export function pairByStart(pids, files, sessionStartOf, startOf) {
+  const out = new Map();
+  const left = pids.map((pid) => ({ pid, since: startOf(pid) }));
+  const order = left.filter((p) => p.since !== null).sort((a, b) => b.since - a.since);
+  for (const p of order) {
+    // files 는 최근에 바뀐 순서라 처음 맞는 것이 가장 최근에 기록된 세션이다.
+    const best = files.find((f) => {
+      if (out.has(f.path) || f.mtime < p.since) return false;
+      const s = sessionStartOf(f.path);
+      return Number.isFinite(s) && s >= p.since;
+    });
+    if (best) {
+      out.set(best.path, p.pid);
+      left.splice(left.indexOf(p), 1);
+    }
+  }
+  for (const f of files) {
+    if (!left.length) break;
+    if (out.has(f.path)) continue;
+    let j = -1;
+    for (let i = 0; i < left.length; i++) {
+      const since = left[i].since;
+      if (since !== null && f.mtime < since) continue;
+      if (j < 0 || (since ?? -Infinity) > (left[j].since ?? -Infinity)) j = i;
+    }
+    if (j >= 0) out.set(f.path, left.splice(j, 1)[0].pid);
+  }
+  return out;
+}
+
+export function collectCodex({ showEnded, budget, filesOf = openFiles, startOf = processStart, canList = canListProcesses, procsOf = () => findProcesses(isCodex) }) {
   // 프로세스를 못 세면 숨기지 않고 최근에 바뀐 기록으로 판정한다 (pid 는 null).
   const blind = !canList();
-  const procs = blind ? [] : findProcesses(isCodex);
+  const procs = blind ? [] : procsOf();
   if (!procs.length && !showEnded && !blind) return [];
 
   const fresh = (f) => Date.now() - f.mtime <= NO_PROC_LIVE_MS;
@@ -401,7 +439,11 @@ export function collectCodex({ showEnded, budget, filesOf = openFiles, startOf =
   // 남은 프로세스는 같은 폴더에서 돌고 있는 수만큼, 가장 최근에 바뀐 세션 파일을 '실행 중'으로 본다.
   // 시작 시각을 아는 프로세스에는 시작한 뒤에 쓰인 파일만 준다. 새 codex 에 방금 끝난 세션이 붙지 않게 한다.
   const slots = new Map();
-  for (const p of rest) slots.set(p.cwd, [...(slots.get(p.cwd) ?? []), p.pid]);
+  const anyCwd = [];
+  for (const p of rest) {
+    if (p.cwdUnknown) anyCwd.push(p.pid);
+    else slots.set(p.cwd, [...(slots.get(p.cwd) ?? []), p.pid]);
+  }
   for (const f of files) {
     if (liveByPath.has(f.path)) continue;
     const free = slots.get(states.get(f.path).cwd);
@@ -410,6 +452,11 @@ export function collectCodex({ showEnded, budget, filesOf = openFiles, startOf =
       return since === null || f.mtime >= since;
     }) ?? -1;
     if (i >= 0) liveByPath.set(f.path, free.splice(i, 1)[0]);
+  }
+  // 작업 폴더를 모르는 프로세스(Windows)는 폴더와 상관없이 시작 시각으로만 짝짓는다 (pairByStart).
+  if (anyCwd.length) {
+    const free = files.filter((f) => !liveByPath.has(f.path));
+    for (const [path, pid] of pairByStart(anyCwd, free, (p) => states.get(p)?.startedAt, startOf)) liveByPath.set(path, pid);
   }
 
   const alive = new Set(procs.map((p) => p.pid));

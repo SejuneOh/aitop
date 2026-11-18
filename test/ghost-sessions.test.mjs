@@ -46,7 +46,7 @@ test('작업을 맡은 bg 세션(spare 없음, 또는 거짓)은 남긴다', () 
   assert.equal(run()[0].kind, 'background');
 });
 
-test('procStart 가 지금 프로세스의 시작 틱과 다르면 pid 재사용으로 보고 살아 있지 않다', () => {
+test('procStart 가 지금 프로세스의 시작 틱과 다르면 pid 재사용으로 보고 살아 있지 않다', { skip: process.platform === 'win32' && 'Windows 는 procStart(클럭 틱) 대신 CIM 시작 시각을 본다 (test/win-procs.test.mjs)' }, () => {
   withStat(fakeStat(5000));
   fx.session({ sessionId: 'reuse-0001', procStart: '5000' });
   assert.equal(run()[0]?.live, true, '같은 시작 틱이면 살아 있다');
@@ -57,7 +57,7 @@ test('procStart 가 지금 프로세스의 시작 틱과 다르면 pid 재사용
   assert.equal(ended.status, 'ended');
 });
 
-test('작은 차이는 같은 프로세스로 본다', () => {
+test('작은 차이는 같은 프로세스로 본다', { skip: process.platform === 'win32' && 'Windows 는 procStart(클럭 틱) 대신 CIM 시작 시각을 본다 (test/win-procs.test.mjs)' }, () => {
   withStat(fakeStat(1050));
   assert.equal(sameProcess(process.pid, '1000'), true);
   withStat(fakeStat(2000));
@@ -114,7 +114,7 @@ test('끝난 pid 의 파일은 다시 확인하지 않고, 파일이 사라지�
   assert.deepEqual(ids(), ['live-0001:true']);
 });
 
-test('끝난 것으로 캐시된 파일을 새 프로세스 내용이 덮어쓰면 다시 살아 있다', () => {
+test('끝난 것으로 캐시된 파일을 새 프로세스 내용이 덮어쓰면 다시 살아 있다', { skip: process.platform === 'win32' && 'Windows 는 procStart(클럭 틱) 대신 CIM 시작 시각을 본다 (test/win-procs.test.mjs)' }, () => {
   withStat(fakeStat(7000));
   const p = join(sessions, `${process.pid}.json`);
   // 예전 프로세스: 같은 pid 지만 시작 틱이 다르다 (pid 재사용)

@@ -4,7 +4,7 @@
 import { readdirSync, readFileSync, statSync, existsSync, openSync, readSync, closeSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { homedir, platform } from 'node:os';
-import { findProcesses, isCodex, isGemini, isAgy, canListProcesses, isAlive, isSessionAlive } from './procs.mjs';
+import { findProcesses, isCodex, isGemini, isAgy, canListProcesses, isAlive, isSessionAlive, processMethod } from './procs.mjs';
 import { AGY_ROOT } from './sources/antigravity.mjs';
 import { loadSqlite, openReadOnly } from './sqlite.mjs';
 import { fmtAgo, pad, stripControl } from './text.mjs';
@@ -105,7 +105,7 @@ function topKeys(path) {
 function liveSessionFile(path) {
   try {
     const e = JSON.parse(readFileSync(path, 'utf8'));
-    return !e.spare && isSessionAlive(e.pid, e.procStart);
+    return !e.spare && isSessionAlive(e.pid, e.procStart, e.updatedAt ?? e.startedAt);
   } catch {
     return false;
   }
@@ -214,7 +214,9 @@ export function checkTools({ home = HOME } = {}) {
     tools[r.tool] = r;
   }
   const con = consoleCheck();
-  return { platform: platform(), processes: canListProcesses(), tools, notifier: notifierCheck(), ...(con ? { console: con } : {}) };
+  // Windows 는 프로세스 목록 방식(PowerShell CIM)과 걸린 시간을 함께 보인다 (#195). 그 밖의 OS 는 예전 모양 그대로.
+  const how = processMethod();
+  return { platform: platform(), processes: canListProcesses(), ...(how ? { processMethod: how } : {}), tools, notifier: notifierCheck(), ...(con ? { console: con } : {}) };
 }
 
 // Windows 의 터미널이 구형 콘솔(conhost)로 보이는지. Windows Terminal(WT_SESSION), VS Code·WezTerm(TERM_PROGRAM),
@@ -279,7 +281,10 @@ export function describe(t, now = Date.now(), lang = getLang()) {
 // aitop --doctor 의 사람용 출력.
 export function doctorText(result, version, now = Date.now(), lang = getLang()) {
   const o = { lang };
-  const os = tr('doctor.os', { platform: result.platform, state: tr(result.processes ? 'doctor.procsOk' : 'doctor.procsNo', null, o) }, o);
+  const pm = result.processMethod;
+  const why = pm?.error ? tr(pm.error === 'timeout' ? 'doctor.procsTimeout' : 'doctor.procsFailed', null, o) : '';
+  const how = pm?.kind === 'cim' ? tr('doctor.procsCim', { s: pm.ms == null ? '?' : (pm.ms / 1000).toFixed(1) }, o) + why : '';
+  const os = tr('doctor.os', { platform: result.platform, state: tr(result.processes ? 'doctor.procsOk' : 'doctor.procsNo', null, o) + how }, o);
   const out = [tr('doctor.title', { logo: BRAND.logo, version, os }, o), ''];
   for (const t of Object.values(result.tools)) {
     const d = describe(t, now, lang);

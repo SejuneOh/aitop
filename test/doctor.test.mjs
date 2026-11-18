@@ -23,14 +23,12 @@ test('기록이 있는 도구는 찾음, 기록 수, 실행 수를 보인다', (
   const { tools } = checkTools();
   assert.equal(tools.claude.state, 'ok');
   assert.equal(tools.claude.records, 1);
-  // Windows 는 프로세스를 세지 못해 실행 수를 모른다 (null, #195).
-  const win = process.platform === 'win32';
-  assert.equal(tools.claude.running, win ? null : 1);
+  // Windows 도 PowerShell CIM 으로 프로세스를 센다 (#195).
+  assert.equal(tools.claude.running, 1);
   assert.equal(tools.claude.readable, true);
   const d = describe(tools.claude, tools.claude.lastAt + 5000);
   assert.equal(d.mark, '✓');
-  if (win) assert.match(d.detail, /^기록 1개 · 마지막 5초 전/);
-  else assert.equal(d.detail, '기록 1개 · 마지막 5초 전 · 실행 1');
+  assert.equal(d.detail, '기록 1개 · 마지막 5초 전 · 실행 1');
 });
 
 test('기록 폴더가 없는 도구는 없음과 다음 행동을 보인다', () => {

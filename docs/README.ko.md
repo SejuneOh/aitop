@@ -1043,14 +1043,14 @@ end)
 | 도구 | 실행 중 판단 | 진행 내용·토큰 |
 |---|---|---|
 | Claude Code | `~/.claude/sessions/<pid>.json` + pid 가 살아 있는지 | `~/.claude/projects/*/<sessionId>.jsonl`, `…/subagents/agent-*.jsonl` |
-| Codex CLI | `codex` 프로세스와 작업 폴더 (Linux `/proc`, macOS `ps`·`lsof`). Windows 는 10분 안에 바뀐 기록 | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` |
+| Codex CLI | `codex` 프로세스와 작업 폴더 (Linux `/proc`, macOS `ps`·`lsof`). Windows 는 PowerShell CIM 의 프로세스 시작 시각 | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` |
 | Antigravity CLI (`agy`) | `agy` 프로세스가 열어 둔 `presence/<id>.lock` (Linux `/proc/<pid>/fd`). macOS 는 작업 폴더로 짝짓는다 | `~/.gemini/antigravity-cli/conversation_summaries.db`(제목·상태·서브에이전트), `conversations/<id>.db` 의 `gen_metadata`(모델·토큰)·`steps`(지시·답변·도구 호출) |
 | Gemini CLI | `gemini` 프로세스 | 아직 미지원 |
 
 ## 알려진 한계
 
-- Linux·WSL·macOS 를 지원하고, macOS 는 `ps`·`lsof` 를 2초에 한 번 부른다.
-- Windows 네이티브는 1단계다 (Windows Terminal 권장). 아래 세부 참고.
+- Linux·WSL·macOS·Windows 를 지원하고, macOS 는 `ps`·`lsof` 를 2초에 한 번, Windows 는 PowerShell 을 5초에 한 번 부른다.
+- Windows 네이티브는 Windows Terminal 을 권장한다. 아래 세부 참고.
 - 배경색 자동 판별은 `COLORFGBG` 에 기대는데 Windows Terminal 은 이 값을 넣지 않는다. 밝은 배경의 Windows Terminal 에서는 `aitop --theme light` 로 실행한다.
 - 세션 파일 형식은 각 CLI 의 내부 형식이라, CLI 업데이트로 바뀌면 `src/sources/` 의 해당 파일을 고쳐야 한다.
 - 컨텍스트 창 크기는 기록에 없어서 모델별 표(`src/pricing.mjs`)로 정한다. 표에 없는 모델은 200k 를 넘으면 1M 으로 가정한다.
@@ -1065,9 +1065,12 @@ end)
 
 - 설치와 실시간 화면·`--once`·`--json`·`--report`·`--doctor` 에서 Claude Code·Codex 세션이 보이고, `--notify`(WSL 과 같은 PowerShell 알림)·`--on-waiting` 도 돈다 ([알림](#알림)의 실행 규칙 참고).
 - 설정 파일의 `onWaiting` 은 권한(mode) 대신 파일이 사용자 프로필 아래인지로 받는다 ([설정 파일](#설정-파일) 참고).
-- 아직 안 되는 것: 프로세스 감지(#195).
-- 프로세스를 못 세므로 Codex 는 10분 안에 기록이 바뀐 세션만 실행 중으로 본다 (pid 없음).
-- 그래서 10분 넘게 기록을 쓰지 않는 긴 작업 중에는 목록에서 빠지고, 비정상 종료된 세션은 최대 10분 남을 수 있다.
+- 프로세스 목록은 PowerShell `Get-CimInstance Win32_Process` 한 번으로 pid·부모·명령줄·시작 시각을 받는다.
+- 한 번에 1초 안팎 걸려서, 처음 한 번만 기다려 받고 그 뒤에는 5초마다 뒤에서 새로 받는다 (8초 넘으면 끊음). `--doctor` 첫 줄에 방식과 걸린 시간이 보인다.
+- 다른 프로세스의 작업 폴더는 얻지 않는다. 그래서 Codex 는 늦게 뜬 프로세스부터, 그 프로세스가 뜬 뒤 시작한 세션 중 가장 최근에 기록된 세션을 짝짓는다 (`/new` 로 새로 연 세션을 따라간다). 그런 세션이 없는 프로세스(이어 연 세션)에는 뜬 뒤에 기록이 쓰인 가장 최근 세션을 준다.
+- 알려진 한계: 시각만으로는 다른 터미널에서 방금 끝난 세션과 `/new` 를 구별할 수 없어, 오래 쉬는 세션 대신 그 세션이 잠시 실행 중으로 보일 수 있다. 쉬던 세션이 다시 기록하면 바로잡힌다.
+- Claude Code 세션은 그 pid 를 지금 가진 프로세스가 세션 파일이 마지막으로 쓰인 뒤에 떴으면 끝난 것으로 본다 (pid 재사용).
+- PowerShell 호출이 3번 이어 실패하면(첫 호출은 한 번) 예전처럼 10분 안에 기록이 바뀐 Codex 세션만 실행 중으로 보고(pid 없음), 1분 뒤에 다시 해 본다.
 - 구형 콘솔(conhost)에서는 `▕█░` 막대와 점자 글자(`⠋`, 로고)가 네모로 보일 수 있고 `--doctor` 가 알린다. Windows Terminal 을 권장하고, 이 콘솔에서는 `AITOP_AMBIGUOUS=wide`(표·막대를 ASCII 로)나 `NO_COLOR`(진행 막대를 `[#.]` 로)로 실행한다.
 - 백신이나 다른 aitop 이 캐시·요약 파일을 잠깐 잡고 있으면 파일 교체를 50ms 간격으로 3번 더 해 본다.
 - 캐시·로그·설정은 `XDG_*` 가 없으면 `%LOCALAPPDATA%\aitop\cache`, `%LOCALAPPDATA%\aitop\state`, `%APPDATA%\aitop` 에 둔다.
