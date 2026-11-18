@@ -281,7 +281,9 @@ export function describe(t, now = Date.now(), lang = getLang()) {
 // aitop --doctor 의 사람용 출력.
 export function doctorText(result, version, now = Date.now(), lang = getLang()) {
   const o = { lang };
-  const how = result.processMethod?.kind === 'cim' ? tr('doctor.procsCim', { s: result.processMethod.ms == null ? '?' : (result.processMethod.ms / 1000).toFixed(1) }, o) : '';
+  const pm = result.processMethod;
+  const why = pm?.error ? tr(pm.error === 'timeout' ? 'doctor.procsTimeout' : 'doctor.procsFailed', null, o) : '';
+  const how = pm?.kind === 'cim' ? tr('doctor.procsCim', { s: pm.ms == null ? '?' : (pm.ms / 1000).toFixed(1) }, o) + why : '';
   const os = tr('doctor.os', { platform: result.platform, state: tr(result.processes ? 'doctor.procsOk' : 'doctor.procsNo', null, o) + how }, o);
   const out = [tr('doctor.title', { logo: BRAND.logo, version, os }, o), ''];
   for (const t of Object.values(result.tools)) {

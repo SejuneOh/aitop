@@ -26,8 +26,11 @@ export function canListProcesses() {
 }
 
 // --doctor 에 보일 프로세스 목록 방식. Windows 는 { kind: 'cim', ms } (마지막 CIM 호출에 걸린 시간), 그 밖은 null.
+// 목록을 얻지 못했으면 error 에 이유('timeout' · 'error')를 붙인다.
 export function processMethod() {
-  return win ? { kind: 'cim', ms: win.ms() } : null;
+  if (!win) return null;
+  const error = win.error?.() ?? null;
+  return { kind: 'cim', ms: win.ms(), ...(error ? { error } : {}) };
 }
 
 // 신호 0 은 보내지 않고 프로세스가 있는지만 본다. 다른 사용자 프로세스면 EPERM 이지만 살아 있다.
@@ -306,7 +309,17 @@ export function processStart(pid) {
 // 출력은 UTF-8 JSON 을 base64 로 감싸 콘솔 코드 페이지와 상관없이 한글 경로가 깨지지 않게 한다.
 export const WIN_SCAN_TTL_MS = 5000;
 export const WIN_SCAN_TIMEOUT_MS = 8000;
+// --doctor 는 한 번 돌고 끝나는 진단이라 첫 호출을 더 오래 기다린다. 막 켠 PC 나 CI 러너에서는 PowerShell 의 첫 기동
+// (.NET·CIM 모듈 적재)만으로 8초를 넘기는 일이 있어, 그때 "프로세스 확인 불가" 로 잘못 진단하지 않게 한다 (#195).
+// 실시간 화면의 첫 호출은 화면이 그만큼 멈추므로 WIN_SCAN_TIMEOUT_MS 그대로 둔다.
+export const WIN_DOCTOR_TIMEOUT_MS = 20_000;
 export const WIN_RETRY_MS = 60_000;
+
+// 첫 동기 호출의 상한. --doctor 가 setFirstScanTimeout(WIN_DOCTOR_TIMEOUT_MS) 로 늘린다 (첫 호출 전에 불러야 한다).
+let firstTimeoutMs = WIN_SCAN_TIMEOUT_MS;
+export function setFirstScanTimeout(ms) {
+  firstTimeoutMs = ms;
+}
 export const WIN_FAIL_LIMIT = 3;
 
 export const CIM_SCRIPT = [
@@ -393,14 +406,21 @@ export function parseCim(text) {
 
 const psPath = () => windowsPowerShell() ?? 'powershell.exe';
 
-const runCimSync = () => execFileSync(psPath(), cimArgs(), { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: WIN_SCAN_TIMEOUT_MS, windowsHide: true, maxBuffer: 64 * 1024 * 1024 });
+const runCimSync = () => execFileSync(psPath(), cimArgs(), { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: firstTimeoutMs, windowsHide: true, maxBuffer: 64 * 1024 * 1024 });
+
+// 실패 이유: 상한을 넘겨 끊었으면 'timeout', 그 밖은 'error'.
+const failReason = (e) => (e?.code === 'ETIMEDOUT' || e?.signal === 'SIGTERM' || e?.timedOut ? 'timeout' : 'error');
 
 // 뒤에서 부르는 CIM. 끝나지 않으면 WIN_SCAN_TIMEOUT_MS 뒤에 끊는다. aitop 이 끝나는 것을 막지 않게 unref 한다.
 function runCimAsync() {
   return new Promise((resolve, reject) => {
     const c = spawn(psPath(), cimArgs(), { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
     const chunks = [];
-    const timer = setTimeout(() => c.kill(), WIN_SCAN_TIMEOUT_MS);
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      c.kill();
+    }, WIN_SCAN_TIMEOUT_MS);
     timer.unref?.();
     c.stdout.on('data', (d) => chunks.push(d));
     c.once('error', (e) => {
@@ -410,7 +430,7 @@ function runCimAsync() {
     c.once('close', (code) => {
       clearTimeout(timer);
       if (code === 0) resolve(Buffer.concat(chunks).toString('utf8'));
-      else reject(new Error(`powershell exit ${code}`));
+      else reject(Object.assign(new Error(`powershell exit ${code}`), { timedOut }));
     });
     c.unref();
     c.stdout.unref?.();
@@ -425,8 +445,8 @@ export function createWinScanner({ runSync = runCimSync, runAsync = runCimAsync,
   let pending = null;
   let fails = 0;
   let byPid = new Map();
-  const set = (list, ok, ms) => {
-    st = { at: now(), list, ok, ms };
+  const set = (list, ok, ms, error = null) => {
+    st = { at: now(), list, ok, ms, error };
     byPid = new Map(list.map((p) => [p.pid, p]));
     if (ok) fails = 0;
   };
@@ -434,8 +454,8 @@ export function createWinScanner({ runSync = runCimSync, runAsync = runCimAsync,
     const t0 = now();
     try {
       set(parseCim(runSync()), true, now() - t0);
-    } catch {
-      set([], false, now() - t0);
+    } catch (e) {
+      set([], false, now() - t0, failReason(e));
     }
   };
   const refresh = () => {
@@ -447,8 +467,8 @@ export function createWinScanner({ runSync = runCimSync, runAsync = runCimAsync,
         (text) => set(parseCim(text), true, now() - t0),
         // 한두 번의 실패(잠깐 바쁜 PC 의 시간 초과 등)는 직전 목록을 그대로 두고 TTL 뒤에 다시 받는다.
         // failLimit 번 이어 실패하면 목록을 버린다: 오래된 목록으로 끝난 세션을 살아 있다고 보지 않게, 최근 기록 판정으로 돌아간다.
-        () => {
-          if (++fails >= failLimit) set([], false, now() - t0);
+        (e) => {
+          if (++fails >= failLimit) set([], false, now() - t0, failReason(e));
           else st = { ...st, at: now() };
         },
       )
@@ -468,6 +488,8 @@ export function createWinScanner({ runSync = runCimSync, runAsync = runCimAsync,
       return st.ok;
     },
     ms: () => st?.ms ?? null,
+    // 마지막으로 목록을 버린 이유: 'timeout' · 'error', 성공했으면 null.
+    error: () => st?.error ?? null,
     startOf(pid) {
       ready();
       return byPid.get(pid)?.start ?? null;

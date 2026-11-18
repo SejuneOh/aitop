@@ -131,6 +131,33 @@ test('목록기: 뒤에서 받기가 한두 번 실패하면 직전 목록을 �
   assert.equal(s.ok(), true);
 });
 
+test('목록기: 실패 이유를 남긴다 (상한 초과면 timeout), 성공하면 지운다', async () => {
+  let t = 0;
+  let err = Object.assign(new Error('spawnSync powershell.exe ETIMEDOUT'), { code: 'ETIMEDOUT' });
+  const run = () => {
+    if (err) throw err;
+    return b64([{ p: 5, n: 'e.exe', c: 'e.exe' }]);
+  };
+  const s = createWinScanner({ now: () => t, retry: 1000, runSync: run, runAsync: async () => run() });
+  assert.equal(s.ok(), false);
+  assert.equal(s.error(), 'timeout');
+  const other = createWinScanner({ runSync: () => { throw new Error('ENOENT'); } });
+  assert.equal(other.ok(), false);
+  assert.equal(other.error(), 'error');
+  err = null;
+  t += 1000;
+  s.list();
+  await s.settle();
+  assert.equal(s.ok(), true);
+  assert.equal(s.error(), null);
+});
+
+test('--doctor 는 첫 CIM 호출 상한을 실시간 화면보다 길게 둔다', () => {
+  assert.equal(procs.WIN_SCAN_TIMEOUT_MS, 8000);
+  assert.equal(procs.WIN_DOCTOR_TIMEOUT_MS, 20_000);
+  assert.equal(typeof procs.setFirstScanTimeout, 'function');
+});
+
 test('부모 pid 가 codex 여도 부모가 자식보다 늦게 떴으면(pid 재사용) 자식을 따로 센다', () => {
   const fake = createWinScanner({
     runSync: () =>
@@ -192,6 +219,9 @@ test('--doctor: Windows 는 프로세스 목록 방식과 걸린 시간을 보�
   assert.match(doctorText(base, '0.0.0', Date.now(), 'ko'), /win32, 프로세스 확인 가능 · PowerShell CIM 0\.8초/);
   assert.match(doctorText(base, '0.0.0', Date.now(), 'en'), /win32, processes visible · PowerShell CIM 0\.8s/);
   assert.match(doctorText({ ...base, processes: false, processMethod: { kind: 'cim', ms: null } }, '0.0.0', Date.now(), 'ko'), /프로세스 확인 불가 · PowerShell CIM \?초/);
+  // 목록을 얻지 못한 이유를 보인다.
+  assert.match(doctorText({ ...base, processes: false, processMethod: { kind: 'cim', ms: 20000, error: 'timeout' } }, '0.0.0', Date.now(), 'en'), /processes not visible · PowerShell CIM 20\.0s, timed out/);
+  assert.match(doctorText({ ...base, processes: false, processMethod: { kind: 'cim', ms: 90, error: 'error' } }, '0.0.0', Date.now(), 'ko'), /PowerShell CIM 0\.1초, 실패/);
   assert.doesNotMatch(doctorText({ platform: 'linux', processes: true, tools: {} }, '0.0.0', Date.now(), 'ko'), /CIM/);
 });
 

@@ -63,7 +63,11 @@ assert.match(aitop(['--help']), /print the current state once and exit/);
 const doctor = aitop(['--doctor']);
 assert.match(doctor, /setup check/);
 assert.match(doctor, /claude/i);
-if (WIN) assert.match(doctor, /processes visible · PowerShell CIM/, doctor);
+if (WIN) {
+  // 실패하면 첫 줄에 원인(timed out = 상한 초과, failed = PowerShell 실행 실패)과 걸린 시간이 보인다.
+  const head = doctor.split('\n')[0];
+  assert.match(doctor, /processes visible · PowerShell CIM/, `PowerShell CIM 으로 프로세스 목록을 얻지 못함: ${head}\n${doctor}`);
+}
 
 const once = aitop(['--once']);
 assert.match(once, /smoke session/);
