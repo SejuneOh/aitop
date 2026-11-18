@@ -247,7 +247,7 @@ export function notifierText(n, plat = platform(), lang = getLang(), wsl = plat 
   }
   if (n) return tr('doctor.notifier', { kind: n.kind, path: n.path }, o);
   if (wsl) return [tr('doctor.noNotifierWsl', null, o), hint('doctor.wslHint')].join('\n');
-  const want = plat === 'darwin' ? 'osascript' : 'notify-send';
+  const want = plat === 'darwin' ? 'osascript' : plat === 'win32' ? 'powershell.exe' : 'notify-send';
   return tr('doctor.noNotifier', { want }, o);
 }
 

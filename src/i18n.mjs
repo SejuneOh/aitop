@@ -82,7 +82,7 @@ const HELP_KO = `{logo} aitop - 터미널에서 Claude Code · Codex · Antigrav
                    같은 도구 연속 호출은 Grep ×38 처럼 묶고, 깊은 가지는 접는다. 명령·경로 같은 인자와 지시 글은 --show-prompts 일 때만
   aitop --doctor   Claude · Codex · Antigravity · Gemini 기록과 실행 중인 프로세스, 설정 파일을 점검한다 (--json 과 함께 쓸 수 있다)
   aitop --bell     응답 대기 세션이 새로 생기면 터미널 벨을 울린다
-  aitop --notify   응답 대기 세션이 새로 생기면 데스크톱 알림을 띄운다 (Linux notify-send · macOS osascript · WSL 은 powershell.exe 로 Windows 알림, 없으면 건너뜀)
+  aitop --notify   응답 대기 세션이 새로 생기면 데스크톱 알림을 띄운다 (Linux notify-send · macOS osascript · WSL·Windows 는 powershell.exe 로 Windows 알림, 없으면 건너뜀)
   aitop --notify=waiting,done,context  알릴 종류를 고른다 (--notify 만 주면 설정 파일 notify 배열, 없으면 waiting). done: 3분(설정 파일 doneMinutes, 응답 대기 시간 빼고) 넘게 작업하던 세션이 다음 지시를
                    기다리면 한 번. context: 컨텍스트가 90% 를 넘으면 한 번 (85% 아래로 내려가면 다시)
   aitop --on-waiting <명령>  알릴 일이 생기면 /bin/sh -c (Windows 는 cmd.exe /c) 로 명령을 실행한다 (내 권한으로 실행, 10초 제한). 종류는 --notify 를 따른다 (--no-notify 여도)
@@ -144,7 +144,7 @@ const HELP_EN = `{logo} aitop - watch Claude Code, Codex, Antigravity and Gemini
                    Repeated calls of one tool are grouped like Grep ×38 and deep branches are folded. Arguments and prompt text only with --show-prompts
   aitop --doctor   check Claude, Codex, Antigravity and Gemini logs, running processes and the config file (works with --json)
   aitop --bell     ring the terminal bell when a session starts waiting for you
-  aitop --notify   show a desktop notification when a session starts waiting (notify-send on Linux, osascript on macOS, a Windows toast via powershell.exe on WSL; skipped if missing)
+  aitop --notify   show a desktop notification when a session starts waiting (notify-send on Linux, osascript on macOS, a Windows toast via powershell.exe on WSL and Windows; skipped if missing)
   aitop --notify=waiting,done,context  pick what to notify about (plain --notify: the config notify list, else waiting). done: once when a session that worked for
                    over 3 minutes (config doneMinutes, approval waits not counted) waits for its next instruction. context: once when context passes 90% (again after it drops below 85%)
   aitop --on-waiting <cmd>  run a command with /bin/sh -c (cmd.exe /c on Windows) when there is something to notify (runs as you, 10 second limit). Follows the --notify kinds (even with --no-notify)
