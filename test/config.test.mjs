@@ -61,11 +61,37 @@ test('모르는 키와 잘못된 값은 그 키만 무시한다', () => {
   assert.ok(cfg.problems.some((p) => /모르는 키 "colour"/.test(p)));
   assert.ok(cfg.problems.some((p) => /theme 값 "blue"/.test(p)));
   const ok = resolve({ budgetDay: 12.5, notify: true, onWaiting: 'notify-send aitop' });
-  // Windows 는 파일 권한(mode)을 믿을 수 없어 설정 파일의 onWaiting 을 받지 않고 알린다 (#196).
-  const win = process.platform === 'win32';
-  assert.deepEqual([ok.values.budgetDay.value, ok.values.notify.value, ok.values.onWaiting.value], [12.5, true, win ? null : 'notify-send aitop']);
-  if (win) assert.equal(ok.problems.length, 1);
-  else assert.deepEqual(ok.problems, []);
+  // Windows 는 임시 폴더가 사용자 프로필 아래라 받는다 (#196).
+  assert.deepEqual([ok.values.budgetDay.value, ok.values.notify.value, ok.values.onWaiting.value], [12.5, true, 'notify-send aitop']);
+  assert.deepEqual(ok.problems, []);
+});
+
+test('Windows 는 mode·uid 대신 설정 파일이 사용자 프로필 아래일 때만 onWaiting 을 받는다 (#196)', () => {
+  const body = { onWaiting: 'say hi' };
+  const p = write(body, 0o666);
+  // 실제 경로(링크를 따라간 뒤)를 가짜로 정한다.
+  const at = (real) => (x) => (x === p ? real : x);
+  const read = (real, profile = 'C:\\Users\\Kim') => readConfigFile(p, { uid: 12345, platform: 'win32', profile, realpath: at(real) });
+  for (const real of ['C:\\Users\\Kim\\AppData\\Roaming\\aitop\\config.json', 'c:/users/KIM/AppData/Roaming/aitop/config.json']) {
+    const ok = read(real);
+    assert.equal(ok.values.onWaiting, 'say hi', real);
+    assert.deepEqual(ok.problems, []);
+    assert.equal(ok.onWaitingIgnored, undefined);
+  }
+  // 프로필 밖, 이름만 비슷한 옆 폴더, 링크로 프로필 밖을 가리키는 경우는 받지 않는다.
+  for (const real of ['C:\\cfg\\aitop\\config.json', 'C:\\Users\\Kim2\\aitop\\config.json', 'D:\\shared\\config.json']) {
+    const bad = read(real);
+    assert.equal(bad.values.onWaiting, undefined, real);
+    assert.match(bad.problems.join('\n'), /프로필\(%USERPROFILE%\) 밖/);
+    assert.equal(bad.onWaitingIgnored, bad.problems[0]);
+  }
+  assert.equal(read('C:\\Users\\Kim\\x.json', '').values.onWaiting, undefined, '프로필을 모르면 받지 않는다');
+  // 같은 파일도 Linux 로 보면 예전처럼 mode 로 판단한다.
+  if (process.platform !== 'win32') {
+    const lin = readConfigFile(p, { uid: 12345, platform: 'linux' });
+    assert.equal(lin.values.onWaiting, undefined);
+    assert.equal(lin.problems.length, 1);
+  }
 });
 
 test('onWaiting 은 내 파일이고 그룹·다른 사용자가 쓸 수 없을 때만 받는다', { skip: process.platform === 'win32' && 'Windows: uid·파일 권한(mode)이 없음 (#196)' }, () => {

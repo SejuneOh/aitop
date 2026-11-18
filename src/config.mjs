@@ -2,7 +2,7 @@
 // 설정 파일은 $XDG_CONFIG_HOME/aitop/config.json (없으면 ~/.config/aitop/config.json). aitop 은 이 파일을 읽기만 한다.
 // 잘못된 JSON, 모르는 키, 잘못된 값은 그 키만 무시하고 problems 에 남긴다 (--doctor 와 --print-config 가 보인다).
 // 화면 모듈은 불러올 때 테마·아이콘을 고르므로, 이 모듈은 화면 모듈을 불러오지 않는다 (notify.mjs 는 text·i18n 만 쓴다).
-import { closeSync, constants, fstatSync, openSync, readSync, statSync } from 'node:fs';
+import { closeSync, constants, fstatSync, openSync, readSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, posix, win32 } from 'node:path';
 import { appDir } from './paths.mjs';
@@ -93,8 +93,24 @@ export const MAX_BYTES = 64 * 1024;
 
 const show = (v) => JSON.stringify(v)?.slice(0, 60) ?? String(v);
 
-// 파일을 읽어 올바른 키만 values 에 담는다. uid: 현재 사용자 (테스트에서 바꿔 끼운다).
-export function readConfigFile(path, { uid = process.getuid?.() } = {}) {
+// Windows: 설정 파일의 실제 경로(링크를 따라간 뒤)가 사용자 프로필(%USERPROFILE%) 아래인지. 대소문자와 \ / 를 무시한다.
+// 프로필 폴더는 기본 ACL 로 다른 일반 사용자가 쓸 수 없지만, 그 밖(예: C:\cfg)은 Authenticated Users 가 고칠 수 있는 일이 흔하다 (#196).
+export function underProfile(file, profile, realpath = realpathSync.native) {
+  if (!profile) return false;
+  const norm = (p) => {
+    let r;
+    try {
+      r = realpath(p);
+    } catch {
+      r = p;
+    }
+    return win32.normalize(String(r)).replace(/\\+$/, '').toLowerCase();
+  };
+  return norm(file).startsWith(norm(profile) + '\\');
+}
+
+// 파일을 읽어 올바른 키만 values 에 담는다. uid: 현재 사용자, platform: OS, profile·realpath: Windows 프로필 확인용 (테스트에서 바꿔 끼운다).
+export function readConfigFile(path, { uid = process.getuid?.(), platform = process.platform, profile = process.env.USERPROFILE || homedir(), realpath } = {}) {
   const res = { path, exists: false, values: {}, problems: [] };
   let fd;
   let text;
@@ -145,13 +161,21 @@ export function readConfigFile(path, { uid = process.getuid?.() } = {}) {
     else res.values[key] = value;
   }
   // 응답 대기 때 실행할 명령은 다른 사용자가 바꿀 수 없는 파일에서만 받는다.
-  if ('onWaiting' in res.values) {
+  // Windows 는 uid 가 없고 mode 가 보통 0o666 이라(권한은 ACL) mode 대신, 파일이 사용자 프로필 아래에 있을 때만 받는다 (#196).
+  if ('onWaiting' in res.values && platform === 'win32') {
+    if (!underProfile(path, profile, realpath)) {
+      delete res.values.onWaiting;
+      res.onWaitingIgnored = t('cfg.onWaitingIgnoredWin');
+      res.problems.push(res.onWaitingIgnored);
+    }
+  } else if ('onWaiting' in res.values) {
     const mine = uid == null || st.uid === uid;
     const shared = (st.mode & 0o022) !== 0;
     if (!mine || shared) {
       delete res.values.onWaiting;
       const why = [!mine && t('cfg.notMine'), shared && t('cfg.shared', { mode: (st.mode & 0o777).toString(8).padStart(3, '0') })].filter(Boolean).join(', ');
-      res.problems.push(t('cfg.onWaitingIgnored', { why }));
+      res.onWaitingIgnored = t('cfg.onWaitingIgnored', { why });
+      res.problems.push(res.onWaitingIgnored);
     }
   }
   return res;

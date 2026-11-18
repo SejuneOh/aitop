@@ -536,7 +536,7 @@ Claude Code 세션 하나를 지시 → 도구 호출 → 서브에이전트(그
 
 - `--notify`: 데스크톱 알림. Linux 는 notify-send, WSL 은 Windows 알림, macOS 는 osascript. 없으면 조용히 건너뛴다 (`--doctor` 에 보임).
 - `--notify=waiting,done,context`: 알릴 종류를 고른다. `--notify` 만 주면 설정 파일 `notify` 배열의 종류, 없으면 `waiting` 만.
-- `--on-waiting`: 응답 대기가 새로 생길 때마다 `/bin/sh -c` 로 명령 실행 (`--on-waiting=<명령>` 도 됨).
+- `--on-waiting`: 응답 대기가 새로 생길 때마다 `/bin/sh -c` (Windows 는 `cmd.exe /d /v:on /s /c`) 로 명령 실행 (`--on-waiting=<명령>` 도 됨).
 - `--bell` 처럼 aitop 을 켰을 때 이미 응답 대기인 세션은 알리지 않는다.
 
 **종류**
@@ -609,6 +609,9 @@ Claude Code 세션 하나를 지시 → 도구 호출 → 서브에이전트(그
 - 한 번 갱신에서 여러 세션이 함께 응답 대기가 되면 첫 세션과 마지막 세션만 실행되고 그 사이 세션은 건너뛴다.
 - aitop 을 끝내면 실행 중인 명령도 함께 끝낸다.
 - 명령이 자식을 백그라운드로 띄우고(`cmd &`) 먼저 끝나면, 그 자식은 10초 제한과 종료 정리 밖에 남으므로 정리는 명령이 맡는다.
+- Windows 는 `%COMSPEC%`(보통 `cmd.exe`) `/d /v:on /s /c` 로 창 없이 실행하고, 끝낼 때는 `taskkill /T /F` 로 자식까지 끝낸다.
+- Windows 명령 안에서는 값을 `%AITOP_PROJECT%` 가 아니라 `!AITOP_PROJECT!` 로 읽는다. cmd 는 `%…%` 값 안의 `&`·`|`·`>` 를 명령으로 읽지만 `!…!` 값은 글자 그대로 둔다. 대신 명령 글 안의 `!` 는 변수 표시로 읽힌다.
+- 훅이 부르는 `.bat`·`.cmd` 파일 안에서도 `%AITOP_PROJECT%` 는 값이 스크립트로 읽힌다. 배치 첫 줄에 `setlocal enabledelayedexpansion` 을 두고 `!AITOP_PROJECT!` 로 읽거나, 훅을 PowerShell 로 쓰고 `$env:AITOP_PROJECT` 로 읽는다.
 
 </details>
 
@@ -928,6 +931,8 @@ Claude Code 프로필을 여럿 쓰면(`CLAUDE_CONFIG_DIR=~/.claude-work claude`
 - `showRequests` 는 설정 파일로도 켤 수 있다 (내 파일이라 권한 검사는 하지 않는다).
 - 켜면 위의 `--show-requests` 주의가 그대로 적용된다.
 - `onWaiting` 은 파일 소유자가 나이고 그룹·다른 사용자가 쓸 수 없을 때(예: `chmod 600`)만 받는다.
+- Windows 는 파일 권한이 mode 가 아니라 ACL 이라, 이 검사 대신 설정 파일의 실제 경로(링크를 따라간 뒤)가 사용자 프로필(`%USERPROFILE%`, 예: `%APPDATA%\aitop`) 아래일 때만 받는다. 프로필은 기본 권한으로 다른 사용자가 쓸 수 없다.
+- 프로필 밖(예: `XDG_CONFIG_HOME=C:\cfg`)의 설정 파일이면 `onWaiting` 을 무시하고, 실행할 때와 `--doctor` 에 알린다.
 
 </details>
 
@@ -1058,8 +1063,9 @@ end)
 <details>
 <summary>세부: Windows 네이티브</summary>
 
-- 설치와 실시간 화면·`--once`·`--json`·`--report`·`--doctor` 에서 Claude Code·Codex 세션이 보인다.
-- 아직 안 되는 것: 프로세스 감지(#195), `onWaiting` 설정 파일 권한 확인(#196), 알림·`--on-waiting`(#197).
+- 설치와 실시간 화면·`--once`·`--json`·`--report`·`--doctor` 에서 Claude Code·Codex 세션이 보이고, `--on-waiting` 도 돈다 ([알림](#알림)의 실행 규칙 참고).
+- 설정 파일의 `onWaiting` 은 권한(mode) 대신 파일이 사용자 프로필 아래인지로 받는다 ([설정 파일](#설정-파일) 참고).
+- 아직 안 되는 것: 프로세스 감지(#195), 데스크톱 알림(#197).
 - 프로세스를 못 세므로 Codex 는 10분 안에 기록이 바뀐 세션만 실행 중으로 본다 (pid 없음).
 - 그래서 10분 넘게 기록을 쓰지 않는 긴 작업 중에는 목록에서 빠지고, 비정상 종료된 세션은 최대 10분 남을 수 있다.
 - 구형 콘솔(conhost)에서는 `▕█░` 막대와 점자 글자(`⠋`, 로고)가 네모로 보일 수 있고 `--doctor` 가 알린다. Windows Terminal 을 권장하고, 이 콘솔에서는 `AITOP_AMBIGUOUS=wide`(표·막대를 ASCII 로)나 `NO_COLOR`(진행 막대를 `[#.]` 로)로 실행한다.

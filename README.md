@@ -287,7 +287,7 @@ Alerts when a session starts waiting, finishes a long turn or fills its context.
 
 - `--notify`: desktop notification when a session starts waiting (notify-send on Linux, Windows notification on WSL, osascript on macOS).
 - `--notify=waiting,done,context`: pick the kinds. Plain `--notify` uses the config file kinds, or waiting only when none are set.
-- `--on-waiting`: run a command with `/bin/sh -c` for the same events (10 second limit, runs as you).
+- `--on-waiting`: run a command with `/bin/sh -c` (`cmd.exe /d /v:on /s /c` on Windows) for the same events (10 second limit, runs as you).
 - Sessions already waiting (or already over 90% context) when aitop starts are not reported.
 
 **Kinds**
@@ -313,7 +313,7 @@ Alerts when a session starts waiting, finishes a long turn or fills its context.
 **Config file and switches**
 
 - `"notify": true` or `"notify": ["waiting", "done", "context"]`.
-- `"onWaiting": "..."` (the file must be `chmod 600`).
+- `"onWaiting": "..."` (the file must be `chmod 600`; on Windows it must be under your profile instead, see [Install](#install)).
 - `"doneMinutes": 5`.
 - Plain `--notify` keeps the kinds from the config `notify` list (waiting only when there is none).
 - `--no-notify` turns off only the desktop notification: the hook still follows those kinds.
@@ -540,8 +540,12 @@ Requires Node.js 22+ on Linux, macOS, WSL or Windows.
 - Native Windows support is early. Windows Terminal is recommended.
 - In the old console (conhost) the `▕█░` bars and braille (`⠋`, the logo) may show as boxes, and `--doctor` says so. Run with `AITOP_AMBIGUOUS=wide` (ASCII tables and bars) or `NO_COLOR` (progress bar as `[#.]`) there.
 - When antivirus or another aitop briefly holds a cache or summary file, replacing it is retried 3 times, 50ms apart.
-- Works: Claude Code and Codex sessions, `--once`, `--json`, `--report` and `--doctor`.
-- Not there yet: process detection, desktop notifications and `--on-waiting` ([#195](https://github.com/SejuneOh/aitop/issues/195)-[#197](https://github.com/SejuneOh/aitop/issues/197)).
+- Works: Claude Code and Codex sessions, `--once`, `--json`, `--report`, `--doctor` and `--on-waiting`.
+- `--on-waiting` runs through `%COMSPEC%` (usually `cmd.exe`) `/d /v:on /s /c` with no window, and `taskkill /T /F` ends it and its children.
+- Inside the command, read values as `!AITOP_PROJECT!`, not `%AITOP_PROJECT%`: cmd reads `&`, `|` and `>` in a `%...%` value as part of the command, but not in a `!...!` value. A `!` in the command itself is read as a variable mark.
+- The same goes for a `.bat` or `.cmd` file the hook calls: `%AITOP_PROJECT%` inside it is read as part of the script. Start it with `setlocal enabledelayedexpansion` and use `!AITOP_PROJECT!`, or write the hook in PowerShell and read `$env:AITOP_PROJECT`.
+- Windows uses ACLs, not modes, so instead of the `chmod 600` check `onWaiting` in the config file is accepted only when the file (after following links) is under your profile (`%USERPROFILE%`, for example `%APPDATA%\aitop`), which other users cannot write by default. A config file elsewhere (say `XDG_CONFIG_HOME=C:\cfg`) has its `onWaiting` ignored, with a warning at start and in `--doctor`.
+- Not there yet: process detection and desktop notifications ([#195](https://github.com/SejuneOh/aitop/issues/195), [#197](https://github.com/SejuneOh/aitop/issues/197)).
 - Until then a Codex session counts as running while its log was written in the last 10 minutes.
 - So it drops out during a long step that writes nothing for over 10 minutes, and a crashed session can stay up to 10 minutes.
 - Cache, log and config live in `%LOCALAPPDATA%\aitop\cache`, `%LOCALAPPDATA%\aitop\state` and `%APPDATA%\aitop` unless `XDG_*` is set.
