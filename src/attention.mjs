@@ -24,23 +24,26 @@ export function markSeen(state, id) {
   state.unseen.delete(id);
 }
 
-// 다음에 봐야 할 세션: 지금 선택한 세션은 빼고, 그 다음 것부터 한 바퀴 돌며 응답 대기 → 확인 전 순서로 찾는다.
+// 오류로 멈춘 세션 (로그인 필요·연결 끊김 등, phase stopped). status 는 idle 이지만 사람이 손대야 하므로 대기와 따로 센다 (#262).
+export const isStopped = (s) => Boolean(s.live) && s.phase?.kind === 'stopped';
+
+// 다음에 봐야 할 세션: 지금 선택한 세션은 빼고, 그 다음 것부터 한 바퀴 돌며 응답 대기 → 멈춤 → 확인 전 순서로 찾는다.
 // 선택이 목록에 없으면(검색으로 가려짐 등) 맨 위부터 찾는다.
 export function nextAttention(state, sessions, selectedId) {
   const at = sessions.findIndex((s) => s.id === selectedId);
   const ordered = at < 0 ? sessions : [...sessions.slice(at + 1), ...sessions.slice(0, at)];
-  return ordered.find((s) => s.status === 'waiting') ?? ordered.find((s) => state.unseen.has(s.id)) ?? null;
+  return ordered.find((s) => s.status === 'waiting') ?? ordered.find(isStopped) ?? ordered.find((s) => state.unseen.has(s.id)) ?? null;
 }
 
-// 응답 대기(◆)와 확인 전(●) 수.
+// 응답 대기(◆), 멈춤(!), 확인 전(●) 수.
 export function attentionCounts(sessions) {
-  return { waiting: sessions.filter((s) => s.live && s.status === 'waiting').length, unseen: sessions.filter((s) => s.unseen).length };
+  return { waiting: sessions.filter((s) => s.live && s.status === 'waiting').length, stopped: sessions.filter(isStopped).length, unseen: sessions.filter((s) => s.unseen).length };
 }
 
-// 창 제목: 맨 앞 아이콘(탭 사이에서 aitop 을 찾게) + 응답 대기·확인 전 수. 예: 󰚩 (2◆ 1●) aitop
+// 창 제목: 맨 앞 아이콘(탭 사이에서 aitop 을 찾게) + 응답 대기·멈춤·확인 전 수. 예: 󰚩 (2◆ 1! 1●) aitop
 export function windowTitle(sessions, icon = '') {
-  const { waiting, unseen } = attentionCounts(sessions);
-  const marks = [waiting && `${waiting}◆`, unseen && `${unseen}●`].filter(Boolean);
+  const { waiting, stopped, unseen } = attentionCounts(sessions);
+  const marks = [waiting && `${waiting}◆`, stopped && `${stopped}!`, unseen && `${unseen}●`].filter(Boolean);
   return (icon ? icon + ' ' : '') + (marks.length ? `(${marks.join(' ')}) aitop` : 'aitop');
 }
 

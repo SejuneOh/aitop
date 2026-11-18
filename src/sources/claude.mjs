@@ -6,7 +6,7 @@ import { loadCache } from '../cache.mjs';
 import { contextWindow } from '../pricing.mjs';
 import { join, basename } from 'node:path';
 import { isSessionAlive } from '../procs.mjs';
-import { ClaudeTracker, tailCustomTitle } from './claude-tracker.mjs';
+import { ClaudeTracker, tailCustomTitle, tailStopReason } from './claude-tracker.mjs';
 import { emptyTokens, isLongTool, mergeActivity, MEMBER_FADE_MS, sessionName } from './common.mjs';
 import { mergeFiles } from './files.mjs';
 import { debug, debugIo } from '../log.mjs';
@@ -477,6 +477,18 @@ export function claudeWaiting() {
     out.push({ tool: 'claude', name: givenName(e, custom) ?? (isAutoName(e) ? basename(e.cwd ?? '') : String(e.name)), since });
   }
   return out;
+}
+
+// --line 용: 오류로 멈춘 살아 있는 Claude 세션 수. 화면과 같이 대기(idle) 세션의 마지막 대화 줄이 API 오류인지 기록 끝만 본다.
+// 세션 파일에 상태가 없는 예전 Claude Code 는 기록 수정 시각으로 상태를 짐작해야 해서 세지 않는다.
+export function claudeStopped() {
+  let n = 0;
+  for (const e of sessionEntries()?.values() ?? []) {
+    if (!e.alive || e.waitingFor || e.status !== 'idle') continue;
+    const transcript = findTranscript(e.sessionId);
+    if (transcript && tailStopReason(transcript)) n++;
+  }
+  return n;
 }
 
 export function collectClaude({ showEnded, budget, selectedId }) {

@@ -421,6 +421,7 @@ export const STRINGS = {
     'hdr.unseen': { long: '확인 전', short: '확인' },
     'hdr.idle': '대기',
     'hdr.waiting': { long: '응답 대기', short: '응답' },
+    'hdr.stopped': '멈춤',
     'hdr.proj': '예상',
     'hdr.projApi': 'API 예상',
     'hdr.budget': '예산',
@@ -508,7 +509,7 @@ export const STRINGS = {
     // 화면 안 도움말의 키 설명 (help.mjs 의 VIEWS·COMMON). hk.<화면>.<이름>.
     'hk.table.search': '세션 검색 (이름·폴더·모델). Enter 적용, Esc 지우기',
     'hk.table.select': '세션 선택',
-    'hk.table.next': '다음 볼 세션으로 (응답 대기 → 완료 · 확인 전)',
+    'hk.table.next': '다음 볼 세션으로 (응답 대기 → 멈춤 → 완료 · 확인 전)',
     'hk.table.sort': '정렬: 기본 → 비용순 → 컨텍스트순 → 최근순. 응답 대기는 늘 맨 위',
     'hk.table.group': '묶기: 없음 → 프로젝트 → 도구. 묶음 머리에 세션 수·비용',
     'hk.table.costMode': '비용 기준: API 환산 ↔ 캐시 제외. 표·헤더·상세가 같이 바뀐다 (예산은 늘 API 환산)',
@@ -860,6 +861,7 @@ export const STRINGS = {
     'hdr.unseen': 'unseen',
     'hdr.idle': 'idle',
     'hdr.waiting': { long: 'waiting', short: 'wait' },
+    'hdr.stopped': 'stopped',
     'hdr.proj': 'est',
     'hdr.projApi': 'API est',
     'hdr.budget': 'budget',
@@ -946,7 +948,7 @@ export const STRINGS = {
 
     'hk.table.search': 'Search by name, folder or model',
     'hk.table.select': 'Select a session',
-    'hk.table.next': 'Next session to check (waiting, then unseen)',
+    'hk.table.next': 'Next session to check (waiting, stopped, then unseen)',
     'hk.table.sort': 'Sort: cost, context, recent. Waiting on top',
     'hk.table.group': 'Group by project or tool, with cost',
     'hk.table.costMode': 'Cost basis: API cost or no cache',
