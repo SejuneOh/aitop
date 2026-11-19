@@ -5,10 +5,13 @@ import { langOption, pickLang, setLang, t } from '../src/i18n.mjs';
 import { notifyOptions } from '../src/notify.mjs';
 import { lineOption } from '../src/line.mjs';
 import { reportOption } from '../src/report.mjs';
+import { suggest } from '../src/suggest.mjs';
 import { mask, setAmbiguous, stripControl } from '../src/text.mjs';
 
 const KNOWN = new Set(['-h', '--help', '-v', '--version', '--once', '--all', '--json', '--doctor', '--bell', '--show-requests', '--print-config', '--no-bell', '--no-all', '--no-show-requests', '--debug', '--no-debug', '--color-blind', '--no-color-blind']);
 const THEMES = ['light', 'dark'];
+// 잘못 친 옵션에 제안할 후보. KNOWN 의 긴 옵션과, 다른 모듈이 먼저 꺼내는 값 옵션을 합친다.
+const OPTIONS = [...[...KNOWN].filter((o) => o.startsWith('--')), '--theme', '--lang', '--notify', '--no-notify', '--on-waiting', '--no-on-waiting', '--budget-day', '--no-budget-day', '--line', '--line-width', '--report', '--by', '--days', '--months', '--since', '--plan', '--md', '--show-prompts'];
 const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
 // 언어는 다른 옵션의 오류 문구보다 먼저 정한다: --lang > AITOP_LANG > 설정 파일 lang > LC_ALL > LC_MESSAGES > LANG.
@@ -109,10 +112,17 @@ if (theme === '') {
   process.stderr.write(`aitop: ${t('cli.themeMissing')}\n`);
   process.exit(2);
 }
-const unknown = [...args].filter((a) => !KNOWN.has(a));
-if (theme != null && !THEMES.includes(theme)) unknown.push(`--theme ${theme}`);
+// 모르는 옵션은 도움말 전체 대신 가까운 옵션 제안과 --help 안내 한 줄만 낸다 (#291).
+const unknown = [...args].filter((a) => !KNOWN.has(a)).map((a) => {
+  const near = a.startsWith('-') ? suggest(a, OPTIONS) : null;
+  return near ? `${a} ${t('cli.didYouMean', { opt: near })}` : a;
+});
+if (theme != null && !THEMES.includes(theme)) {
+  const near = suggest(theme, THEMES);
+  unknown.push(`--theme ${theme} ${near ? t('cli.didYouMean', { opt: `--theme ${near}` }) : t('cli.themeValues')}`);
+}
 if (unknown.length) {
-  process.stderr.write(`aitop: ${t('cli.unknown', { opts: unknown.join(' ') })}\n\n${HELP}\n`);
+  process.stderr.write(`aitop: ${t('cli.unknown', { opts: stripControl(unknown.join(', ')) })}\naitop: ${t('cli.seeHelp')}\n`);
   process.exit(2);
 }
 if (args.has('-h') || args.has('--help')) {

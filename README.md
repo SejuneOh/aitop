@@ -66,6 +66,7 @@
 > `aitop --help`
 
 - All options.
+- A mistyped option prints the error with the closest match and a pointer to `aitop --help` (two lines, no full help), like `unknown option --notfy (did you mean --notify?)`, and exits with 2. A bad `--theme` value works the same way.
 
 **Keys on the live screen**
 
