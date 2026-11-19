@@ -14,7 +14,18 @@ test('기본은 색 없는 글: 오늘 비용, 대기 수, 시간당 지출', ()
 test('0 인 항목은 뺀다', () => {
   assert.equal(formatLine({ today: 54.13, waiting: 0, perHour: 0 }), '$54.13');
   assert.equal(formatLine({ today: 0, waiting: 1, perHour: 0.001 }), 'wait 1');
-  assert.equal(formatLine({}), '');
+});
+
+test('보일 항목이 하나도 없으면 빈 줄 대신 aitop idle (ASCII, tmux 는 흐린 회색 서식) (#292)', () => {
+  assert.equal(formatLine({}), 'aitop idle');
+  assert.equal(formatLine({ today: 0, waiting: 0, stopped: 0, running: 0, perHour: 0 }), 'aitop idle');
+  assert.equal(formatLine({}, { mode: 'tmux' }), '#[fg=colour242]aitop idle#[default]', '작업 중(colour250)보다 흐린 색');
+  assert.equal(formatLine({}, { mode: 'tmux', noColor: true }), 'aitop idle');
+  assert.equal(formatLine({}, { width: 6 }), 'idle', '폭이 모자라면 짧은 글');
+  assert.equal(formatLine({}, { width: 3 }), '-', '아주 좁아도 빈 줄 대신 최소 표시');
+  ascii(formatLine({}));
+  // 항목이 있는데 폭 때문에 다 빠진 경우는 idle 이 아니다.
+  assert.equal(formatLine(v, { width: 3 }), '');
 });
 
 test('예산이 있으면 오늘 비용 뒤에 /$예산 을 붙인다 (오늘 비용이 0 이어도)', () => {

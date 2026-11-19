@@ -275,7 +275,7 @@ if (args.has('--doctor')) {
 if (cfgFile.onWaitingIgnored && !cli.onWaiting) process.stderr.write(`aitop: ${cfgFile.onWaitingIgnored}\n`);
 
 const { collect } = await import('../src/collect.mjs');
-const { render, filterSessions, animating } = await import('../src/ui.mjs');
+const { render, pipeLines, filterSessions, animating } = await import('../src/ui.mjs');
 const { arrange } = await import('../src/order.mjs');
 const { frameTimer } = await import('../src/frames.mjs');
 const { flushCache } = await import('../src/cache.mjs');
@@ -370,7 +370,9 @@ if (once) {
   const size = (v) => (Number(v) > 0 ? Math.floor(Number(v)) : 0);
   const W = process.stdout.columns || size(process.env.COLUMNS) || 140;
   const H = process.stdout.rows || size(process.env.LINES) || 40;
-  await printAndExit(args.has('--json') ? JSON.stringify(toJson(view.data, VERSION, { showRequests, budgetDay: opt.budgetDay }), null, 2) : render(view, W, H).join('\n'));
+  // 터미널이 아니면(파이프·파일) 높이 맞춤 빈 줄과 쓸 수 없는 키 안내를 빼고 내용만 낸다 (#292).
+  const screen = () => (process.stdout.isTTY ? render(view, W, H) : pipeLines(render(view, W, H)));
+  await printAndExit(args.has('--json') ? JSON.stringify(toJson(view.data, VERSION, { showRequests, budgetDay: opt.budgetDay }), null, 2) : screen().join('\n'));
 }
 
 const out = process.stdout;

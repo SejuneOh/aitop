@@ -3,6 +3,7 @@ import { width } from './text.mjs';
 import { BRAND } from './brand.mjs';
 import { PALETTE } from './ui/theme.mjs';
 import { glyphMoves, line, setNow } from './ui/draw.mjs';
+import { glyphs } from './ui/glyphs.mjs';
 import { TABLE_BOX_H, columns, emptyLines, filterSessions, groupRow, header, memberRow, sessionRow, tableBox, tableHeader, toolStrip, topCost } from './ui/table.mjs';
 import { detail } from './ui/detail.mjs';
 import { detailOpen, footer, help } from './ui/chrome.mjs';
@@ -20,6 +21,33 @@ export { DETAIL_MIN_H, detailOpen } from './ui/chrome.mjs';
 export function animating(view) {
   if (!view.data || view.help) return false;
   return filterSessions(view.data.sessions, view.filter).some((s) => glyphMoves(s) || (s.members ?? []).some((m) => m.status !== 'done'));
+}
+
+// 터미널이 아닌 곳(파이프·파일)으로 내는 --once 용 (#292). render 결과에서 맨 아래 키 안내 줄과,
+// 화면 높이를 맞추려고 채운 빈 줄(끝의 빈 줄, 상세 상자 아래쪽의 테두리만 있는 줄)과 줄 끝 공백을 뺀다.
+// 테두리 글자는 지금 기호 세트(AITOP_AMBIGUOUS=wide 면 ASCII)에서 고른다.
+const ANSI = /\x1b\[[0-9;]*m/g;
+const plain = (l) => l.replace(ANSI, '');
+// 줄 끝의 공백과 색 코드를 지운다. 색 코드가 있던 줄은 끝에 초기화(ESC[0m)를 붙여 색이 다음 줄로 번지지 않게 한다.
+const trimEnd = (l) => {
+  const cut = l.replace(/(?:\s|\x1b\[[0-9;]*m)+$/, '');
+  return cut !== l && /\x1b\[/.test(l) && /\x1b\[/.test(cut) ? cut + '\x1b[0m' : cut;
+};
+export function pipeLines(lines) {
+  const E = Object.values(glyphs().edge);
+  const vert = new Set(E.map((e) => e.v));
+  const filler = (l) => [...plain(l)].every((ch) => /\s/.test(ch) || vert.has(ch));
+  const isBottom = (l) => E.some((e) => plain(l).startsWith(e.bl + e.h));
+  const out = lines.slice(0, -1);
+  while (out.length && !plain(out.at(-1)).trim()) out.pop();
+  // 마지막 줄이 상자 아래 테두리면 그 바로 위의 빈 칸 줄들을 지운다.
+  const bottom = out.length - 1;
+  if (bottom >= 1 && isBottom(out[bottom])) {
+    let top = bottom;
+    while (top > 1 && filler(out[top - 1])) top--;
+    out.splice(top, bottom - top);
+  }
+  return out.map(trimEnd);
 }
 
 // 로딩 중(준비 완료 전이거나 7일 집계 중)에는 경과 시간(IDLE 등)을 데이터를 받은 시각에 맞춰, 스피너 프레임마다 숫자가 따로 바뀌지 않게 한다.

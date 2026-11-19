@@ -36,7 +36,10 @@ test('파이프로 받는 --once 는 색 코드 없이 COLUMNS·LINES 크기를 
   const r = run(['--once'], { COLUMNS: '72', LINES: '30' });
   assert.equal(r.status, 0);
   assert.doesNotMatch(r.stdout, /\x1b\[/);
-  assert.equal(r.stdout.trimEnd().split('\n').length, 30);
+  // 높이 맞춤 빈 줄과 키 안내 줄은 빼므로(#292) LINES 를 넘지 않는 내용만 나온다.
+  const n = r.stdout.trimEnd().split('\n').length;
+  assert.ok(n > 5 && n < 30, `${n} 줄`);
+  assert.doesNotMatch(r.stdout, /\[q\]/);
 });
 
 test('NO_COLOR 가 빈 값이어도 파이프로 받으면 색을 넣지 않는다', () => {

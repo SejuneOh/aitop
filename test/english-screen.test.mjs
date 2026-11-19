@@ -195,7 +195,9 @@ test('bin: AITOP_LANG 없이 LANG=C 의 --once 는 영어 화면이다', () => {
   const r = spawnSync(process.execPath, [BIN, '--once'], { env, encoding: 'utf8', timeout: 20_000 });
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /Sessions \d+/);
-  assert.match(r.stdout, /\[q\] quit/);
+  // 파이프 출력에는 키 안내 줄이 없으므로(#292) 머리·상세의 영어 글을 본다.
+  assert.match(r.stdout, /API cost/);
+  assert.match(r.stdout, /Recent activity/);
   // 이 PC 에서 도는 gemini 프로세스는 이름(사용자 글)에 한글이 있을 수 있어 그 줄은 빼고 본다.
   for (const l of r.stdout.split('\n').filter((x) => !/gemini/.test(x))) assert.doesNotMatch(l, HANGUL, l);
 });
