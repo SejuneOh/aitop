@@ -8,6 +8,7 @@
 // 끝난 줄 알고 지나치지 않게 올리되, 지금 바로 답해야 하는 응답 대기와 사람이 정한 고정 순서보다는 아래다.
 // 묶을 때는 따로 모으지 않고 제 묶음의 맨 위에 두므로, 그 묶음도 앞으로 온다.
 import { costOf } from './ui/draw.mjs';
+import { callsYou } from './attention.mjs';
 import { lastName } from './paths.mjs';
 
 export const SORTS = ['default', 'cost', 'context', 'recent'];
@@ -55,10 +56,10 @@ const GROUP_KEY = { project: projectOf, tool: (s) => s.tool ?? '?' };
 export function arrange(sessions, { sort = 'default', group = 'none', costMode = 'api', pins = [], ready = true } = {}) {
   const cmp = compare(sort, costMode, ready);
   const rank = new Map((pins ?? []).map((id, i) => [id, i]));
-  const waiting = sessions.filter((s) => s.status === 'waiting').sort(cmp);
-  const pinned = sessions.filter((s) => s.status !== 'waiting' && rank.has(s.id)).sort((a, b) => rank.get(a.id) - rank.get(b.id));
+  const waiting = sessions.filter(callsYou).sort(cmp);
+  const pinned = sessions.filter((s) => !callsYou(s) && rank.has(s.id)).sort((a, b) => rank.get(a.id) - rank.get(b.id));
   const stopped = (s) => (s.phase?.kind === 'stopped' ? 0 : 1);
-  const rest = sessions.filter((s) => s.status !== 'waiting' && !rank.has(s.id)).sort((a, b) => stopped(a) - stopped(b) || cmp(a, b));
+  const rest = sessions.filter((s) => !callsYou(s) && !rank.has(s.id)).sort((a, b) => stopped(a) - stopped(b) || cmp(a, b));
   const keyOf = GROUP_KEY[group];
   if (!keyOf) return { sessions: [...waiting, ...pinned, ...rest], groups: null };
   const byName = new Map();

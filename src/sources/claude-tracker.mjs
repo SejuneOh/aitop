@@ -76,6 +76,33 @@ export function tailStopReason(path) {
   return null;
 }
 
+// 기록을 남긴 실행 방식 (entrypoint): 사람이 연 Claude Code 는 'cli', 다른 프로그램이 띄운 claude -p(SDK) 는 'sdk-cli' 다 (#286).
+// 첫 줄부터 붙으므로 앞 HEAD_ENTRY_BYTES 만 본다. 모르면 null.
+const HEAD_ENTRY_BYTES = 64 * 1024;
+export function headEntrypoint(path) {
+  let text;
+  try {
+    const fd = openSync(path, 'r');
+    try {
+      const buf = Buffer.alloc(HEAD_ENTRY_BYTES);
+      text = buf.toString('utf8', 0, readSync(fd, buf, 0, buf.length, 0));
+    } finally {
+      closeSync(fd);
+    }
+  } catch (e) {
+    debugIo('claude', 'transcript head read failed', e, path);
+    return null;
+  }
+  for (const l of text.split('\n')) {
+    if (!l.includes('"entrypoint"')) continue;
+    try {
+      const x = JSON.parse(l);
+      if (typeof x.entrypoint === 'string') return x.entrypoint;
+    } catch {}
+  }
+  return null;
+}
+
 // 프롬프트 캐시 수명. 공식 문서(https://platform.claude.com/docs/en/build-with-claude/prompt-caching) 기준:
 //   기본 5분, 1시간은 선택. 캐시를 쓰거나 읽을 때마다 수명이 새로 시작되고, 수명은 응답 끝이 아니라 그 요청이 시작된 때부터 잰다.
 // 요청 시작 시각은 기록에 없으므로 그 응답 바로 앞의 사용자 줄(지시·도구 결과) 시각으로 잡는다. 없으면 응답 줄 시각.
@@ -158,6 +185,8 @@ export class ClaudeTracker {
     // 사용자가 /rename 으로 붙인 이름. 기록의 마지막 custom-title 이 이긴다.
     this.customTitle = null;
     this.branch = null;
+    // 실행 방식 (headEntrypoint). 기록의 첫 값을 쓴다.
+    this.entrypoint = null;
 
     const c = loadCache(path);
     if (c) {
@@ -169,6 +198,12 @@ export class ClaudeTracker {
       // 새 줄이 없어도 다음 실행에서 또 훑지 않게 한다 (캐시 버전은 그대로).
       if (!('customTitle' in c)) {
         this.customTitle = tailCustomTitle(path) ?? null;
+        markDirty(path, () => this.snapshot());
+      }
+      // 실행 방식도 같은 방식으로 한 번만 채운다 (캐시 버전은 그대로, 기록 앞부분만 읽는다).
+      if ('entrypoint' in c) this.entrypoint = c.entrypoint;
+      else {
+        this.entrypoint = headEntrypoint(path);
         markDirty(path, () => this.snapshot());
       }
       // 멈춘 이유도 같은 방식으로 한 번만 채운다 (캐시 버전은 그대로).
@@ -257,6 +292,7 @@ export class ClaudeTracker {
       title: this.title,
       customTitle: this.customTitle,
       branch: this.branch,
+      entrypoint: this.entrypoint,
       events: this.events,
       lastTool: this.lastTool,
       lastKind: this.lastKind,
@@ -301,6 +337,7 @@ export class ClaudeTracker {
     if (x.type === 'ai-title' && x.aiTitle) this.title = x.aiTitle;
     if (x.type === 'custom-title') this.customTitle = sessionName(x.customTitle);
     if (x.gitBranch) this.branch = x.gitBranch;
+    if (typeof x.entrypoint === 'string') this.entrypoint ??= x.entrypoint;
     if (this.firstAt == null && x.timestamp) this.firstAt = parseTs(x.timestamp);
     if (x.isMeta) return;
 

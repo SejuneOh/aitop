@@ -16,6 +16,8 @@ const VERSION = 14;
 // Windows 는 XDG_CACHE_HOME 이 없으면 %LOCALAPPDATA%\aitop\cache (paths.mjs).
 const ROOT = appDir('cache', { home: homedir() });
 export const CACHE_ROOT = ROOT;
+// claude -p 실행의 기억된 부모 (sources/claude.mjs knownParents). 버전 폴더 밖에 두고 removeOldDirs 가 지우지 않는다.
+export const PARENTS_FILE = 'sdk-parents.json';
 const NAME = `v${VERSION}-${PRICE_TAG}`;
 const DIR = join(ROOT, NAME);
 export const CACHE_DIR = DIR;
@@ -31,7 +33,8 @@ function removeOldDirs() {
     for (const d of readdirSync(ROOT)) {
       // summary.json(--line 용 요약, summary.mjs)은 버전 폴더 밖에 두고 여기서 지우지 않는다. 남은 임시 파일은 일주일 뒤 지운다.
       // monthly.json(월별 보관함, monthly.mjs)과 깨져서 옆으로 옮긴 monthly.json.bad-* 도 사용자 기록이라 지우지 않는다.
-      if (d === NAME || d === 'summary.json' || d === 'monthly.json' || d.startsWith('monthly.json.bad-')) continue;
+      // sdk-parents.json(claude -p 실행의 기억된 부모)도 형식 버전과 상관없이 남긴다.
+      if (d === NAME || d === 'summary.json' || d === 'monthly.json' || d === PARENTS_FILE || d.startsWith('monthly.json.bad-')) continue;
       const p = join(ROOT, d);
       // 이 버전보다 낮은 형식(v2, v6-… 등)은 더 이상 어떤 버전도 쓰지 않으므로 바로 지운다.
       const ver = Number(/^v(\d+)(?:-|$)/.exec(d)?.[1]);

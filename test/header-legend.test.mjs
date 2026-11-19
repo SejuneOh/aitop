@@ -40,7 +40,7 @@ test('범례에 상태 덧붙임 묶음이 있고, 기호는 지금 세트를 �
     const at = L.findIndex(([k]) => k === t('help.extras'));
     assert.ok(at > 0, lang);
     const keys = L.slice(at + 1).map(([k]) => k);
-    assert.deepEqual(keys, ['✓', '▲', t('legend.cacheKey'), t('legend.toolKey'), `${glyphs().elapsed}3m12s`, t('legend.stalledKey')]);
+    assert.deepEqual(keys, ['✓', '▲', t('legend.cacheKey'), t('legend.toolKey'), `${glyphs().elapsed}3m12s`, t('legend.stalledKey'), t('member.sdk'), t('session.auto')]);
     assert.equal(t('legend.stalledKey'), t('member.stalled'), '팀원 행에 보이는 글 그대로');
     assert.ok(L.slice(at + 1).every(([, d]) => d && width(d) <= 48), `${lang}: 도움말 오른쪽 칸에 잘리지 않는다`);
   }

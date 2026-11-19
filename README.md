@@ -124,6 +124,8 @@ Subagents show as `├─` rows under their session, on the live screen.
 - A dim `stalled?` appears when a working subagent's log has not changed for 3 minutes. It is only a guess.
 - While it runs a tool that can be slow, the limit is 10 minutes.
 - When an Antigravity subagent waits for your approval, its parent row waits too, as `<agent>: <tool>`.
+- A `claude -p` run started from a Claude session (by its process, or from `~/.claude/jobs/<id>/` once ended) shows as a `-p` row under that session, with its cost added; one with no parent (cron) stays on top marked `auto` and never counts as waiting for you.
+- If the parent session stays open for more than 24 hours, `claude -p` runs that ended before that are left out of its total.
 
 <details>
 <summary>Details: <code>stalled?</code> and Antigravity waits</summary>
@@ -476,7 +478,7 @@ Continue a session elsewhere, for example when you cannot jump to its tab, as in
 **Other fields**
 
 - `cacheExpiresAt`, `toolStartedAt`: [Features](#features).
-- `stalled`, `startedAt`, `lastActivityAt`: [Subagents](#subagents).
+- `stalled`, `startedAt`, `lastActivityAt`, `entrypoint`, `auto`, `parentId`: [Subagents](#subagents).
 - `resumeCmd`: [Resume a session elsewhere](#resume-a-session-elsewhere).
 - Report output (`month`, `current`, `status`, `paths`, `unpriced`, `waitedMs`): [Daily and monthly reports](#daily-and-monthly-reports), [Session report](#session-report).
 

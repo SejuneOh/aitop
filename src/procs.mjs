@@ -71,12 +71,14 @@ export function joinPaths(tokens, exists = existsSync) {
   return out;
 }
 
-// ps -axo pid=,command= 출력을 { pid, argv } 목록으로.
-export function parsePs(text, exists = existsSync) {
+// ps -axo pid=,command= 출력을 { pid, argv } 목록으로. withPpid 면 pid 다음 칸을 부모 pid 로 읽는다 (-o pid=,ppid=,command=).
+export function parsePs(text, exists = existsSync, withPpid = false) {
   const out = [];
   for (const line of String(text).split('\n')) {
-    const m = /^\s*(\d+)\s+(.+)$/.exec(line);
-    if (m) out.push({ pid: Number(m[1]), argv: joinPaths(m[2].trim().split(/\s+/), exists) });
+    const m = withPpid ? /^\s*(\d+)\s+(\d+)\s+(.+)$/.exec(line) : /^\s*(\d+)\s+(.+)$/.exec(line);
+    if (!m) continue;
+    const cmd = withPpid ? m[3] : m[2];
+    out.push({ pid: Number(m[1]), ...(withPpid ? { ppid: Number(m[2]) } : {}), argv: joinPaths(cmd.trim().split(/\s+/), exists) });
   }
   return out;
 }
@@ -108,7 +110,8 @@ function listProc() {
 
 function listPs() {
   try {
-    return parsePs(run('ps', ['-axww', '-o', 'pid=,command=']));
+    // 부모 pid 도 같은 호출로 받는다 (claude -p 실행의 부모 세션 찾기, parentPid). 프로세스 호출 수는 그대로다.
+    return parsePs(run('ps', ['-axww', '-o', 'pid=,ppid=,command=']), existsSync, true);
   } catch {
     return [];
   }
@@ -228,6 +231,33 @@ export function _setStatReader(fn) {
   const prev = readStat;
   readStat = fn;
   return prev;
+}
+
+// /proc/<pid>/stat 의 4번째 칸은 부모 pid 다 (parseStartTicks 와 같이 마지막 ')' 뒤부터 센다). 모르면 null.
+export function parsePpid(stat) {
+  const s = String(stat);
+  const end = s.lastIndexOf(')');
+  if (end < 0) return null;
+  const n = Number(s.slice(end + 2).split(' ')[1]);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+// 부모 pid 를 OS 별 재료에서 고른다. 테스트가 세 갈래를 모두 부를 수 있게 재료를 받는다.
+//   linux: /proc/<pid>/stat 원문을 주는 readStat. darwin: ps 목록(scanAll, ppid 칸 포함). win32: CIM 목록기(ppidOf).
+export function parentPidFrom(pid, { os, readStat: rs, list, scanner }) {
+  if (!Number.isInteger(pid) || pid <= 1) return null;
+  try {
+    if (os === 'win32') return scanner?.ppidOf?.(pid) ?? null;
+    if (os === 'linux') return rs ? parsePpid(rs(pid)) : null;
+    if (os === 'darwin') return list?.().find((p) => p.pid === pid)?.ppid ?? null;
+  } catch {}
+  return null;
+}
+
+// 지금 프로세스 정보로 부모 pid. 새 프로세스를 띄우지 않는다: Linux 는 파일 읽기, macOS 는 이미 받는 ps 목록, Windows 는 CIM 목록.
+export function parentPid(pid) {
+  const os = win ? 'win32' : readStat ? 'linux' : OS === 'darwin' ? 'darwin' : null;
+  return parentPidFrom(pid, { os, readStat, list: scanAll, scanner: win });
 }
 
 // 프로세스 시작 시각(부팅 뒤 클럭 틱). 알 수 없으면 null.
@@ -493,6 +523,15 @@ export function createWinScanner({ runSync = runCimSync, runAsync = runCimAsync,
     startOf(pid) {
       ready();
       return byPid.get(pid)?.start ?? null;
+    },
+    // 부모 pid. 부모가 끝난 뒤 그 pid 를 다른 프로세스가 다시 쓸 수 있으므로, 부모가 자식보다 먼저 뜬 경우만 준다 (findProcesses 와 같은 규칙).
+    ppidOf(pid) {
+      ready();
+      const p = byPid.get(pid);
+      const q = p?.ppid != null ? byPid.get(p.ppid) : null;
+      if (!p || p.ppid == null) return null;
+      if (q && q.start != null && p.start != null && q.start > p.start) return null;
+      return p.ppid;
     },
     // 테스트용: 뒤에서 받는 중인 호출을 기다린다.
     settle: () => pending ?? Promise.resolve(),
