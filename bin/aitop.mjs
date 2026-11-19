@@ -282,7 +282,7 @@ const { flushCache } = await import('../src/cache.mjs');
 const { toJson } = await import('../src/json.mjs');
 const { createSummaryWriter, summarize, writeSummary } = await import('../src/summary.mjs');
 const { createAttention, updateAttention, markSeen, nextAttention, windowTitle, createWaitWatch, takeNewlyWaiting, attentionCounts, createEventWatch, takeEvents } = await import('../src/attention.mjs');
-const { createNotifier } = await import('../src/notify.mjs');
+const { applyNotifyToggle, createNotifier, createNotifyToggle, notifyExplicitOff, notifyHintDue } = await import('../src/notify.mjs');
 const { onKey, fixFocus } = await import('../src/keys.mjs');
 const { admit, createLoading, latchReady } = await import('../src/loading.mjs');
 const { osc52, resumeCmd } = await import('../src/resume.mjs');
@@ -310,7 +310,13 @@ let tools = null;
 // --bell · --notify · --on-waiting: 실시간 화면에서만, 첫 갱신에서 이미 응답 대기인 세션은 알리지 않는다.
 const bell = opt.bell;
 const waitWatch = createWaitWatch();
-const notifier = !once && (alerts.notify || alerts.onWaiting) ? createNotifier(alerts) : null;
+// 실시간 화면에서는 알림이 꺼져 있어도 알리미를 둔다. a 키로 데스크톱 알림을 이번 실행에만 켤 수 있게 (#294).
+const notifier = !once ? createNotifier(alerts) : null;
+// 켜기 힌트는 설정 파일이나 --no-notify 로 직접 끄지 않았을 때만 띄운다.
+// --notify 로 켰어도 알림 도구가 없으면 키 줄·도움말에 꺼짐으로 보인다 (알리미에 desk 가 없다).
+const notifyToggle = createNotifyToggle({ on: alerts.notify, explicitOff: notifyExplicitOff(config.values.notify, alerts.notify), available: once || Boolean(notifier?.desk) });
+settings.notify = notifyToggle.on;
+if (!once) view.notify = notifyToggle.on;
 // 끝남(done)·context 경고는 켠 경우에만 센다 (#204). 벨은 늘 응답 대기만 울린다.
 const eventKinds = alerts.events.filter((k) => k !== 'waiting');
 const eventWatch = notifier && eventKinds.length ? createEventWatch({ doneMs: opt.doneMinutes * 60_000 }) : null;
@@ -336,6 +342,9 @@ function refresh({ throttle = false } = {}) {
     if (fresh.length && bell) process.stdout.write('\x07');
     if (alerts.events.includes('waiting')) notifier?.fire(fresh);
   }
+  // 알림이 꺼진 채로 응답 대기 세션이 처음 보이면 키 줄에 켜기 힌트를 한 번 띄운다 (기록을 다 읽은 뒤).
+  // 도움말·검색 중에는 키 줄이 힌트를 그리지 않으므로 닫힐 때까지 미룬다.
+  if (!once && loading.ready && notifyHintDue(notifyToggle, data.sessions, { visible: !view.help && !view.searching })) toast('foot.notifyHint', HINT_MS);
   if (eventWatch) {
     const evs = takeEvents(eventWatch, data.sessions, { ready: loading.ready });
     for (const kind of eventKinds) notifier.fire(evs.filter((e) => e.kind === kind).map((e) => e.session), kind);
@@ -352,6 +361,19 @@ function refresh({ throttle = false } = {}) {
   return true;
 }
 let lastMore = false;
+
+// 키 줄 왼쪽에 잠깐 보이는 알림 (y 복사 결과, 알림 켜기 힌트). ms 가 지나면 지운다.
+const TOAST_MS = 2000;
+const HINT_MS = 10_000;
+let toastTimer = null;
+function toast(key, ms = TOAST_MS) {
+  view.toast = { key, until: Date.now() + ms };
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    view.toast = null;
+    draw();
+  }, ms);
+}
 
 function select(id) {
   if (id !== view.selectedId) {
@@ -482,23 +504,26 @@ function keepSelectionVisible() {
 }
 
 // y: 이어 여는 명령을 OSC 52 로 클립보드에 쓴다. 터미널이 아니면 아무것도 하지 않는다. 알림은 2초 보인다.
-const TOAST_MS = 2000;
-let toastTimer = null;
 function copy(s) {
   if (!out.isTTY) return;
   const cmd = resumeCmd(s);
   if (cmd) out.write(osc52(cmd));
-  view.toast = { key: cmd ? 'foot.copied' : 'foot.copyNone', until: Date.now() + TOAST_MS };
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => {
-    view.toast = null;
-    draw();
-  }, TOAST_MS);
+  toast(cmd ? 'foot.copied' : 'foot.copyNone');
+}
+
+// a: 데스크톱 알림을 이번 실행에만 켜고 끈다. 설정 파일은 바꾸지 않는다 (#294).
+// 알릴 종류는 시작할 때 정한 값(설정 파일·--notify=<종류>, 없으면 waiting)을 그대로 쓴다.
+function flipNotify() {
+  const key = applyNotifyToggle(notifyToggle, notifier);
+  view.notify = notifyToggle.on;
+  settings.notify = notifyToggle.on;
+  toast(key);
 }
 
 stdin.setEncoding('utf8');
 const act = {
   copy,
+  toggleNotify: flipNotify,
   quit,
   refresh,
   move,

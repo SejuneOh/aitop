@@ -72,7 +72,7 @@
 **Keys on the live screen**
 
 - `↑↓` select · `n` next session to check · `/` search · `s` sort · `g` group
-- `p` pin · `f` changed files · `?` help · `q` quit
+- `p` pin · `f` changed files · `a` waiting alerts on/off · `?` help · `q` quit
 
 **Config file**
 
@@ -299,6 +299,8 @@ Alerts when a session starts waiting, finishes a long turn or fills its context.
 - `--notify=waiting,done,context`: pick the kinds. Plain `--notify` uses the config file kinds, or waiting only when none are set.
 - `--on-waiting`: run a command with `/bin/sh -c` (`cmd.exe /d /v:on /s /c` on Windows) for the same events (10 second limit, runs as you).
 - Sessions already waiting (or already over 90% context) when aitop starts are not reported.
+- Press `a` on the live screen to turn desktop alerts on or off for this run only. The config file is not changed. The state (`alerts:on` or `alerts:off`) shows on the key line when there is room, and always on the "now" line of the `?` help. If no alert tool is found, it shows off.
+- When alerts are off and a waiting session first shows up (including one already waiting when aitop starts), the key line shows `turn on waiting alerts: a` once per run. If the help or search is open, it waits until you close it. It does not show when you turned alerts off yourself (config file `"notify": false` or `--no-notify`).
 
 **Kinds**
 
