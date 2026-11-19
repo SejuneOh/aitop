@@ -90,7 +90,7 @@
 - **Read-only**: no network, no ports, no dependencies. It only reads the session logs each CLI already writes.
 
 <details>
-<summary>Details: stopped sessions, cache countdown, tool run time</summary>
+<summary>Details: stopped sessions, cache countdown, tool run time, tool line</summary>
 
 **Stopped by an error**
 
@@ -111,6 +111,12 @@
 - Shown after one minute, in a dim warning color from ten minutes (Claude Code's Bash timeout max).
 - Not counted while waiting for approval.
 - Dropped first on narrow screens; `--json` has `toolStartedAt`.
+
+**Tool line and empty screen**
+
+- Tools with no live session and no use for 7 days leave the tool line. Its end tells the two kinds apart: `not installed: codex  unused 7d: gemini` (counts when space is short). Turn it off with `"hideIdleTools": false`.
+- When a tool's process runs but it has no session records yet, the empty screen says so first (`agy running, but no session records to read yet.`) and what to do next.
+- The `?` key is always labeled `help`, at any width.
 
 </details>
 

@@ -33,6 +33,8 @@ const LEGEND_IDS = [
   ['COST', 'legend.cost'],
   ['CONTEXT', 'legend.context'],
   ['IDLE', 'legend.idleCol'],
+  // 도구 줄 끝의 숨김 표시. 미설치와 7일 미사용을 나눠 적는다 (#290).
+  ['legend.missingKey', 'legend.missing'],
   ['legend.hiddenKey', 'legend.hidden'],
   ['+N', 'legend.folded'],
   ['legend.periodKey', 'legend.period'],
@@ -132,7 +134,7 @@ export const keyChip = (k) => (NO_COLOR ? { t: `[${k}]` } : { t: ` ${k} `, fg: P
 export const keyLabel = (v) => ({ t: ` ${v}   `, fg: PALETTE.muted });
 
 // items: { k, t, keep, cut } 또는 { segs, keep }. 폭이 모자라면 keep 이 아닌 항목을 오른쪽부터 뺀다.
-// cut: 항목을 하나라도 뺐을 때 바꿔 쓸 라벨. ? 칩이 '키 전체' 로 바뀌어 빠진 키를 도움말에서 찾게 한다 (#265).
+// cut: 항목을 하나라도 뺐을 때 바꿔 쓸 라벨 (#265). ? 칩은 폭마다 이름이 바뀌지 않게 쓰지 않는다 (#290).
 export function hintBar(items, W, right = '') {
   const segsOf = (list) => [{ t: ' ' }, ...list.flatMap((i) => i.segs ?? [keyChip(i.k), keyLabel(i.t)])];
   const wOf = (list) => segsWidth(segsOf(list));
@@ -178,7 +180,8 @@ export function footer(view, W, matched, sel) {
   const RO = t('foot.readOnly');
   const toast = toastItem(view);
   const tail = [
-    { k: '?', t: t('foot.help'), cut: t('foot.helpAll'), keep: true },
+    // ? 라벨은 폭과 상관없이 하나로 둔다 (#290).
+    { k: '?', t: t('foot.help'), keep: true },
     { k: 'q', t: t('key.quit'), keep: true },
   ];
   const ended = { k: 'e', t: t(view.showEnded ? 'foot.hideEnded' : 'foot.showEnded') };

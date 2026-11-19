@@ -221,7 +221,8 @@ function toolPart(p, level, showEnded) {
   if (!p.live) {
     // 종료 세션을 함께 볼 때는 그 도구의 누적 토큰을 흐리게 남긴다. 기록 폴더가 없으면 미설치로 보인다.
     const more = !extra ? [] : p.missing ? [{ t: ` ${t('tools.missing')}`, fg: PALETTE.info, italic: true }] : showEnded && p.count ? [{ t: ` · ${fmtTokens(p.tok)}`, fg: PALETTE.info }] : [];
-    return [{ t: ` ${name}`, fg: PALETTE.info }, ...more];
+    // 실행 중 표시(▍) 자리를 비우지 않아 조각 사이가 고르게 2칸이다.
+    return [{ t: name, fg: PALETTE.info }, ...more];
   }
   const tc = PALETTE.tools[p.tool];
   return [{ t: glyphs().tool, fg: tc }, { t: name, fg: tc, bold: true }, { t: ` ${p.live}`, fg: PALETTE.text }, ...(extra ? [{ t: ` · ${fmtTokens(p.tok)}`, fg: PALETTE.muted }] : [])];
@@ -242,10 +243,10 @@ export function toolLastUsed(data, tool, now) {
   return times.length ? Math.max(...times) : 0;
 }
 
-// 도구 줄: 도구마다 실행 중 세션 수와 누적 토큰. 실행 중 세션도 없고 7일 동안 쓰지 않은 도구는 숨기고 끝에 '숨김 codex gemini'
-// (자리가 모자라면 '숨김 2') 를 적는다. 기록 폴더가 없는 도구(미설치)도 7일 동안 쓰지 않은 것이라 함께 숨긴다.
+// 도구 줄: 도구마다 실행 중 세션 수와 누적 토큰. 실행 중 세션도 없고 7일 동안 쓰지 않은 도구는 숨기고 끝에
+// '미설치: codex  7일 미사용: gemini' 처럼 미설치(기록 폴더 없음)와 미사용을 나눠 적는다 (자리가 모자라면 '미설치: 1  7일 미사용: 1').
 // 숨기면 줄에 남는 도구가 하나도 없을 때는 숨기지 않고 예전처럼 흐리게 (미설치 포함) 다 보인다.
-// 폭이 모자라면 간격 → 토큰 수 → 이름 순으로 줄이고, 그래도 넘치면 세션이 없는 도구부터 빼고 +N 으로 뺀 수를 적는다.
+// 조각 사이 간격은 2칸. 폭이 모자라면 토큰 수 → 이름 순으로 줄이고, 그래도 넘치면 세션이 없는 도구부터 빼고 +N 으로 뺀 수를 적는다.
 // 아주 좁으면 실행 중인 도구가 숨김 표시보다 먼저 남고, 숨김 표시는 중간에서 자르지 않고 뺀다.
 export function toolStrip(view, W) {
   const now = view.data.at ?? Date.now();
@@ -266,17 +267,19 @@ export function toolStrip(view, W) {
   const visible = all.filter((p) => !p.idle);
   const parts = visible.length ? visible : all;
   const hidden = all.filter((p) => !parts.includes(p));
-  // 숨김 표시: 도구 이름을 적고, 자리가 모자라면 개수만 적는다.
-  const notes = hidden.length ? [[{ t: t('tools.hidden', { list: hidden.map((p) => p.tool).join(' ') }), fg: PALETTE.info }], [{ t: t('tools.hidden', { list: hidden.length }), fg: PALETTE.info }]] : [[]];
+  // 숨김 표시: 미설치와 미사용을 나눠 도구 이름을 적고, 자리가 모자라면 개수만 적는다.
+  const groups = [['tools.hiddenMissing', hidden.filter((p) => p.missing)], ['tools.hiddenIdle', hidden.filter((p) => !p.missing)]].filter(([, g]) => g.length);
+  const note = (named) => groups.map(([key, g]) => ({ t: t(key, { list: named ? g.map((p) => p.tool).join(' ') : g.length }), fg: PALETTE.info }));
+  const notes = hidden.length ? [note(true), note(false)] : [[]];
   const plus = (n) => (n ? [{ t: `+${n}`, fg: PALETTE.info }] : []);
   const build = (shown, level, tail = []) => {
-    const gap = { t: level ? '  ' : '     ' };
+    const gap = { t: '  ' };
     const end = tail.flatMap((x, i) => [...(i ? [{ t: '  ' }] : []), x]);
     return [{ t: ' ' }, ...shown.flatMap((p, i) => [...(i ? [gap] : []), ...toolPart(p, level, view.showEnded)]), ...(end.length ? [...(shown.length ? [gap] : []), ...end] : [])];
   };
   const fits = (x) => segsWidth(x) <= W;
   let segs = null;
-  for (const level of [0, 1, 2, 3]) {
+  for (const level of [0, 2, 3]) {
     for (const note of notes) {
       const s = build(parts, level, note);
       if (fits(s)) {
@@ -306,7 +309,7 @@ export function toolStrip(view, W) {
     segs = fits(noted.segs) && liveOf(noted) >= liveOf(bare) ? noted.segs : bare.segs;
   }
   // 종료 세션 표시는 다 들어갈 때만 붙인다 (잘린 조각이 남지 않게).
-  const ended = [{ t: '     ' }, { t: t('tools.ended'), fg: PALETTE.info, italic: true }];
+  const ended = [{ t: '  ' }, { t: t('tools.ended'), fg: PALETTE.info, italic: true }];
   if (view.showEnded && segsWidth(segs) + segsWidth(ended) <= W) segs.push(...ended);
   return line(segs, W);
 }
@@ -464,8 +467,13 @@ export function memberRow(m, last, c, W, frame, parentModel, costMode = 'api', p
 export const MARK_COLOR = { ok: PALETTE.busy, missing: PALETTE.alert, limited: PALETTE.muted };
 
 export function emptyLines(view, W) {
-  const out = [line([{ t: `   ${t(view.showEnded ? 'empty.none24' : 'empty.none')}`, fg: PALETTE.muted, italic: true }], W), line([], W)];
   const tools = Object.values(view.data.tools?.tools ?? {});
+  // 프로세스는 실행 중인데 읽을 기록이 없으면 그 사실과 다음 할 일을 첫 줄에 적는다 (실행 1 과 '세션 없음' 이 엇갈리지 않게).
+  const running = tools.filter((r) => r.running > 0 && !r.records).map((r) => r.tool);
+  const head = running.length
+    ? [line([{ t: `   ${t('empty.procs', { list: running.join(' ') })}`, fg: PALETTE.muted, italic: true }], W), line([{ t: `   → ${t('empty.procsHint')}`, fg: PALETTE.info }], W)]
+    : [line([{ t: `   ${t(view.showEnded ? 'empty.none24' : 'empty.none')}`, fg: PALETTE.muted, italic: true }], W)];
+  const out = [...head, line([], W)];
   const pathW = Math.max(0, ...tools.map((r) => width(r.path)));
   for (const r of tools) {
     const d = describe(r, NOW);

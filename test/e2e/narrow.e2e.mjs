@@ -37,19 +37,21 @@ async function screenAt(cols, rows, env = {}) {
 
 const TOOL_WORD = /^[▍|]?(claude|codex|gemini|cla|cdx|gem)$/u;
 
-test('좁은 터미널에서 도구 줄은 이름을 자르지 않고 줄이거나 +N 으로 접고, 오래 안 쓴 도구는 숨김 N 으로 센다', { skip: !hasScript && 'util-linux script 없음', timeout: 60_000 }, async () => {
+test('좁은 터미널에서 도구 줄은 이름을 자르지 않고 줄이거나 +N 으로 접고, 숨긴 도구는 미설치: / 7일 미사용: 으로 센다', { skip: !hasScript && 'util-linux script 없음', timeout: 60_000 }, async () => {
   for (const cols of [40, 28, 18]) {
     const strip = (await screenAt(cols, 24))[1];
     const words = strip.trim().split(/\s+/);
-    for (const w of words) assert.match(w, /^([▍]?(claude|codex|gemini|cla|cdx|gem)|\d+|·|[\d.]+[kMB]?|미설치|\+\d|숨김)$/u, `${cols}칸: ${strip}`);
-    // 숨김 뒤에는 숨긴 도구 이름이나 개수가 온다.
-    const [front, back = ''] = strip.split('숨김');
+    for (const w of words) assert.match(w, /^([▍]?(claude|codex|gemini|cla|cdx|gem)|\d+|·|[\d.]+[kMB]?|미설치:?|7일|미사용:|\+\d)$/u, `${cols}칸: ${strip}`);
+    // 숨김 표시(미설치: · 7일 미사용:) 뒤에는 숨긴 도구 이름이나 개수가 온다 (#290).
+    const at = strip.search(/미설치:|7일 미사용:/);
+    const [front, back] = at < 0 ? [strip, ''] : [strip.slice(0, at), strip.slice(at)];
     const tools = (t) => t.trim().split(/\s+/).filter((w) => TOOL_WORD.test(w)).length;
-    const hidden = Number(back.match(/^ (\d)/)?.[1] ?? tools(back));
+    const nums = [...back.matchAll(/: (\d)/g)].map((m) => Number(m[1]));
+    const hidden = nums.length ? nums.reduce((a, b) => a + b, 0) : tools(back);
     // 아주 좁으면 숨김 표시는 통째로 빠질 수 있다 (중간에서 잘리지 않는다).
     const total = tools(front) + Number(front.match(/\+(\d)/)?.[1] ?? 0) + hidden;
-    assert.ok(strip.includes('숨김') ? total === 3 : total <= 3 && total >= 1, `${cols}칸: ${strip}`);
-    assert.doesNotMatch(strip, /숨(?!김)/, `${cols}칸: ${strip}`);
+    assert.ok(at >= 0 ? total === 3 : total <= 3 && total >= 1, `${cols}칸: ${strip}`);
+    assert.doesNotMatch(strip, /미(?!설치|사용)|7일(?! 미사용:)/, `${cols}칸: ${strip}`);
   }
 });
 
