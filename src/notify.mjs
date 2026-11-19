@@ -5,6 +5,7 @@ import { accessSync, constants, existsSync, readFileSync } from 'node:fs';
 import { join, delimiter, posix, win32 } from 'node:path';
 import { mask, stripControl } from './text.mjs';
 import { getLang, phaseText, t } from './i18n.mjs';
+import { callsYou } from './attention.mjs';
 
 export const HOOK_TIMEOUT_MS = 10_000;
 const LABEL_MAX = 120;
@@ -388,20 +389,36 @@ export function createRunner({ timeoutMs = HOOK_TIMEOUT_MS, spawnFn = spawn, pla
 
 // --notify, --on-waiting 을 묶은 알리미. 알릴 세션 목록과 종류(waiting·done·context)를 받는다.
 // --on-waiting 명령에는 AITOP_EVENT 로 종류를 넘긴다 (예전 명령은 waiting 만 받으므로 그대로 동작한다).
-export function createNotifier({ notify = false, onWaiting = null, platform = process.platform, notifier = notify ? findNotifier({ platform }) : null, env = process.env, timeoutMs = HOOK_TIMEOUT_MS, spawnFn = spawn, spawnSyncFn = spawnSync } = {}) {
+// setNotify(on): 실행 중 a 키로 데스크톱 알림을 켜고 끈다 (#294). 처음 켤 때 알림 도구를 찾고(find), 없으면 false 를 돌려준다.
+export function createNotifier({ notify = false, onWaiting = null, platform = process.platform, find = findNotifier, notifier = notify ? find({ platform }) : null, env = process.env, timeoutMs = HOOK_TIMEOUT_MS, spawnFn = spawn, spawnSyncFn = spawnSync } = {}) {
   const hook = onWaiting ? createRunner({ timeoutMs, spawnFn, platform, spawnSyncFn }) : null;
-  const desk = notify && notifier ? createRunner({ timeoutMs, spawnFn, platform, spawnSyncFn }) : null;
+  let desk = notify && notifier ? createRunner({ timeoutMs, spawnFn, platform, spawnSyncFn }) : null;
+  let deskOn = notify;
+  let searched = notify;
   const [shell, shellArgs, shellOpts] = onWaiting ? hookCommand(onWaiting, { platform, env }) : [];
   return {
     hook,
-    desk,
+    get desk() {
+      return desk;
+    },
+    setNotify(on) {
+      deskOn = Boolean(on);
+      if (deskOn && !desk && !searched) {
+        searched = true;
+        notifier = find({ platform });
+        if (notifier) desk = createRunner({ timeoutMs, spawnFn, platform, spawnSyncFn });
+      }
+      // 끌 때는 대기열만 비운다. 이미 뜬 알림 도구는 HOOK_TIMEOUT_MS 안에 끝난다.
+      if (!deskOn) desk?.killAll();
+      return Boolean(deskOn && desk);
+    },
     killAll() {
       hook?.killAll();
       desk?.killAll();
     },
     fire(fresh, kind = 'waiting') {
       if (!fresh.length) return;
-      if (desk) {
+      if (desk && deskOn) {
         const { title, body } = notifyText(fresh, getLang(), kind);
         const [file, args] = notifierCommand(notifier, title, body);
         desk.run({ file, args, env });
@@ -409,4 +426,45 @@ export function createNotifier({ notify = false, onWaiting = null, platform = pr
       if (hook) for (const s of fresh) hook.run({ file: shell, args: shellArgs, opts: shellOpts, env: { ...env, ...waitingEnv(s), AITOP_EVENT: kind } });
     },
   };
+}
+
+// 실행 중 알림 켜기·끄기 상태 (#294). 이번 실행에만 쓰고 설정 파일은 바꾸지 않는다.
+// explicitOff: 설정 파일이나 --no-notify 로 직접 끈 경우. 그때는 켜기 힌트를 띄우지 않는다.
+// hinted: 힌트를 이미 띄웠거나 사용자가 a 를 눌러 본 적이 있는지 (실행당 한 번).
+// available: 알림 도구를 찾았는지. --notify 로 켰어도 도구가 없으면 꺼짐으로 보인다 (설정은 건드리지 않는다).
+//   이때는 사용자가 직접 켠 것이라 켜기 힌트도 띄우지 않는다.
+export function createNotifyToggle({ on = false, explicitOff = false, available = true } = {}) {
+  const missing = Boolean(on) && !available;
+  return { on: Boolean(on) && !missing, explicitOff: Boolean(explicitOff), hinted: missing };
+}
+
+// 설정 값(resolveConfig 의 values.notify)으로 직접 껐는지 본다. 기본값(source: 'default')으로 꺼진 것만 직접 끄지 않은 것이다.
+export const notifyExplicitOff = (entry, on) => !on && entry != null && entry.source !== 'default';
+
+export function toggleNotify(state) {
+  state.on = !state.on;
+  state.hinted = true;
+  return state.on;
+}
+
+// a 키: 상태를 뒤집고 알리미(setNotify)에 반영한다. 켜려 했는데 알림 도구가 없으면 꺼짐으로 되돌린다.
+// 돌려주는 값은 키 줄에 잠깐 보일 문구의 i18n 키.
+export function applyNotifyToggle(state, notifier) {
+  const want = toggleNotify(state);
+  const ok = notifier.setNotify(want);
+  if (want && !ok) {
+    state.on = false;
+    notifier.setNotify(false);
+    return 'foot.notifyNone';
+  }
+  return want ? 'foot.notifyOn' : 'foot.notifyOff';
+}
+
+// 알림이 꺼져 있고 직접 끄지 않았을 때, 실행 중인 응답 대기 세션이 처음 보이면 한 번만 true (시작 때 이미 대기 중인 세션 포함).
+// visible: 키 줄에 힌트를 그릴 수 있는지 (도움말·검색 중에는 키 줄이 힌트를 그리지 않는다). false 면 소비하지 않고 다음 갱신에 다시 본다.
+export function notifyHintDue(state, sessions = [], { visible = true } = {}) {
+  if (state.on || state.explicitOff || state.hinted || !visible) return false;
+  if (!sessions.some((s) => s.live && callsYou(s))) return false;
+  state.hinted = true;
+  return true;
 }
