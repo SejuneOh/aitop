@@ -891,7 +891,7 @@ Claude Code 프로필을 여럿 쓰면(`CLAUDE_CONFIG_DIR=~/.claude-work claude`
 <details>
 <summary>세부: 오류와 <code>--once</code> 출력</summary>
 
-- 모르는 옵션을 주면 오류와 도움말을 보이고 2 로 끝난다.
+- 모르는 옵션을 주면 가까운 옵션을 제안하는 오류 줄과 `aitop --help` 안내 줄, 두 줄만 보이고(도움말 전체는 내지 않음) 2 로 끝난다 (예: `알 수 없는 옵션 --notfy (혹시 --notify?)`). 잘못된 `--theme` 값도 같다.
 - `--once` 를 파이프나 파일로 받으면 색 코드를 넣지 않는다 (`FORCE_COLOR=1` 이면 넣음).
 - 그때 크기는 `COLUMNS`·`LINES` 를 따른다.
 

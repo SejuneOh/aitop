@@ -43,7 +43,7 @@ test('영어 표에는 한글과 em dash 가 없다', () => {
 
 test('t: 변수 채우기, 없는 변수는 그대로, 짧은 문구, 모르는 키', () => {
   assert.equal(t('cli.unknown', { opts: '--x' }, { lang: 'en' }), 'unknown option --x');
-  assert.equal(t('cli.unknown', { opts: '--x' }, { lang: 'ko' }), '모르는 옵션 --x');
+  assert.equal(t('cli.unknown', { opts: '--x' }, { lang: 'ko' }), '알 수 없는 옵션 --x');
   assert.equal(t('cli.unknown', {}, { lang: 'en' }), 'unknown option {opts}');
   assert.equal(t('doctor.state.limited', null, { lang: 'en' }), 'partial support');
   assert.equal(t('doctor.state.limited', null, { lang: 'en', short: true }), 'partial');
@@ -221,14 +221,14 @@ test('LANG=C 의 --doctor 는 영어다', () => {
   const r = run(['--doctor'], { LANG: 'C' });
   assert.equal(r.status, 0);
   assert.match(r.stdout, /setup check/);
-  assert.match(r.stdout, /config not found/);
+  assert.match(r.stdout, /config not found \(defaults\)/);
   assert.doesNotMatch(r.stdout, HANGUL);
 });
 
 test('LANG=C 의 모르는 옵션 오류는 영어다', () => {
   const r = run(['--nope'], { LANG: 'C' });
   assert.equal(r.status, 2);
-  assert.match(r.stderr, /^aitop: unknown option --nope\n\n/);
+  assert.equal(r.stderr, 'aitop: unknown option --nope\naitop: all options: aitop --help\n');
   assert.doesNotMatch(r.stderr, HANGUL);
   const b = run(['--budget-day', 'abc'], { LANG: 'C' });
   assert.equal(b.status, 2);

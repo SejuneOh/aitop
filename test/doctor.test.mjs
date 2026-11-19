@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { makeClaudeHome, assistant, user, usage } from './fixture.mjs';
+import { width } from '../src/text.mjs';
 
 const fx = makeClaudeHome();
 const root = mkdtempSync(join(tmpdir(), 'aitop-doctor-'));
@@ -132,4 +133,24 @@ test('--doctor 알림 줄: D-Bus 버스가 없으면 !, WSL 은 powershell.exe �
   assert.match(notifierText(null, 'linux', 'ko', true), /^! 알림 {4}powershell.exe·notify-send 없음/);
   assert.match(notifierText(null, 'linux', 'ko', false), /^○ 알림 {4}notify-send 없음/);
   assert.match(notifierText(null, 'darwin', 'en', false), /^○ notify  osascript not found/);
+});
+
+test('설정 파일이 없으면 "not found (defaults)" / "없음 (기본값)" 을 자르지 않고 보인다 (#291)', () => {
+  const result = { platform: 'linux', processes: true, tools: {}, config: { exists: false, problems: [], path: '/x/aitop/config.json' } };
+  assert.match(doctorText(result, '9.9.9', 0, 'en'), /\n✓ config not found \(defaults\) \/x\/aitop\/config\.json$/);
+  assert.match(doctorText(result, '9.9.9', 0, 'ko'), /\n✓ 설정 {3}없음 \(기본값\) \/x\/aitop\/config\.json$/);
+  const found = doctorText({ ...result, config: { ...result.config, exists: true } }, '9.9.9', 0, 'en');
+  assert.match(found, /\n✓ config found {5}\/x\/aitop\/config\.json$/);
+});
+
+test('설정 줄과 디버그 줄의 경로 열이 맞는다 (#291)', () => {
+  for (const lang of ['en', 'ko']) {
+    const result = { platform: 'linux', processes: true, tools: {}, config: { exists: false, problems: [], path: '/x/aitop/config.json' }, log: { on: false, path: '/x/aitop.log' } };
+    const lines = doctorText(result, '9.9.9', 0, lang).split('\n');
+    const col = (re) => {
+      const l = lines.find((x) => re.test(x));
+      return width(l.slice(0, l.indexOf('/x/')));
+    };
+    assert.equal(col(/config\.json/), col(/aitop\.log/), lang);
+  }
 });

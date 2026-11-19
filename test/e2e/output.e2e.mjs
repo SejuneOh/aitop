@@ -64,10 +64,9 @@ test('--version 은 package.json 버전을 보인다', () => {
   assert.equal(r.stdout.trim(), version);
 });
 
-test('모르는 옵션은 오류와 도움말을 보이고 2 로 끝난다', () => {
+test('모르는 옵션은 가까운 옵션 제안과 --help 안내 한 줄만 보이고 2 로 끝난다', () => {
   const r = run(['--doctorr']);
   assert.equal(r.status, 2);
   assert.equal(r.stdout, '');
-  assert.match(r.stderr, /모르는 옵션 --doctorr/);
-  assert.match(r.stderr, /aitop --once/);
+  assert.equal(r.stderr, 'aitop: 알 수 없는 옵션 --doctorr (혹시 --doctor?)\naitop: 전체 옵션은 aitop --help\n');
 });
