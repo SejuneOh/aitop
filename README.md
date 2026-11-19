@@ -46,6 +46,7 @@
 > `aitop --once`
 
 - Print the current state once and exit.
+- Piped or redirected to a file, it prints only the content: no padding lines to fill the screen height, no trailing spaces and no key bar.
 
 > `aitop --json`
 
@@ -66,11 +67,12 @@
 > `aitop --help`
 
 - All options.
+- A mistyped option prints the error with the closest match and a pointer to `aitop --help` (two lines, no full help), like `unknown option --notfy (did you mean --notify?)`, and exits with 2. A bad `--theme` value works the same way.
 
 **Keys on the live screen**
 
 - `↑↓` select · `n` next session to check · `/` search · `s` sort · `g` group
-- `p` pin · `f` changed files · `?` help · `q` quit
+- `p` pin · `f` changed files · `a` waiting alerts on/off · `?` help · `q` quit
 
 **Config file**
 
@@ -90,7 +92,7 @@
 - **Read-only**: no network, no ports, no dependencies. It only reads the session logs each CLI already writes.
 
 <details>
-<summary>Details: stopped sessions, cache countdown, tool run time, context gauge</summary>
+<summary>Details: stopped sessions, cache countdown, tool run time, context gauge, tool line</summary>
 
 **Stopped by an error**
 
@@ -115,6 +117,12 @@
 **Context gauge**
 
 - `~` marks 60% and up, `!` 85% and up, so the levels show without color. Under `NO_COLOR` the bar is `███░░`, and a gauge that reads 0% has no filled cell.
+
+**Tool line and empty screen**
+
+- Tools with no live session and no use for 7 days leave the tool line. Its end tells the two kinds apart: `not installed: codex  unused 7d: gemini` (counts when space is short). Turn it off with `"hideIdleTools": false`.
+- When a tool's process runs but it has no session records yet, the empty screen says so first (`agy running, but no session records to read yet.`) and what to do next.
+- The `?` key is always labeled `help`, at any width.
 
 </details>
 
@@ -295,6 +303,8 @@ Alerts when a session starts waiting, finishes a long turn or fills its context.
 - `--notify=waiting,done,context`: pick the kinds. Plain `--notify` uses the config file kinds, or waiting only when none are set.
 - `--on-waiting`: run a command with `/bin/sh -c` (`cmd.exe /d /v:on /s /c` on Windows) for the same events (10 second limit, runs as you).
 - Sessions already waiting (or already over 90% context) when aitop starts are not reported.
+- Press `a` on the live screen to turn desktop alerts on or off for this run only. The config file is not changed. The state (`alerts:on` or `alerts:off`) shows on the key line when there is room, and always on the "now" line of the `?` help. If no alert tool is found, it shows off.
+- When alerts are off and a waiting session first shows up (including one already waiting when aitop starts), the key line shows `turn on waiting alerts: a` once per run. If the help or search is open, it waits until you close it. It does not show when you turned alerts off yourself (config file `"notify": false` or `--no-notify`).
 
 **Kinds**
 
@@ -359,6 +369,7 @@ set -g status-interval 15
 - The Claude Code sessions stopped by an API error (`stop 1`, read live).
 - The number of sessions running (`run 3`).
 - Spend over the last hour.
+- `aitop idle` when there is nothing to show (`idle` or `-` in a very narrow `--line-width`), so an empty line never looks like a broken setup.
 
 **Options**
 

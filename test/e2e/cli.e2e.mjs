@@ -32,10 +32,11 @@ test('--once 는 세션 표와 변경 파일·최근 활동 구획을 한 번 �
   assert.match(out, /footer 정리해줘/);
 });
 
-test('NO_COLOR 이면 색 없이 키를 [q] 처럼 괄호로 보인다', () => {
+// 키를 [q] 처럼 괄호로 보이는지는 키 안내 줄이 남는 터미널 --once 로 본다 (tty.e2e.mjs, #292).
+test('NO_COLOR 이면 색 없이 내고, 파이프 출력에는 키 안내 줄이 없다', () => {
   const out = execFileSync(process.execPath, [BIN, '--once'], { env: { ...process.env, NO_COLOR: '1' }, encoding: 'utf8', timeout: 20_000 });
   assert.doesNotMatch(out, /\x1b\[/, '색 코드가 없다');
-  assert.match(out, /\[\?\] (도움|키 전체)\s+\[q\] 나가기/);
+  assert.doesNotMatch(out, /\[q\] 나가기/);
 });
 
 // 응답 대기 중인 세션의 요청 전체는 --show-requests (또는 AITOP_SHOW_REQUESTS=1) 를 켰을 때만 밖으로 나간다.

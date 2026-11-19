@@ -87,7 +87,7 @@ test('도구 줄은 폭이 모자라면 간격·토큰 수·이름 순으로 줄
   }
   setAmbiguous('narrow');
   assert.match(strip(toolStrip(view(tools), 60)), /claude 2 · 2\.0k +▍codex 1 · 1\.0k +gemini/);
-  assert.match(strip(toolStrip(view(tools), 20)), /^ ▍cla 2  ▍cdx 1  \+1 /, '실행 중인 도구가 먼저 남는다');
+  assert.match(strip(toolStrip(view(tools), 19)), /^ ▍cla 2  ▍cdx 1  \+1/, '실행 중인 도구가 먼저 남는다');
 });
 
 test('ambiguous 설정: 환경 변수 > 파일 > 기본값, 잘못된 값은 알린다', () => {

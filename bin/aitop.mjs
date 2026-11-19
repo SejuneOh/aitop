@@ -5,10 +5,13 @@ import { langOption, pickLang, setLang, t } from '../src/i18n.mjs';
 import { notifyOptions } from '../src/notify.mjs';
 import { lineOption } from '../src/line.mjs';
 import { reportOption } from '../src/report.mjs';
+import { suggest } from '../src/suggest.mjs';
 import { mask, setAmbiguous, stripControl } from '../src/text.mjs';
 
 const KNOWN = new Set(['-h', '--help', '-v', '--version', '--once', '--all', '--json', '--doctor', '--bell', '--show-requests', '--print-config', '--no-bell', '--no-all', '--no-show-requests', '--debug', '--no-debug', '--color-blind', '--no-color-blind']);
 const THEMES = ['light', 'dark'];
+// 잘못 친 옵션에 제안할 후보. KNOWN 의 긴 옵션과, 다른 모듈이 먼저 꺼내는 값 옵션을 합친다.
+const OPTIONS = [...[...KNOWN].filter((o) => o.startsWith('--')), '--theme', '--lang', '--notify', '--no-notify', '--on-waiting', '--no-on-waiting', '--budget-day', '--no-budget-day', '--line', '--line-width', '--report', '--by', '--days', '--months', '--since', '--plan', '--md', '--show-prompts'];
 const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
 // 언어는 다른 옵션의 오류 문구보다 먼저 정한다: --lang > AITOP_LANG > 설정 파일 lang > LC_ALL > LC_MESSAGES > LANG.
@@ -109,10 +112,17 @@ if (theme === '') {
   process.stderr.write(`aitop: ${t('cli.themeMissing')}\n`);
   process.exit(2);
 }
-const unknown = [...args].filter((a) => !KNOWN.has(a));
-if (theme != null && !THEMES.includes(theme)) unknown.push(`--theme ${theme}`);
+// 모르는 옵션은 도움말 전체 대신 가까운 옵션 제안과 --help 안내 한 줄만 낸다 (#291).
+const unknown = [...args].filter((a) => !KNOWN.has(a)).map((a) => {
+  const near = a.startsWith('-') ? suggest(a, OPTIONS) : null;
+  return near ? `${a} ${t('cli.didYouMean', { opt: near })}` : a;
+});
+if (theme != null && !THEMES.includes(theme)) {
+  const near = suggest(theme, THEMES);
+  unknown.push(`--theme ${theme} ${near ? t('cli.didYouMean', { opt: `--theme ${near}` }) : t('cli.themeValues')}`);
+}
 if (unknown.length) {
-  process.stderr.write(`aitop: ${t('cli.unknown', { opts: unknown.join(' ') })}\n\n${HELP}\n`);
+  process.stderr.write(`aitop: ${t('cli.unknown', { opts: stripControl(unknown.join(', ')) })}\naitop: ${t('cli.seeHelp')}\n`);
   process.exit(2);
 }
 if (args.has('-h') || args.has('--help')) {
@@ -265,14 +275,14 @@ if (args.has('--doctor')) {
 if (cfgFile.onWaitingIgnored && !cli.onWaiting) process.stderr.write(`aitop: ${cfgFile.onWaitingIgnored}\n`);
 
 const { collect } = await import('../src/collect.mjs');
-const { render, filterSessions, animating } = await import('../src/ui.mjs');
+const { render, pipeLines, filterSessions, animating } = await import('../src/ui.mjs');
 const { arrange } = await import('../src/order.mjs');
 const { frameTimer } = await import('../src/frames.mjs');
 const { flushCache } = await import('../src/cache.mjs');
 const { toJson } = await import('../src/json.mjs');
 const { createSummaryWriter, summarize, writeSummary } = await import('../src/summary.mjs');
 const { createAttention, updateAttention, markSeen, nextAttention, windowTitle, createWaitWatch, takeNewlyWaiting, attentionCounts, createEventWatch, takeEvents } = await import('../src/attention.mjs');
-const { createNotifier } = await import('../src/notify.mjs');
+const { applyNotifyToggle, createNotifier, createNotifyToggle, notifyExplicitOff, notifyHintDue } = await import('../src/notify.mjs');
 const { onKey, fixFocus } = await import('../src/keys.mjs');
 const { admit, createLoading, latchReady } = await import('../src/loading.mjs');
 const { osc52, resumeCmd } = await import('../src/resume.mjs');
@@ -300,7 +310,13 @@ let tools = null;
 // --bell · --notify · --on-waiting: 실시간 화면에서만, 첫 갱신에서 이미 응답 대기인 세션은 알리지 않는다.
 const bell = opt.bell;
 const waitWatch = createWaitWatch();
-const notifier = !once && (alerts.notify || alerts.onWaiting) ? createNotifier(alerts) : null;
+// 실시간 화면에서는 알림이 꺼져 있어도 알리미를 둔다. a 키로 데스크톱 알림을 이번 실행에만 켤 수 있게 (#294).
+const notifier = !once ? createNotifier(alerts) : null;
+// 켜기 힌트는 설정 파일이나 --no-notify 로 직접 끄지 않았을 때만 띄운다.
+// --notify 로 켰어도 알림 도구가 없으면 키 줄·도움말에 꺼짐으로 보인다 (알리미에 desk 가 없다).
+const notifyToggle = createNotifyToggle({ on: alerts.notify, explicitOff: notifyExplicitOff(config.values.notify, alerts.notify), available: once || Boolean(notifier?.desk) });
+settings.notify = notifyToggle.on;
+if (!once) view.notify = notifyToggle.on;
 // 끝남(done)·context 경고는 켠 경우에만 센다 (#204). 벨은 늘 응답 대기만 울린다.
 const eventKinds = alerts.events.filter((k) => k !== 'waiting');
 const eventWatch = notifier && eventKinds.length ? createEventWatch({ doneMs: opt.doneMinutes * 60_000 }) : null;
@@ -326,6 +342,9 @@ function refresh({ throttle = false } = {}) {
     if (fresh.length && bell) process.stdout.write('\x07');
     if (alerts.events.includes('waiting')) notifier?.fire(fresh);
   }
+  // 알림이 꺼진 채로 응답 대기 세션이 처음 보이면 키 줄에 켜기 힌트를 한 번 띄운다 (기록을 다 읽은 뒤).
+  // 도움말·검색 중에는 키 줄이 힌트를 그리지 않으므로 닫힐 때까지 미룬다.
+  if (!once && loading.ready && notifyHintDue(notifyToggle, data.sessions, { visible: !view.help && !view.searching })) toast('foot.notifyHint', HINT_MS);
   if (eventWatch) {
     const evs = takeEvents(eventWatch, data.sessions, { ready: loading.ready });
     for (const kind of eventKinds) notifier.fire(evs.filter((e) => e.kind === kind).map((e) => e.session), kind);
@@ -342,6 +361,19 @@ function refresh({ throttle = false } = {}) {
   return true;
 }
 let lastMore = false;
+
+// 키 줄 왼쪽에 잠깐 보이는 알림 (y 복사 결과, 알림 켜기 힌트). ms 가 지나면 지운다.
+const TOAST_MS = 2000;
+const HINT_MS = 10_000;
+let toastTimer = null;
+function toast(key, ms = TOAST_MS) {
+  view.toast = { key, until: Date.now() + ms };
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    view.toast = null;
+    draw();
+  }, ms);
+}
 
 function select(id) {
   if (id !== view.selectedId) {
@@ -360,7 +392,9 @@ if (once) {
   const size = (v) => (Number(v) > 0 ? Math.floor(Number(v)) : 0);
   const W = process.stdout.columns || size(process.env.COLUMNS) || 140;
   const H = process.stdout.rows || size(process.env.LINES) || 40;
-  await printAndExit(args.has('--json') ? JSON.stringify(toJson(view.data, VERSION, { showRequests, budgetDay: opt.budgetDay }), null, 2) : render(view, W, H).join('\n'));
+  // 터미널이 아니면(파이프·파일) 높이 맞춤 빈 줄과 쓸 수 없는 키 안내를 빼고 내용만 낸다 (#292).
+  const screen = () => (process.stdout.isTTY ? render(view, W, H) : pipeLines(render(view, W, H)));
+  await printAndExit(args.has('--json') ? JSON.stringify(toJson(view.data, VERSION, { showRequests, budgetDay: opt.budgetDay }), null, 2) : screen().join('\n'));
 }
 
 const out = process.stdout;
@@ -470,23 +504,26 @@ function keepSelectionVisible() {
 }
 
 // y: 이어 여는 명령을 OSC 52 로 클립보드에 쓴다. 터미널이 아니면 아무것도 하지 않는다. 알림은 2초 보인다.
-const TOAST_MS = 2000;
-let toastTimer = null;
 function copy(s) {
   if (!out.isTTY) return;
   const cmd = resumeCmd(s);
   if (cmd) out.write(osc52(cmd));
-  view.toast = { key: cmd ? 'foot.copied' : 'foot.copyNone', until: Date.now() + TOAST_MS };
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => {
-    view.toast = null;
-    draw();
-  }, TOAST_MS);
+  toast(cmd ? 'foot.copied' : 'foot.copyNone');
+}
+
+// a: 데스크톱 알림을 이번 실행에만 켜고 끈다. 설정 파일은 바꾸지 않는다 (#294).
+// 알릴 종류는 시작할 때 정한 값(설정 파일·--notify=<종류>, 없으면 waiting)을 그대로 쓴다.
+function flipNotify() {
+  const key = applyNotifyToggle(notifyToggle, notifier);
+  view.notify = notifyToggle.on;
+  settings.notify = notifyToggle.on;
+  toast(key);
 }
 
 stdin.setEncoding('utf8');
 const act = {
   copy,
+  toggleNotify: flipNotify,
   quit,
   refresh,
   move,

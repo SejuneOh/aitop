@@ -36,7 +36,10 @@ test('파이프로 받는 --once 는 색 코드 없이 COLUMNS·LINES 크기를 
   const r = run(['--once'], { COLUMNS: '72', LINES: '30' });
   assert.equal(r.status, 0);
   assert.doesNotMatch(r.stdout, /\x1b\[/);
-  assert.equal(r.stdout.trimEnd().split('\n').length, 30);
+  // 높이 맞춤 빈 줄과 키 안내 줄은 빼므로(#292) LINES 를 넘지 않는 내용만 나온다.
+  const n = r.stdout.trimEnd().split('\n').length;
+  assert.ok(n > 5 && n < 30, `${n} 줄`);
+  assert.doesNotMatch(r.stdout, /\[q\]/);
 });
 
 test('NO_COLOR 가 빈 값이어도 파이프로 받으면 색을 넣지 않는다', () => {
@@ -64,10 +67,9 @@ test('--version 은 package.json 버전을 보인다', () => {
   assert.equal(r.stdout.trim(), version);
 });
 
-test('모르는 옵션은 오류와 도움말을 보이고 2 로 끝난다', () => {
+test('모르는 옵션은 가까운 옵션 제안과 --help 안내 한 줄만 보이고 2 로 끝난다', () => {
   const r = run(['--doctorr']);
   assert.equal(r.status, 2);
   assert.equal(r.stdout, '');
-  assert.match(r.stderr, /모르는 옵션 --doctorr/);
-  assert.match(r.stderr, /aitop --once/);
+  assert.equal(r.stderr, 'aitop: 알 수 없는 옵션 --doctorr (혹시 --doctor?)\naitop: 전체 옵션은 aitop --help\n');
 });

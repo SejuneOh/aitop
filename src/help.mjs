@@ -20,6 +20,7 @@ export const VIEWS = {
       k('table.sort', 's', 'sort'),
       k('table.group', 'g', 'group'),
       k('table.costMode', 'c', 'costMode'),
+      k('table.notify', 'a', 'notify'),
       k('table.pin', 'p', 'pin'),
       k('table.files', 'f Tab', 'files'),
       k('table.detail', 'd', 'detail'),

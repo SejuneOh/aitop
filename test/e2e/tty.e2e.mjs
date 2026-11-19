@@ -243,3 +243,14 @@ test('로딩 중에는 숫자 자리에 … 를 두고, q 로 바로 끝난다',
     if (child.exitCode == null) child.kill('SIGKILL');
   }
 });
+
+test('터미널에서 --once 는 지금처럼 화면 높이만큼 내고 키 안내 줄을 둔다 (#292)', { skip: !hasScript && 'util-linux script 없음', timeout: 30_000 }, () => {
+  makeSession();
+  const cmd = 'stty cols 120 rows 30; exec "$AITOP_NODE" "$AITOP_BIN" --once';
+  const r = spawnSync('script', ['-qfec', cmd, '/dev/null'], { env: { ...process.env, AITOP_NODE: process.execPath, AITOP_BIN: BIN, AITOP_LANG: 'en', NO_COLOR: '1' }, encoding: 'utf8', timeout: 20_000 });
+  assert.equal(r.status, 0, r.stderr);
+  const lines = r.stdout.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\r/g, '').replace(/\n$/, '').split('\n');
+  assert.equal(lines.length, 30);
+  // NO_COLOR 이면 색 없이 키를 [q] 처럼 괄호로 보인다.
+  assert.match(lines.at(-1), /\[\?\] (help|all keys)\s+\[q\] quit/);
+});

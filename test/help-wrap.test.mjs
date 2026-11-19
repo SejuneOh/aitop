@@ -60,14 +60,12 @@ test('두 칸(100칸 이상) 도움말은 예전처럼 한 줄씩 두고 120x40 
   for (const word of ['IDLE', 'CONTEXT', '응답 대기']) assert.ok(all.includes(word), word);
 });
 
-test('키 안내: 키가 빠지면 ? 칩이 키 전체 / all keys 로 바뀌고, 그 라벨 때문에 보이던 항목이 더 빠지지 않는다', () => {
+test('키 안내: hintBar 의 cut 라벨 때문에 보이던 항목이 더 빠지지 않는다 (? 칩은 #290 부터 cut 을 쓰지 않는다)', () => {
   const v = (extra) => ({ data: { sessions: [{ id: 'a' }] }, showDetail: false, ...extra });
   const bar = (extra, W) => strip(footer(v(extra), W, 1, { id: 'a', files: [{ path: '/a' }] }));
-  for (const [lang, short, all] of [['ko', '도움', '키 전체'], ['en', 'help', 'all keys']]) {
+  for (const [lang, short] of [['ko', '도움'], ['en', 'help']]) {
     setLang(lang);
-    assert.match(bar({}, 200), new RegExp(`\\?\\s+${short}\\s+q`), `${lang}: 다 보이면 짧은 라벨`);
-    const shown = [40, 50, 60, 70, 80, 90, 100, 110, 120].filter((W) => bar({}, W).includes(all));
-    assert.ok(shown.length >= 5, `${lang}: 좁은 폭 대부분에서 전체 키 안내 (${shown})`);
+    for (const W of [40, 80, 120, 200]) assert.match(bar({}, W), new RegExp(`\\?\\s+${short}\\s+q`), `${lang} W=${W}: 라벨 하나`);
   }
   // 폭마다: 바꾼 라벨이 있든 없든 보이는 항목 수가 같다 (cut 없는 같은 항목과 비교).
   const items = (cut) => [{ k: '/', t: '검색' }, { k: '↑↓', t: '선택' }, { k: 'n', t: '다음' }, { k: 'f', t: '파일' }, { k: 'd', t: '상세 열기' }, { k: 'e', t: '종료 포함' }, { k: 'c', t: '비용 기준' }, { k: 'p', t: '고정' }, { k: '?', t: '도움', ...(cut ? { cut: '키 전체' } : {}), keep: true }, { k: 'q', t: '나가기', keep: true }];

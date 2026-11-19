@@ -33,6 +33,8 @@ const LEGEND_IDS = [
   ['COST', 'legend.cost'],
   ['CONTEXT', 'legend.context'],
   ['IDLE', 'legend.idleCol'],
+  // 도구 줄 끝의 숨김 표시. 미설치와 7일 미사용을 나눠 적는다 (#290).
+  ['legend.missingKey', 'legend.missing'],
   ['legend.hiddenKey', 'legend.hidden'],
   ['+N', 'legend.folded'],
   ['legend.periodKey', 'legend.period'],
@@ -132,7 +134,7 @@ export const keyChip = (k) => (NO_COLOR ? { t: `[${k}]` } : { t: ` ${k} `, fg: P
 export const keyLabel = (v) => ({ t: ` ${v}   `, fg: PALETTE.muted });
 
 // items: { k, t, keep, cut } 또는 { segs, keep }. 폭이 모자라면 keep 이 아닌 항목을 오른쪽부터 뺀다.
-// cut: 항목을 하나라도 뺐을 때 바꿔 쓸 라벨. ? 칩이 '키 전체' 로 바뀌어 빠진 키를 도움말에서 찾게 한다 (#265).
+// cut: 항목을 하나라도 뺐을 때 바꿔 쓸 라벨 (#265). ? 칩은 폭마다 이름이 바뀌지 않게 쓰지 않는다 (#290).
 export function hintBar(items, W, right = '') {
   const segsOf = (list) => [{ t: ' ' }, ...list.flatMap((i) => i.segs ?? [keyChip(i.k), keyLabel(i.t)])];
   const wOf = (list) => segsWidth(segsOf(list));
@@ -168,17 +170,27 @@ function orderHint(view) {
 }
 
 // y 를 누른 뒤 잠깐 보이는 알림 (view.toast = { key, until }). 시간이 지나면 빠진다.
+// 알림 켜기 힌트(foot.notifyHint)와 a 키 결과도 같은 자리에 보인다 (#294). 켠 결과는 초록, 나머지는 노랑.
+const TOAST_OK = ['foot.copied', 'foot.notifyOn'];
 function toastItem(view, now = Date.now()) {
   const x = view.toast;
   if (!x || now >= x.until) return [];
-  return [{ segs: [{ t: t(x.key), fg: x.key === 'foot.copied' ? PALETTE.busy : PALETTE.waiting, bold: true }, { t: '   ' }], keep: true }];
+  return [{ segs: [{ t: t(x.key, x.vars), fg: TOAST_OK.includes(x.key) ? PALETTE.busy : PALETTE.waiting, bold: true }, { t: '   ' }], keep: true }];
+}
+
+// 알림 상태 칩: a 알림:꺼짐. 키 줄 맨 끝(? q 앞)에 두어 넘칠 때 가장 먼저 빠진다. view.notify 는 bin 이 실시간 화면에서만 둔다 (--once 출력과 스냅숏에는 없다).
+// 색이 없어도 글자로 켜짐·꺼짐을 읽을 수 있다.
+function notifyItem(view) {
+  if (typeof view.notify !== 'boolean') return [];
+  return [{ k: 'a', t: t('foot.notify', { v: t(view.notify ? 'set.on' : 'set.off') }) }];
 }
 
 export function footer(view, W, matched, sel) {
   const RO = t('foot.readOnly');
   const toast = toastItem(view);
   const tail = [
-    { k: '?', t: t('foot.help'), cut: t('foot.helpAll'), keep: true },
+    // ? 라벨은 폭과 상관없이 하나로 둔다 (#290).
+    { k: '?', t: t('foot.help'), keep: true },
     { k: 'q', t: t('key.quit'), keep: true },
   ];
   const ended = { k: 'e', t: t(view.showEnded ? 'foot.hideEnded' : 'foot.showEnded') };
@@ -215,6 +227,9 @@ export function footer(view, W, matched, sel) {
     ...(sel ? [{ k: 'p', t: t(view.pins?.includes(sel.id) ? 'foot.unpin' : 'key.pin') }] : []),
     // 복사(y)는 상세 패널에 이어 여는 명령이 보일 때만 안내하고, 폭이 모자라면 가장 먼저 빠진다.
     ...(view.showDetail && resumeCmd(sel) ? [{ k: 'y', t: t('key.copy') }] : []),
+    // 알림 상태 칩은 폭이 모자라면 가장 먼저 빠진다. 고정 해제·비용 기준처럼 고른 행에 쓰는 키 안내를 밀어내지 않게 (#294).
+    // 빠져도 a 키는 그대로 듣고, 지금 상태는 도움말(?)의 '지금' 줄에서 볼 수 있다.
+    ...notifyItem(view),
     ...tail,
   ];
   return hintBar(items, W, RO);

@@ -7,7 +7,7 @@ import { homedir, platform } from 'node:os';
 import { findProcesses, isCodex, isGemini, isAgy, canListProcesses, isAlive, isSessionAlive, processMethod } from './procs.mjs';
 import { AGY_ROOT } from './sources/antigravity.mjs';
 import { loadSqlite, openReadOnly } from './sqlite.mjs';
-import { fmtAgo, pad, stripControl } from './text.mjs';
+import { fmtAgo, pad, stripControl, width } from './text.mjs';
 import { BRAND } from './brand.mjs';
 import { tildeIn } from './paths.mjs';
 import { busProblem, findNotifier, isWsl } from './notify.mjs';
@@ -302,14 +302,17 @@ export function doctorText(result, version, now = Date.now(), lang = getLang()) 
   if (result.console?.legacy) out.push('', tr('doctor.legacyConsole', null, o), `         → ${tr('doctor.legacyConsoleHint', null, o)}`);
   // 설정 파일: 무시한 키와 값, 받지 않은 onWaiting 을 알린다.
   const cfg = result.config;
+  // 설정·디버그 줄의 상태 칸 폭. 10칸보다 긴 상태 글("not found (defaults)")은 자르지 않고, 두 줄의 경로 열을 맞춘다.
+  const cfgWord = cfg && tr(cfg.exists ? 'doctor.configExists' : 'doctor.configMissing', null, o);
+  const logWord = result.log && tr(result.log.on ? 'doctor.debugOn' : 'doctor.debugOff', null, o);
+  const stateW = Math.max(10, ...[cfgWord, logWord].filter(Boolean).map((w) => width(w) + 1));
   if (cfg) {
-    const state = pad(tr(cfg.exists ? 'doctor.configExists' : 'doctor.configMissing', null, o), 10);
-    out.push('', tr('doctor.config', { mark: cfg.problems.length ? '!' : '✓', state, path: tilde(cfg.path) }, o));
+    out.push('', tr('doctor.config', { mark: cfg.problems.length ? '!' : '✓', state: pad(cfgWord, stateW), path: tilde(cfg.path) }, o));
     for (const p of cfg.problems) out.push(`         ! ${p}`);
   }
   if (result.log) {
     const on = result.log.on;
-    out.push('', tr('doctor.debug', { mark: on ? '✓' : '○', state: pad(tr(on ? 'doctor.debugOn' : 'doctor.debugOff', null, o), 10), path: tilde(result.log.path), tail: on ? '' : tr('doctor.debugTail', null, o) }, o));
+    out.push('', tr('doctor.debug', { mark: on ? '✓' : '○', state: pad(logWord, stateW), path: tilde(result.log.path), tail: on ? '' : tr('doctor.debugTail', null, o) }, o));
   }
   return stripControl(out.join('\n'));
 }

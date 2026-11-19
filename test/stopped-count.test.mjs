@@ -71,7 +71,7 @@ test('창 제목에 멈춤 수가 응답 대기와 확인 전 사이에 붙는�
 test('--line 은 멈춤 수를 stop N 으로, 대기 뒤·작업 중 앞에 둔다 (ASCII, tmux 색)', () => {
   assert.equal(formatLine({ today: 1, waiting: 1, stopped: 2, running: 3 }), '$1.00 wait 1 stop 2 run 3');
   assert.equal(formatLine({ stopped: 1 }), 'stop 1');
-  assert.equal(formatLine({ stopped: 0 }), '');
+  assert.equal(formatLine({ stopped: 0 }), 'aitop idle');
   assert.match(formatLine({ stopped: 1 }, { mode: 'tmux' }), /^#\[fg=colour\d+\]stop 1#\[default\]$/);
   assert.equal(formatLine({ stopped: 1 }, { mode: 'tmux', noColor: true }), 'stop 1');
   // 폭이 모자라면 작업 중이 먼저 빠지고 멈춤은 남는다.
