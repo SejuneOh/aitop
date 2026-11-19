@@ -2,7 +2,7 @@
  "table": {
   "80": [
    " ⣠⣴⣾   ◆ 1 wait  4 live  ⠿ 2 busy  ○ 1 idle  today $12.30 · est $12! · 05:00:00",
-   " ▍claude 3 · 1.7M     ▍codex 1 · 571k     hidden gemini",
+   " ▍claude 3 · 1.7M  ▍codex 1 · 571k  unused 7d: gemini",
    "",
    "   TOOL    SESSION        STATUS                TOKENS      COST CONTEXT   IDLE",
    " ◆ claude  waiter         Approve tool · 2 ag…    571k    ▲$0.17 ▃▃▃▃   5%   0s",
@@ -16,7 +16,7 @@
   ],
   "96": [
    " ⣠⣴⣾   ◆ 1 wait  4 live  ⠿ 2 busy  ○ 1 idle  today $12.30/$10 · est $12! · 7d $50.00 · 05:00:00",
-   " ▍claude 3 · 1.7M     ▍codex 1 · 571k     hidden gemini",
+   " ▍claude 3 · 1.7M  ▍codex 1 · 571k  unused 7d: gemini",
    "",
    "   TOOL    SESSION         STATUS                        TOKENS      COST CONTEXT          IDLE",
    " ◆ claude  waiter          Approve tool · 2 agents         571k    ▲$0.17 ▃▃▃▃▃▃▃▃▃▃▃   5%   0s",
@@ -30,7 +30,7 @@
   ],
   "100": [
    " ⣠⣴⣾   ◆ 1 wait  4 live  ⠿ 2 busy  ○ 1 idle  API today $12.30/$10 · est $12! · 7d $50.00 · 05:00:00",
-   " ▍claude 3 · 1.7M     ▍codex 1 · 571k     hidden gemini",
+   " ▍claude 3 · 1.7M  ▍codex 1 · 571k  unused 7d: gemini",
    "",
    "   TOOL    SESSION          STATUS                           TOKENS      COST CONTEXT          IDLE",
    " ◆ claude  waiter           Approve tool · 2 agents            571k    ▲$0.17 ▃▃▃▃▃▃▃▃▃▃▃   5%   0s",
@@ -44,7 +44,7 @@
   ],
   "120": [
    " ⣠⣴⣾   ◆ 1 wait  4 live  ⠿ 2 busy  ○ 1 idle     API cost  today $12.30/$10 1.0M · est $12! · 7d $50.00 10.0M · 05:00:00",
-   " ▍claude 3 · 1.7M     ▍codex 1 · 571k     hidden gemini",
+   " ▍claude 3 · 1.7M  ▍codex 1 · 571k  unused 7d: gemini",
    "",
    "   TOOL    MODEL      SESSION             PROJECT      STATUS                    TOKENS      COST CONTEXT          IDLE",
    " ◆ claude  opus-5-5   waiter                           Approve tool · 2 agents     571k    ▲$0.17 ▃▃▃▃▃▃▃▃▃▃▃   5%   0s",
@@ -58,7 +58,7 @@
   ],
   "150": [
    " ⣠⣴⣾   ◆ 1 waiting  4 live  ⠿ 2 working  ○ 1 idle           API cost  today $12.30/$10 ($3.00/h) 1.0M · est $12! · 7d $50.00 ▂▃▁▅▆▇█ 10.0M · 05:00:00",
-   " ▍claude 3 · 1.7M     ▍codex 1 · 571k     hidden gemini",
+   " ▍claude 3 · 1.7M  ▍codex 1 · 571k  unused 7d: gemini",
    "",
    "   TOOL    MODEL      SESSION                        PROJECT            STATUS                                 TOKENS      COST CONTEXT          IDLE",
    " ◆ claude  opus-5-5   waiter                                            Approve tool · 2 agents                  571k    ▲$0.17 ▃▃▃▃▃▃▃▃▃▃▃   5%   0s",
