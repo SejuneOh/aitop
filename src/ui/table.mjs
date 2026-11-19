@@ -360,7 +360,7 @@ export function sessionRow(s, c, W, selected, frame, hot, costMode = 'api', pinn
   segs.push(...pin, ...auto, { t: pad(s.name ?? '', c.name - segsWidth(pin) - segsWidth(auto)) + ' ', fg: ended ? PALETTE.ended : PALETTE.text, bold: selected });
   if (c.showProject) segs.push({ t: pad(s.project ?? '', c.project) + ' ', fg: ended ? PALETTE.ended : PALETTE.muted });
   segs.push(
-    ...statusCell(status, cacheState(s) ?? toolElapsed(s), c.status, { fg: pc, bold: s.status === 'waiting' }, briefStatus(s)),
+    ...statusCell(status, cacheState(s) ?? toolElapsed(s), c.status, { fg: pc, bold: s.status === 'waiting' }, briefStatus(s), status === statusText(s.phase) ? toolTarget(s.phase) : null),
     { t: pad(partial ? '…' : blank ? '' : fmtTokens(s.tokens.total), c.tokens, 'right') + ' ', fg: ended ? PALETTE.ended : partial ? PALETTE.info : PALETTE.muted },
   );
   if (c.showCost) segs.push(partial ? { t: pad('…', c.cost, 'right') + ' ', fg: PALETTE.info } : { t: pad(blank ? '' : (hot?.has(s.id) ? glyphs().hot : '') + money(costOf(s, costMode), s.costUnknown), c.cost, 'right') + ' ', fg: s.cost == null || ended ? PALETTE.info : hot?.has(s.id) ? PALETTE.money : PALETTE.muted, bold: Boolean(hot?.has(s.id)) });
@@ -374,12 +374,15 @@ export function sessionRow(s, c, W, selected, frame, hot, costMode = 'api', pinn
 // 덧붙인 글이 먼저 빠지는 정보다: 다 들어가면 그대로, 상태 글을 TAG_STATUS_MIN 칸까지 줄여 들어가면 줄여서 붙이고, 아니면 뺀다.
 // 경고 단계의 덧붙임(tag.warn: 캐시 1분 미만, 도구 10분 이상)은 거꾸로 상태 글보다 오래 남는다 (#264).
 // 그때 상태 글은 짧은 문구(brief, 예: '지시 대기')로 바꾸고, 그래도 넘치면 줄이고, 4칸도 안 남으면 덧붙임만 둔다.
+// target: 도구 실행 중이면 동사('도구 실행')를 뺀 대상('Bash $ npm test'). 칸이 모자라면 동사부터 빼고 대상과 덧붙임을 남긴다 (#293).
 const TAG_STATUS_MIN = 12;
 // 경고 덧붙임 앞에 남길 상태 글의 최소 칸. 이보다 좁으면 '지…' 처럼 줄임표만 남으므로 덧붙임만 둔다.
 const WARN_HEAD_MIN = 4;
-export function statusCell(status, tag, w, look, brief = null) {
+export function statusCell(status, tag, w, look, brief = null, target = null) {
   const plain = [{ t: pad(status, w) + ' ', ...look }];
-  if (!tag) return plain;
+  // 대상은 상태 글보다 짧을 때만 쓴다.
+  const tgt = target && width(target) < width(status) ? target : null;
+  if (!tag) return width(status) > w && tgt ? [{ t: pad(tgt, w) + ' ', ...look }] : plain;
   const tagSeg = { t: tag.text, fg: tag.fg, bold: tag.bold, dim: tag.dim };
   const withHead = (text, sep = ' · ') => {
     const room = w - width(sep) - width(tag.text);
@@ -390,15 +393,26 @@ export function statusCell(status, tag, w, look, brief = null) {
   if (room >= width(status)) return withHead(status);
   if (tag.warn) {
     // 경고 단계: 원문을 자르기보다 짧은 문구를 먼저 쓴다. · 와 함께 들어가지 않으면 사이를 한 칸으로 줄여 본다.
-    const head = brief && width(brief) < width(status) ? brief : status;
+    const head = tgt ?? (brief && width(brief) < width(status) ? brief : status);
     if (room >= width(head)) return withHead(head);
     if (room + width(' · ') - 1 >= width(head)) return withHead(head, ' ');
     // 줄임표만 남을 만큼 좁으면 상태 글을 빼고 덧붙임만 둔다.
     if (room >= WARN_HEAD_MIN) return withHead(head);
     return [{ ...tagSeg, t: pad(truncate(tag.text, w), w) + ' ' }];
   }
+  // 대상이 있으면 동사를 빼고 대상(줄여서라도)과 덧붙임을 남긴다. 4칸도 안 남으면 대상만.
+  if (tgt) return room >= WARN_HEAD_MIN ? withHead(tgt) : [{ t: pad(tgt, w) + ' ', ...look }];
   if (room >= Math.min(width(status), TAG_STATUS_MIN)) return withHead(status);
   return plain;
+}
+
+// 도구 실행 상태 글에서 동사를 뺀 대상: 'Bash $ npm test' (팀원 수가 있으면 뒤에 붙인다). 도구 실행이 아니면 null.
+export function toolTarget(phase) {
+  if (phase?.kind !== 'tool' || phase.msg || !phase.args?.what) return null;
+  const full = statusText(phase);
+  // '도구 실행 · Bash' 에서 '도구 실행 · ' 를 뗀다. 문구 모양이 다르면 쓰지 않는다.
+  const verb = statusText({ kind: 'tool', args: { what: '\0' } }).split('\0')[0];
+  return verb && full.startsWith(verb) ? full.slice(verb.length) : null;
 }
 
 // 경고 덧붙임 앞에 둘 짧은 상태 글. 다음 지시 대기만 짧은 문구가 따로 있고, 나머지는 상태 글을 줄여 쓴다.

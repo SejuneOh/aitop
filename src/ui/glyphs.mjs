@@ -8,7 +8,8 @@ import { EDGE, NO_COLOR } from './theme.mjs';
 const NORMAL = {
   edge: EDGE,
   rule: '─',
-  bar: { fill: '▃', empty: NO_COLOR ? '▁' : '▃' },
+  // 색이 없으면 채운 칸(█)과 빈칸(░)을 모양으로 가른다 (#293).
+  bar: NO_COLOR ? { fill: '█', empty: '░' } : { fill: '▃', empty: '▃' },
   week: '▁▂▃▄▅▆▇█',
   // 시작할 때 헤더의 집계 진행 막대. 색이 없으면 채운 칸과 빈칸이 모양으로 갈리도록 ASCII 로 그린다.
   progress: NO_COLOR ? { l: '[', r: ']', fill: '#', empty: '.' } : { l: '▕', r: '▏', fill: '█', empty: '░' },

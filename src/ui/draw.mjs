@@ -56,7 +56,7 @@ export function glyph(s, frame) {
 export const glyphMoves = (s) => (s.status === 'waiting' ? glyphs().waiting !== glyphs().waitingBlink : !['ended', 'done', 'unseen', 'idle', 'stopped'].includes(s.phase?.kind));
 
 // 막대는 같은 높이의 얇은 블록(▃)으로 그리고 채운 칸과 빈칸은 색으로 나눈다. 칸 높이가 모두 같아 끝이 튀어나오지 않는다.
-// 색이 없으면 빈칸을 가장 얇은 ▁ 로 그려 모양으로 구분한다. 기호는 glyphs().bar 에 있다.
+// 색이 없으면 █ 와 ░ 로 모양을 가른다. 기호는 glyphs().bar 에 있다.
 
 // 0% 보다 크면 최소 1칸, 100% 가 아니면 마지막 칸은 비워 둔다.
 export function filledCells(r, cells) {
@@ -69,13 +69,16 @@ export function gauge(used, total, cells) {
   const BAR = glyphs().bar;
   if (!total) return [{ t: BAR.empty.repeat(cells) + '     ', fg: PALETTE.faint }];
   const r = Math.min(1, Math.max(0, used / total || 0));
-  const full = cells ? filledCells(r, cells) : 0;
+  const pct = Math.round(r * 100);
+  // 0% 로 보이면 칸도 채우지 않는다.
+  const full = cells && pct > 0 ? filledCells(r, cells) : 0;
   const color = r >= 0.85 ? PALETTE.alert : r >= 0.6 ? PALETTE.text : PALETTE.busy;
+  // 색이 없어도 보이게 60% 이상은 ~, 85% 이상은 ! 를 붙인다.
+  const mark = r >= 0.85 ? '!' : r >= 0.6 ? '~' : '';
   return [
     { t: BAR.fill.repeat(full), fg: color },
     { t: BAR.empty.repeat(cells - full), fg: PALETTE.faint },
-    // 85% 이상은 색이 없어도 보이게 ! 를 붙인다.
-    { t: pad(`${r >= 0.85 ? '!' : ''}${Math.round(r * 100)}%`, 5, 'right'), fg: r >= 0.85 ? PALETTE.alert : PALETTE.muted },
+    { t: pad(`${mark}${pct}%`, 5, 'right'), fg: r >= 0.85 ? PALETTE.alert : PALETTE.muted },
   ];
 }
 

@@ -92,7 +92,7 @@
 - **Read-only**: no network, no ports, no dependencies. It only reads the session logs each CLI already writes.
 
 <details>
-<summary>Details: stopped sessions, cache countdown, tool run time, tool line</summary>
+<summary>Details: stopped sessions, cache countdown, tool run time, context gauge, tool line</summary>
 
 **Stopped by an error**
 
@@ -112,7 +112,11 @@
 - Measured from the open tool call's start (Claude `tool_use`, Codex `function_call`, Antigravity running step).
 - Shown after one minute, in a dim warning color from ten minutes (Claude Code's Bash timeout max).
 - Not counted while waiting for approval.
-- Dropped first on narrow screens; `--json` has `toolStartedAt`.
+- Dropped first on narrow screens, after the verb: a narrow STATUS cell keeps the target and time (`Bash $ npm test · 9m55s`). `--json` has `toolStartedAt`.
+
+**Context gauge**
+
+- `~` marks 60% and up, `!` 85% and up, so the levels show without color. Under `NO_COLOR` the bar is `███░░`, and a gauge that reads 0% has no filled cell.
 
 **Tool line and empty screen**
 
@@ -429,7 +433,7 @@ aitop reads `~/.claude` and `~/.codex` by default. List more profiles to read th
 
 ## Resume a session elsewhere
 
-Continue a session elsewhere, for example when you cannot jump to its tab, as in Windows Terminal with WSL. The detail panel shows a `Resume` command and `y` copies it.
+Continue a session elsewhere, for example when you cannot jump to its tab, as in Windows Terminal with WSL. The detail panel shows a `Resume` command and `y` copies it. The panel wraps it at spaces, `/` and `\`, keeps the resume part (`claude --resume <id>`) on the last line(s), and keeps the session id on one line when the width allows. A long `cd` part is shortened in the middle with `…`; `y` still copies the whole command.
 
 > Claude: `cd <dir> && claude --resume <id>`
 >
