@@ -14,6 +14,8 @@ export const CAP_MS = 1500;
 export const STOP_MIN_MS = 300;
 // 캐시가 없거나 시간 상한을 넘었을 때 내는 글.
 export const PENDING = '...';
+// 오늘 비용·대기·작업 중 등 보일 항목이 하나도 없을 때 내는 글.
+export const IDLE = 'aitop idle';
 // 기다리는 세션 이름의 최대 폭 (칸). 기본 폭 40 에 오늘 비용·예산·대기(이름과 시간)·작업 중이 함께 들어가는 길이.
 export const NAME_WIDTH = 12;
 // 이름을 자른 자리 표시. … 는 ASCII 가 아니다.
@@ -22,7 +24,8 @@ const CUT = '~';
 // tmux 256색 번호. 응답 대기는 눈에 띄는 주황, 돈은 화면 헤더와 같은 연두. 색약용은 노랑·파랑 계열로 가른다.
 // 작업 중은 눈에 덜 띄는 회색 계열로 둔다 (주목할 것은 대기다).
 // 멈춤(오류로 멈춘 세션)은 화면의 경고색과 같은 빨강, 색약용은 주홍. 색이 없어도 'stop' 글자로 갈린다.
-const COLOURS = { normal: { waiting: 'colour214', stopped: 'colour203', money: 'colour154', running: 'colour250' }, colorBlind: { waiting: 'colour226', stopped: 'colour209', money: 'colour75', running: 'colour250' } };
+// 쉬는 중(aitop idle)은 작업 중보다 더 흐린 회색.
+const COLOURS = { normal: { waiting: 'colour214', stopped: 'colour203', money: 'colour154', running: 'colour250', idle: 'colour242' }, colorBlind: { waiting: 'colour226', stopped: 'colour209', money: 'colour75', running: 'colour250', idle: 'colour242' } };
 
 // --line, --line=plain|tmux, --line-width <N>, --line-width=<N> 를 꺼낸다. line 은 켜지 않았으면 null.
 export function lineOption(argv) {
@@ -98,6 +101,8 @@ export function formatLine({ today = 0, budgetDay = null, waiting = 0, longest =
   if (stopped > 0) parts.push({ texts: [`stop ${stopped}`], fg: c.stopped });
   if (running > 0) parts.push({ texts: [`run ${running}`], fg: c.running });
   if (!zero(perHour)) parts.push({ texts: [`${rate(perHour)}/h`], fg: c.money });
+  // 보일 항목이 하나도 없으면 빈 줄 대신 IDLE 을 낸다 (고장과 구분되게). 폭이 모자라면 짧은 글, 그래도 모자라면 - (#292).
+  if (!parts.length) parts.push({ texts: [IDLE, 'idle', '-'], fg: c.idle });
   while (parts.length && width(parts.map((p) => p.texts[0]).join(' ')) > max) {
     if (parts.at(-1).texts.length > 1) parts.at(-1).texts.shift();
     else parts.pop();

@@ -46,6 +46,7 @@
 > `aitop --once`
 
 - Print the current state once and exit.
+- Piped or redirected to a file, it prints only the content: no padding lines to fill the screen height, no trailing spaces and no key bar.
 
 > `aitop --json`
 
@@ -355,6 +356,7 @@ set -g status-interval 15
 - The Claude Code sessions stopped by an API error (`stop 1`, read live).
 - The number of sessions running (`run 3`).
 - Spend over the last hour.
+- `aitop idle` when there is nothing to show (`idle` or `-` in a very narrow `--line-width`), so an empty line never looks like a broken setup.
 
 **Options**
 
