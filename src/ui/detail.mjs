@@ -192,6 +192,35 @@ export function wrapText(text, w) {
   return out;
 }
 
+// 이어 열기 명령 줄바꿈: 공백·/·\ 뒤에서 끊어 경로 조각과 세션 id 가 폭이 허락하면 한 줄에 온전히 남는다 (&& 는 앞 공백에서 끊긴다).
+// 한 조각이 폭보다 길면 지금 줄에 이어 붙이며 그 조각만 글자 단위로 끊는다. 요청 내용은 wrapText 로 글자 단위를 유지한다 (#293).
+export function wrapCommand(text, w) {
+  const out = [];
+  let cur = '';
+  for (const piece of String(text).match(/[^ /\\]*[ /\\]|[^ /\\]+/g) ?? []) {
+    if (width((cur + piece).trimEnd()) <= w) {
+      cur += piece;
+      continue;
+    }
+    // 새 줄에 온전히 들어가면 줄을 바꾼다.
+    if (width(piece.trimEnd()) <= w) {
+      if (cur.trimEnd()) out.push(cur.trimEnd());
+      cur = piece;
+      continue;
+    }
+    // 폭보다 긴 조각: 지금 줄 남은 칸부터 글자 단위로 채운다.
+    for (const ch of piece) {
+      if (cur && width((cur + ch).trimEnd()) > w) {
+        out.push(cur.trimEnd());
+        cur = '';
+      }
+      if (cur || ch !== ' ') cur += ch;
+    }
+  }
+  if (cur.trimEnd() || !out.length) out.push(cur.trimEnd());
+  return out;
+}
+
 // ── 요청 ── 구획: 응답 대기 중이고 요청 내용을 알 때만. 최대 max 줄, 넘치면 마지막 줄 끝을 … 로 바꾼다.
 export function requestBlock(s, w, max = REQUEST_LINES) {
   if (s.status !== 'waiting' || !s.waitDetail || max < 1) return [];
@@ -322,18 +351,103 @@ export function summaryLines(s, w, frame, view) {
   return [first, [{ t: '  ' }, ...second]];
 }
 
-// 이어 열기 명령을 폭에 맞춰 max 줄로 나눈다. 넘치면 마지막 줄 끝을 … 로 바꾼다 (복사하면 전체가 들어간다).
+// 이어 열기 명령의 꼬리: 도구별 이어 여는 부분 ('claude --resume <id>', 'codex resume <id>', 'agy --conversation <id>').
+const RESUME_TAIL = /(?:^| )((?:claude|codex|agy) \S+ \S+)$/;
+
+// 글 가운데를 … 로 줄이는 함수를 만든다. 돌려준 함수(k)는 폭 k 안에 앞(cd 경로 머리)과 끝(&& 앞)을 남긴다.
+// 글자 폭은 한 번만 재 두고, k 마다 앞과 끝을 번갈아 한 글자씩 채운다 (O(k)).
+function middleCutter(text) {
+  const chars = [...text];
+  const ws = chars.map((ch) => width(ch));
+  const total = ws.reduce((a, b) => a + b, 0);
+  return (k) => {
+    if (total <= k) return text;
+    const mark = ellipsis(k);
+    const budget = k - width(mark);
+    let used = 0;
+    let i = 0;
+    let j = chars.length - 1;
+    for (let turn = 0; i <= j; turn++) {
+      const front = turn % 2 === 0;
+      const cw = front ? ws[i] : ws[j];
+      if (used + cw > budget) break;
+      used += cw;
+      if (front) i++;
+      else j--;
+    }
+    return chars.slice(0, i).join('') + mark + chars.slice(j + 1).join('');
+  };
+}
+
+// 폭 k 를 위에서부터 줄여 가며 make(k) 가 room 줄 안에 들어가는 첫 결과. 없으면 null.
+// room 줄에는 폭 room*(w+1) 넘는 글이 들어갈 수 없으므로(줄 끝 공백 하나씩만 빠진다) 거기서부터 센다.
+function fitLines(make, from, w, room) {
+  for (let k = Math.min(from, room * (w + 1) + 2); k >= 2; k--) {
+    const lines = wrapCommand(make(k), w);
+    if (lines.length <= room) return lines;
+  }
+  return null;
+}
+
+// 앞부분이 'cd <경로> && 변수=<값>' 이면 경로와 값만 줄여 && 와 변수 이름이 남게 한다 (변수가 없으면 앞부분 전체를 줄인다).
+const CD_HEAD = /^(cd )('(?:[^']|'\\'')*'|\S+)( && [A-Za-z_][A-Za-z0-9_]*=)('(?:[^']|'\\'')*'|\S+)$/;
+
+// 경로와 값에 폭 k 를 반씩 나눠 준다. 한쪽이 짧으면 남는 칸은 다른 쪽이 쓴다.
+function envHead(cd) {
+  const [, pre, path, mid, value] = cd;
+  const cutPath = middleCutter(path);
+  const cutValue = middleCutter(value);
+  const pw = width(path);
+  const vw = width(value);
+  const fixed = width(pre) + width(mid);
+  return {
+    from: fixed + pw + vw,
+    make: (k) => {
+      const room = k - fixed;
+      const p = Math.min(pw, Math.max(2, room - Math.min(vw, Math.ceil(room / 2))));
+      const v = room - p;
+      return pre + cutPath(Math.max(2, p)) + mid + cutValue(Math.max(2, v));
+    },
+  };
+}
+
+// 마지막 줄 끝을 … 로 바꾼다.
+function cutLast(lines, w) {
+  const mark = ellipsis(w);
+  const last = [...lines.at(-1)];
+  while (last.length && width(last.join('')) + width(mark) > w) last.pop();
+  return [...lines.slice(0, -1), last.join('') + mark];
+}
+
+// 이어 열기 명령을 폭에 맞춰 max 줄로 나눈다. 한 줄에 들어가면 그대로 둔다.
+// 아니면 꼬리(도구 이름·옵션·세션 id)를 마지막 줄(들)에 두고, 앞부분(cd 경로, CLAUDE_CONFIG_DIR=…)은 남은 줄에 넣되 넘치면 가운데를 … 로 줄인다.
+// 세션 id 는 폭이 id 보다 좁을 때만 글자 단위로 끊긴다.
+// 꼬리만으로도 넘치면 마지막 줄 끝을 … 로 바꾼다. 화면만 줄이고 복사(y)에는 명령 전체가 들어간다.
 export function resumeLines(cmd, w, max) {
   if (!cmd || max < 1) return [];
-  let lines = wrapText(cmd, Math.max(1, w));
-  if (lines.length > max) {
-    lines = lines.slice(0, max);
-    const mark = ellipsis(w);
-    const last = [...lines[max - 1]];
-    while (last.length && width(last.join('')) + width(mark) > w) last.pop();
-    lines[max - 1] = last.join('') + mark;
+  w = Math.max(1, w);
+  if (width(cmd) <= w) return [cmd];
+  const m = RESUME_TAIL.exec(cmd);
+  if (!m) {
+    const all = wrapCommand(cmd, w);
+    return all.length <= max ? all : cutLast(all.slice(0, max), w);
   }
-  return lines;
+  const tail = wrapCommand(m[1], w);
+  if (tail.length > max) return cutLast(tail.slice(0, max), w);
+  const room = max - tail.length;
+  const head = cmd.slice(0, m.index + m[0].length - m[1].length).trimEnd();
+  // 앞부분을 남은 줄에 들어갈 때까지 가운데부터 줄인다. 남은 줄이 없으면 꼬리만.
+  if (room > 0 && head) {
+    const cd = CD_HEAD.exec(head);
+    if (cd) {
+      const { from, make } = envHead(cd);
+      const lines = fitLines(make, from, w, room);
+      if (lines) return [...lines, ...tail];
+    }
+    const lines = fitLines(middleCutter(head), width(head), w, room);
+    if (lines) return [...lines, ...tail];
+  }
+  return tail;
 }
 
 // 좁은 화면의 셋째 요약 줄: '이어 열기 y  …/repo && claude --resume <id>'. 한 줄을 넘으면 앞을 잘라 세션 id 를 남긴다.

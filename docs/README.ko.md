@@ -98,7 +98,7 @@ AI 코딩 에이전트를 위한 `top`. 내 PC 의 Claude Code · Codex CLI · A
 - 서브에이전트 행은 [서브에이전트](#서브에이전트) 참고.
 - COST: Claude API 정가로 환산한 비용. 구독 요금제 사용분도 같은 기준으로 계산한다 (`src/pricing.mjs`). 아래 '비용 계산' 참고.
 - IDLE: 마지막 활동 후 지난 시간. 작업 중이면 `now`.
-- 색 없이도(NO_COLOR) 보이도록 비용 상위 두 세션에는 `▲`, 컨텍스트 85% 이상에는 `!` 가 붙는다.
+- 색 없이도(NO_COLOR) 보이도록 비용 상위 두 세션에는 `▲`, 컨텍스트 60% 이상에는 `~`, 85% 이상에는 `!` 가 붙는다. NO_COLOR 에서는 컨텍스트 막대를 `███░░` 로 그리고, 0% 로 보이면 칸을 채우지 않는다.
 
 **창 제목과 이동**
 
@@ -207,7 +207,7 @@ AI 코딩 에이전트를 위한 `top`. 내 PC 의 Claude Code · Codex CLI · A
 - 형식은 팀원 행 경과 시간과 같다.
 - 1분이 지나야 보이고, 10분(Claude Code Bash 시간 제한 최대값)부터 흐린 경고색이다.
 - 허락 대기 중에는 보이지 않고, 허락한 뒤에는 대기가 끝난 때부터 다시 잰다.
-- 폭이 모자라면 먼저 빠진다.
+- 폭이 모자라면 먼저 빠진다. 그보다 앞서 동사(`도구 실행`)를 빼고 대상과 경과 시간(`Bash $ npm test · 9m55s`)을 남긴다.
 - `--json` 에는 `toolStartedAt` (ISO, 없으면 `null`).
 
 </details>
@@ -756,6 +756,8 @@ Claude Code 프로필을 여럿 쓰면(`CLAUDE_CONFIG_DIR=~/.claude-work claude`
 > Codex: `cd <폴더> && codex resume <id>`
 >
 > Antigravity: `cd <폴더> && agy --conversation <id>`
+
+- 상세 패널에서는 공백·`/`·`\` 에서 줄을 바꾼다. 이어 여는 꼬리(`claude --resume <id>`)는 마지막 줄(들)에 두고, 세션 id 는 폭이 허락하면 한 줄에 온전히 보인다. 앞부분(cd 경로 등)이 넘치면 가운데를 `…` 로 줄인다. `y` 로 복사하는 명령은 줄이지 않는다.
 
 - Gemini CLI 는 없음.
 - `--json` 에는 세션마다 `resumeCmd` (없으면 `null`) 로 나간다.
