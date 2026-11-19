@@ -1,12 +1,13 @@
 // Claude Code: ~/.claude/sessions/<pid>.json 으로 살아 있는 세션을 찾고,
 // ~/.claude/projects/*/<sessionId>.jsonl 대화 기록에서 진행 단계·토큰·비용을 읽는다.
 // 설정 폴더가 여럿이면(dirs.mjs) 모두 보고, 같은 세션 id 는 하나로 합친다.
-import { readdirSync, readFileSync, existsSync, statSync, openSync, readSync, closeSync } from 'node:fs';
-import { loadCache } from '../cache.mjs';
+import { readdirSync, readFileSync, existsSync, statSync, openSync, readSync, closeSync, writeFileSync, mkdirSync } from 'node:fs';
+import { CACHE_ROOT, PARENTS_FILE, loadCache } from '../cache.mjs';
+import { renameSync } from '../rename.mjs';
 import { contextWindow } from '../pricing.mjs';
-import { join, basename } from 'node:path';
-import { isSessionAlive } from '../procs.mjs';
-import { ClaudeTracker, tailCustomTitle, tailStopReason } from './claude-tracker.mjs';
+import { join, basename, dirname } from 'node:path';
+import { isSessionAlive, parentPid } from '../procs.mjs';
+import { ClaudeTracker, headEntrypoint, tailCustomTitle, tailStopReason } from './claude-tracker.mjs';
 import { emptyTokens, isLongTool, mergeActivity, MEMBER_FADE_MS, sessionName } from './common.mjs';
 import { mergeFiles } from './files.mjs';
 import { debug, debugIo } from '../log.mjs';
@@ -230,6 +231,11 @@ function toolStartOf(status, phase, t) {
 const DISCOVER_TTL_MS = 10_000;
 const HEAD_BYTES = 256 * 1024;
 let discovered = { at: 0, list: [] };
+// 테스트용: 다음 갱신에서 기록 목록을 다시 훑게 한다 (기본 보기의 하위 실행 후보 runFiles 도).
+export const _resetDiscover = () => {
+  discovered = { at: 0, list: [] };
+  runFiles = { at: 0, key: '', list: [] };
+};
 const heads = new Map();
 
 function recentTranscripts() {
@@ -270,7 +276,7 @@ function recentTranscripts() {
 function readHead(path, mtime) {
   const cached = heads.get(path);
   if (cached && cached.mtime === mtime) return cached;
-  const head = { mtime, cwd: null, title: null, customTitle: null, branch: null, startedAt: null };
+  const head = { mtime, cwd: null, title: null, customTitle: null, branch: null, startedAt: null, entrypoint: null };
   let headCustom;
   try {
     const fd = openSync(path, 'r');
@@ -288,6 +294,7 @@ function readHead(path, mtime) {
       }
       head.cwd ??= x.cwd ?? null;
       head.branch ??= x.gitBranch ?? null;
+      if (typeof x.entrypoint === 'string') head.entrypoint ??= x.entrypoint;
       if (x.timestamp) head.startedAt ??= Date.parse(x.timestamp) || null;
       if (x.type === 'ai-title' && x.aiTitle) head.title = x.aiTitle;
       if (x.type === 'custom-title') headCustom = sessionName(x.customTitle);
@@ -324,33 +331,42 @@ function endedFromTranscripts(known, selectedId, budget) {
     if (known.has(f.sessionId)) continue;
     const head = readHead(f.path, f.mtime);
     const want = eager || f.sessionId === selectedId || trackers.has(f.path) || hasCache(f.path, f.mtime);
-    const t = want ? tracker(trackers, f.path, budget) : null;
-    const { sub } = t ? readMembers(f.path, t, budget) : { sub: emptySub() };
-    out.push({
-      tool: 'claude',
-      id: f.sessionId,
-      pid: null,
-      kind: '-',
-      name: (t ? t.customTitle : head.customTitle) ?? t?.title ?? head.title ?? `${basename(head.cwd ?? '')} · ${f.sessionId.slice(0, 8)}`,
-      customName: (t ? t.customTitle : head.customTitle) ?? null,
-      cwd: head.cwd,
-      project: basename(head.cwd ?? ''),
-      branch: t?.branch ?? head.branch,
-      model: t?.model ?? null,
-      live: false,
-      lazy: !t,
-      status: 'ended',
-      phase: { kind: 'ended' },
-      waitingFor: null,
-      now: '',
-      startedAt: head.startedAt,
-      updatedAt: f.mtime,
-      ...sessionTotals(t, sub),
-      events: t?.events ?? [],
-      members: [],
-    });
+    out.push(endedSession(f, head, want ? tracker(trackers, f.path, budget) : null, budget));
   }
   return out;
+}
+
+// 끝난 세션 한 줄. t 가 없으면(본문을 아직 읽지 않음) 숫자는 비우고 lazy 로 둔다.
+// 기록 경로(f)는 endedSrc 에 따로 둔다: claude -p 실행을 부모에 붙일 때 그 기록을 마저 읽는 데 쓴다 (attachRuns).
+const endedSrc = new WeakMap();
+function endedSession(f, head, t, budget) {
+  const { sub } = t ? readMembers(f.path, t, budget) : { sub: emptySub() };
+  const s = {
+    tool: 'claude',
+    id: f.sessionId,
+    pid: null,
+    kind: '-',
+    name: (t ? t.customTitle : head.customTitle) ?? t?.title ?? head.title ?? `${basename(head.cwd ?? '')} · ${f.sessionId.slice(0, 8)}`,
+    customName: (t ? t.customTitle : head.customTitle) ?? null,
+    cwd: head.cwd,
+    project: basename(head.cwd ?? ''),
+    branch: t?.branch ?? head.branch,
+    model: t?.model ?? null,
+    entrypoint: t?.entrypoint ?? head.entrypoint ?? null,
+    live: false,
+    lazy: !t,
+    status: 'ended',
+    phase: { kind: 'ended' },
+    waitingFor: null,
+    now: '',
+    startedAt: head.startedAt,
+    updatedAt: f.mtime,
+    ...sessionTotals(t, sub),
+    events: t?.events ?? [],
+    members: [],
+  };
+  endedSrc.set(s, f);
+  return s;
 }
 
 // sessions 폴더 목록은 폴더 수정 시각이 그대로면 재사용한다 (#135).
@@ -498,6 +514,8 @@ export function claudeLineCounts({ deadline = Infinity } = {}) {
   for (const e of entries) {
     if (!e.waitingFor) continue;
     const transcript = find(e.sessionId);
+    // claude -p(sdk-cli) 실행은 사람이 답할 수 없으므로 응답 대기로 세지 않는다 (화면 callsYou 와 같은 규칙). 기록 앞부분만 본다.
+    if ((e.entrypoint ?? (transcript ? headEntrypoint(transcript) : null)) === SDK_ENTRY) continue;
     const custom = transcript ? tailCustomTitle(transcript) : undefined;
     const since = [e.statusUpdatedAt, e.updatedAt, e.startedAt].find(Number.isFinite) ?? null;
     waiting.push({ tool: 'claude', name: givenName(e, custom) ?? (isAutoName(e) ? basename(e.cwd ?? '') : String(e.name)), since });
@@ -543,6 +561,8 @@ export function collectClaude({ showEnded, budget, selectedId }) {
       project: basename(e.cwd ?? ''),
       branch: t?.branch,
       model: t?.model,
+      // 실행 방식: 'cli'(사람이 연 것), 'sdk-cli'(다른 프로그램이 띄운 claude -p) 등. 기록에서 읽고, 모르면 null (#286).
+      entrypoint: t?.entrypoint ?? e.entrypoint ?? null,
       live: e.alive,
       status,
       // Claude Code 가 상태를 남기지 않아 기록 수정 시각으로 추측한 경우
@@ -565,7 +585,259 @@ export function collectClaude({ showEnded, budget, selectedId }) {
       members: status === 'ended' ? [] : members,
     });
   }
+  // 끝난 claude -p 하위 실행은 --all 이 아니어도 읽어 부모 합계에 넣는다 (endedRuns). 부모 비용이 보기 방식과 상관없이 같게 한다.
+  const extra = showEnded ? [] : endedRuns(out, budget);
   if (showEnded) out.push(...endedFromTranscripts(new Set(out.map((s) => s.id)), selectedId, budget));
+  const shown = attachRuns([...out, ...extra], budget);
   prune();
+  // 부모에 붙지 못한 끝난 하위 실행은 기본 보기에 내지 않는다 (예전처럼 --all 에서만 보인다).
+  const hidden = new Set(extra);
+  return hidden.size ? shown.filter((s) => !hidden.has(s)) : shown;
+}
+
+// ---- claude -p(sdk-cli) 실행을 부모 세션 아래로 (#286) ----
+// 다른 프로그램이 claude -p 로 띄운 실행은 따로 세션 파일·기록을 만들고, 어디에도 부모 세션 id 를 적지 않는다.
+// 그래서 두 가지로 짐작한다.
+//   1. 살아 있으면: 그 프로세스의 부모 pid 를 PARENT_DEPTH 단계까지 따라 올라가 다른 Claude 세션 pid 를 만나면 그 세션.
+//      (Claude 세션 → bash → claude -p 처럼 쉘을 거쳐 뜬다.) 부모 pid 는 procs.mjs parentPid 가 이미 얻는 정보로만 얻는다.
+//   2. 그래도 못 찾았거나 끝난 실행이면: 작업 폴더가 <설정 폴더>/jobs/<id>/ 아래인 경우 id 가 <id> 로 시작하는 세션.
+//      Claude Code 백그라운드 작업은 jobs/<자기 세션 id 앞 8자>/tmp 를 작업 폴더로 쓴다.
+// 붙은 실행은 서브에이전트처럼 팀원 행이 되고 토큰·비용은 부모 합계에 더한다 (부모가 끝났으면 서브에이전트처럼 행 없이 합계만).
+// 날짜별 장부(헤더 오늘·7일)는 기록 파일 단위로 따로 세므로 여기서 옮겨도 두 번 세지 않는다.
+// 부모를 못 찾은 sdk-cli 실행(cron 등)은 최상위에 두고 auto 를 켠다. 사람이 답할 수 없는 실행이라 응답 대기로 부르지 않는다 (attention.mjs callsYou).
+// sdk-cli 만 대상이다: 사람이 연 Claude Code(cli)나 그 밖의 앱은 사람이 직접 보고 답하는 세션이라 따로 둔다.
+export const SDK_ENTRY = 'sdk-cli';
+const PARENT_DEPTH = 8;
+let ppidOf = parentPid;
+export function _setParentPid(fn) {
+  const prev = ppidOf;
+  ppidOf = fn ?? parentPid;
+  return prev;
+}
+
+// 작업 폴더가 Claude 백그라운드 작업 폴더(<설정 폴더>/jobs/<id>/…)면 <id>, 아니면 null.
+// 설정 폴더 안의 jobs 와, 설정 폴더 위 홈의 .claude/jobs 를 모두 본다 (CLAUDE_CONFIG_DIR 를 바꾼 경우).
+export function jobIdOf(cwd, homes = claudeDirs()) {
+  if (!cwd) return null;
+  const norm = (p) => String(p).replace(/\\/g, '/').replace(/\/+$/, '');
+  const c = norm(cwd);
+  for (const h of homes) {
+    for (const jobs of [join(h, 'jobs'), join(dirname(h), '.claude', 'jobs')]) {
+      const j = norm(jobs) + '/';
+      if (!c.startsWith(j)) continue;
+      const id = c.slice(j.length).split('/')[0];
+      // 짧은 조각은 여러 세션에 맞으므로 4자 이상만 쓴다.
+      if (id && id.length >= 4) return id.toLowerCase();
+    }
+  }
+  return null;
+}
+
+// 실행 중에 부모 pid 로 알아낸 부모 { 실행 id: { parentId, at } }. 끝나면 부모 pid 를 알 길이 없으므로 기억해 두고,
+// aitop 을 다시 켜도 쓰게 캐시 폴더의 작은 파일에 남긴다. PARENTS_KEEP_MS(끝난 세션 범위와 같은 24시간)가 지나면 잊는다.
+// 파일은 버전 폴더 밖(CACHE_ROOT, summary.json 과 같은 곳)에 두어 캐시 형식이 바뀌어도 남는다 (cache.mjs removeOldDirs 가 건너뛴다).
+const PARENTS_KEEP_MS = ENDED_WINDOW_MS;
+let parents = null;
+const parentsFile = () => join(CACHE_ROOT, PARENTS_FILE);
+const fresh = (v, now = Date.now()) => Boolean(v?.parentId) && Number.isFinite(v.at) && now - v.at < PARENTS_KEEP_MS;
+
+function readParentsFile() {
+  try {
+    return Object.entries(JSON.parse(readFileSync(parentsFile(), 'utf8')) ?? {});
+  } catch (e) {
+    if (e.code !== 'ENOENT') debugIo('claude', 'sdk parents read failed', e);
+    return [];
+  }
+}
+
+function knownParents() {
+  if (parents) return parents;
+  parents = new Map(readParentsFile().filter(([, v]) => fresh(v)));
+  return parents;
+}
+
+function rememberParent(id, parentId) {
+  const m = knownParents();
+  if (m.get(id)?.parentId === parentId) return;
+  m.set(id, { parentId, at: Date.now() });
+  // 실시간 화면과 --line 등 여러 aitop 이 같이 쓸 수 있으므로, 쓰기 직전에 파일을 다시 읽어 합친다 (같은 id 는 더 최근 것).
+  // 24시간 지난 것만 버린다. 임시 파일 이름에 pid 를 붙여 서로의 임시 파일을 덮지 않고, rename 으로 한 번에 바꾼다.
+  const now = Date.now();
+  for (const [k, v] of readParentsFile()) if (fresh(v, now) && !(m.get(k)?.at >= v.at)) m.set(k, v);
+  for (const [k, v] of m) if (!fresh(v, now)) m.delete(k);
+  try {
+    mkdirSync(CACHE_ROOT, { recursive: true, mode: 0o700 });
+    const f = parentsFile();
+    const tmp = `${f}.${process.pid}.tmp`;
+    writeFileSync(tmp, JSON.stringify(Object.fromEntries(m)), { mode: 0o600 });
+    renameSync(tmp, f);
+  } catch (e) {
+    debugIo('claude', 'sdk parents write failed', e);
+  }
+}
+
+export function _forgetParents() {
+  parents = null;
+}
+
+// 기본 보기(--all 아님)에서 지금 목록에 있는 세션의 끝난 claude -p 하위 실행. 모든 기록을 훑지 않고 두 곳만 본다:
+//   1. 기록 폴더 이름이 -jobs-<목록 세션 id 앞 8자> 를 담은 폴더 (작업 폴더가 jobs/<id>/… 이면 Claude Code 가 그 경로로 폴더 이름을 짓는다).
+//   2. 기억된 부모(knownParents)가 목록에 있는 실행의 기록 (findTranscript, 경로는 기억된다).
+// 범위는 끝난 세션 목록과 같은 24시간 안에 바뀐 기록이고, 찾은 경로는 DISCOVER_TTL_MS 동안 다시 쓴다.
+// 그다음 기록 앞부분(readHead, 수정 시각별로 기억)으로 sdk-cli 인지 확인하고, 본문은 화면 읽기 한도(budget) 안에서 이어 읽어 캐시에 남긴다.
+// 부모가 24시간 넘게 살아 있으면 그보다 오래 전에 끝난 하위 실행은 합계에서 빠진다 (README).
+let runFiles = { at: 0, key: '', list: [] };
+
+function runCandidates(list) {
+  const key = list.map((s) => s.id).sort().join(',');
+  if (runFiles.key === key && Date.now() - runFiles.at < DISCOVER_TTL_MS) return runFiles.list;
+  const ids = new Set(list.map((s) => s.id));
+  const prefixes = new Set(list.map((s) => s.id.slice(0, 8).toLowerCase()));
+  const found = [];
+  const add = (path, sessionId) => {
+    if (ids.has(sessionId)) return;
+    try {
+      const mtime = statSync(path).mtimeMs;
+      if (Date.now() - mtime < ENDED_WINDOW_MS) found.push({ key: sessionId, sessionId, path, mtime });
+    } catch {}
+  };
+  const listing = projectDirs();
+  for (const [root, dirs] of listing) {
+    for (const dir of dirs ?? []) {
+      const job = /-jobs-([0-9a-z]{4,})/i.exec(dir)?.[1]?.toLowerCase();
+      if (!job || !prefixes.has(job.slice(0, 8))) continue;
+      let names = [];
+      try {
+        names = readdirSync(join(root, dir));
+      } catch (e) {
+        debugIo('claude', 'project folder read failed', e, dir);
+      }
+      for (const n of names) if (n.endsWith('.jsonl')) add(join(root, dir, n), n.slice(0, -'.jsonl'.length));
+    }
+  }
+  for (const [child, v] of knownParents()) {
+    if (!ids.has(v.parentId) || found.some((f) => f.sessionId === child)) continue;
+    const path = findTranscript(child, listing);
+    if (path) add(path, child);
+  }
+  runFiles = { at: Date.now(), key, list: dedupeBy(found) };
+  return runFiles.list;
+}
+
+function endedRuns(list, budget) {
+  if (!list.some((s) => s.live)) return [];
+  const out = [];
+  for (const f of runCandidates(list)) {
+    const head = readHead(f.path, f.mtime);
+    if (head.entrypoint !== SDK_ENTRY) continue;
+    out.push(endedSession(f, head, tracker(trackers, f.path, budget), budget));
+  }
   return out;
+}
+
+function findParent(s, byPid, list) {
+  const known = knownParents().get(s.id)?.parentId;
+  const remembered = known ? list.find((x) => x.id === known && x !== s) : null;
+  if (remembered) return remembered;
+  if (s.live && Number.isInteger(s.pid)) {
+    let p = ppidOf(s.pid);
+    for (let i = 0; i < PARENT_DEPTH && Number.isInteger(p) && p > 1; i++) {
+      const hit = byPid.get(p);
+      if (hit && hit !== s) {
+        rememberParent(s.id, hit.id);
+        return hit;
+      }
+      p = ppidOf(p);
+    }
+  }
+  const job = jobIdOf(s.cwd);
+  if (!job) return null;
+  const cands = list.filter((x) => x !== s && x.id.toLowerCase().startsWith(job));
+  // 살아 있는 쪽, 그다음 최근에 바뀐 쪽.
+  cands.sort((a, b) => Number(b.live) - Number(a.live) || (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+  return cands[0] ?? null;
+}
+
+const TOKEN_KEYS = Object.keys(emptyTokens());
+
+// 붙은 실행의 합계를 부모에 더한다 (sessionTotals 가 서브에이전트를 더하는 것과 같은 칸). 부모 숫자를 아직 모르면(null) 그대로 둔다.
+function absorb(root, c) {
+  const tk = (root.tokens = { ...root.tokens });
+  for (const k of TOKEN_KEYS) tk[k] = (tk[k] ?? 0) + (c.tokens?.[k] ?? 0);
+  tk.sub = (tk.sub ?? 0) + (c.tokens?.total ?? 0);
+  // 그 실행이 띄운 서브에이전트도 함께 센다 (토큰은 이미 c.tokens 에 들어 있다).
+  tk.subCount = (tk.subCount ?? 0) + 1 + (c.tokens?.subCount ?? 0);
+  if (root.cost != null && c.cost != null) root.cost += c.cost;
+  if (root.costNoCache != null && c.costNoCache != null) root.costNoCache += c.costNoCache;
+  root.costUnknown ||= Boolean(c.costUnknown);
+  root.loading ||= Boolean(c.loading);
+  root.activity = mergeActivity([root.activity, c.activity]);
+}
+
+// 팀원 행 모양 (readMembers 와 같은 칸). sdk: true 면 화면이 이름 앞에 -p 를 붙인다.
+function runMember(c, parentId) {
+  const done = !c.live;
+  const started = Boolean(c.model || c.tokens?.total > 0);
+  return {
+    id: c.id,
+    sdk: true,
+    entrypoint: c.entrypoint,
+    parentId,
+    name: 'claude -p',
+    model: c.model ?? null,
+    task: c.name ?? '',
+    status: done ? 'done' : 'busy',
+    started,
+    phase: done ? { kind: 'done' } : !started ? { kind: 'idle', msg: 'starting' } : c.phase,
+    now: c.now,
+    tokens: c.tokens?.total ?? 0,
+    cost: c.cost,
+    costNoCache: c.costNoCache,
+    costUnknown: c.costUnknown,
+    loading: Boolean(c.loading),
+    startedAt: c.startedAt,
+    lastActivityAt: c.updatedAt ?? null,
+    longStep: false,
+  };
+}
+
+function attachRuns(list, budget) {
+  if (!list.some((s) => s.entrypoint === SDK_ENTRY)) return list;
+  const byPid = new Map(list.filter((s) => s.live && Number.isInteger(s.pid)).map((s) => [s.pid, s]));
+  const parent = new Map();
+  for (const s of list) {
+    if (s.entrypoint !== SDK_ENTRY) continue;
+    const p = findParent(s, byPid, list);
+    if (p) parent.set(s, p);
+  }
+  // 부모도 붙은 실행이면 맨 위 세션까지 올라간다 (고리는 끊는다).
+  const rootOf = (s) => {
+    const path = new Set([s]);
+    let r = parent.get(s);
+    while (r && parent.has(r) && !path.has(r)) {
+      path.add(r);
+      r = parent.get(r);
+    }
+    return r && !path.has(r) ? r : null;
+  };
+  const gone = new Set();
+  const now = Date.now();
+  for (const s of list) {
+    if (!parent.has(s)) continue;
+    const root = rootOf(s);
+    // 살아 있는 실행은 끝난 부모 아래로 숨기지 않는다.
+    if (!root || (s.live && !root.live)) continue;
+    let c = s;
+    // 부모 숫자는 읽었는데 끝난 실행은 아직 안 읽었으면 마저 읽어 합계가 덜 차지 않게 한다 (선택해서 읽을 길이 없어진다).
+    const src = endedSrc.get(s);
+    if (s.lazy && !root.lazy && src) c = endedSession(src, heads.get(src.path) ?? readHead(src.path, src.mtime), tracker(trackers, src.path, budget), budget);
+    absorb(root, c);
+    gone.add(s);
+    const m = runMember(c, root.id);
+    if (root.status !== 'ended' && !(m.status === 'done' && now - (c.updatedAt ?? 0) > MEMBER_FADE_MS)) {
+      root.members = [...root.members, m].sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0));
+    }
+  }
+  for (const s of list) if (s.entrypoint === SDK_ENTRY && !gone.has(s)) s.auto = true;
+  return gone.size ? list.filter((s) => !gone.has(s)) : list;
 }

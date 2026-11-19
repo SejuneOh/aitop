@@ -51,7 +51,7 @@ test('80칸 도움말: 감싼 줄까지 스크롤 끝(helpMax)에 들어가고, 
   render(v, 80, 24);
   v.helpScroll = v.helpMax;
   const last = render(v, 80, 24).map(strip).join('\n');
-  assert.ok(last.includes(t('legend.stalled')), '범례 마지막 줄');
+  assert.ok(last.includes(t('legend.auto')), '범례 마지막 줄');
   assert.ok(!last.includes(t('help.more', { n: 1 }).slice(0, 4)), '더 남은 줄 안내가 없다');
 });
 

@@ -40,6 +40,10 @@ export function toJson(data, version = null, opts = {}) {
       branch: s.branch ?? null,
       model: s.model ?? null,
       kind: s.kind ?? null,
+      // 실행 방식 (Claude 기록의 entrypoint: 'cli', 'sdk-cli' 등, 모르면 null). auto 는 부모 세션을 못 찾은 claude -p 실행 (#286).
+      // 부모를 찾은 claude -p 실행은 여기 없고 부모의 members 에 entrypoint·parentId 와 함께 들어간다 (합계도 부모에 더해져 있다).
+      entrypoint: s.entrypoint ?? null,
+      auto: Boolean(s.auto),
       pid: s.pid ?? null,
       live: Boolean(s.live),
       status: s.status,
@@ -69,7 +73,7 @@ export function toJson(data, version = null, opts = {}) {
       files: (s.files ?? []).map((f) => ({ path: f.path, created: Boolean(f.created), edits: f.edits, writtenLines: f.add, deletedLines: f.del, updatedAt: iso(f.at), agents: f.agents ?? [] })),
       // startedAt·lastActivityAt 은 세션의 startedAt·updatedAt 과 같은 ISO 시각이다 (모르면 null).
       // stalled 는 화면의 '멈춘 듯' 과 같은 짐작(common.mjs memberStalled)을 data.at 기준으로 본 값이다.
-      members: (s.members ?? []).map((m) => ({ name: m.name, task: m.task ?? null, model: m.model ?? null, status: m.status, phase: koPhase(m.phase), phaseKind: m.phase?.kind ?? null, tokens: m.tokens ?? 0, cost: money(m.cost), startedAt: iso(m.startedAt), lastActivityAt: iso(m.lastActivityAt), stalled: memberStalled(m, data.at ?? Date.now(), s.status) })),
+      members: (s.members ?? []).map((m) => ({ ...(m.sdk ? { id: m.id, entrypoint: m.entrypoint ?? null, parentId: m.parentId ?? s.id } : {}), name: m.name, task: m.task ?? null, model: m.model ?? null, status: m.status, phase: koPhase(m.phase), phaseKind: m.phase?.kind ?? null, tokens: m.tokens ?? 0, cost: money(m.cost), startedAt: iso(m.startedAt), lastActivityAt: iso(m.lastActivityAt), stalled: memberStalled(m, data.at ?? Date.now(), s.status) })),
     })),
   };
 }

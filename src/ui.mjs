@@ -7,6 +7,7 @@ import { TABLE_BOX_H, columns, emptyLines, filterSessions, groupRow, header, mem
 import { detail } from './ui/detail.mjs';
 import { detailOpen, footer, help } from './ui/chrome.mjs';
 import { arrange } from './order.mjs';
+import { callsYou } from './attention.mjs';
 import { t } from './i18n.mjs';
 
 export { PALETTE, style } from './ui/theme.mjs';
@@ -88,7 +89,7 @@ export function render(view, W, H) {
   if (clipped) {
     const onScreen = new Set(visible.filter(isSession).map((r) => r.s));
     const hidden = sessions.filter((s) => !onScreen.has(s));
-    const waitingHidden = hidden.filter((s) => s.status === 'waiting').length;
+    const waitingHidden = hidden.filter(callsYou).length;
     table.push(line([{ t: `   ${t('ui.more', { n: hidden.length })}`, fg: PALETTE.muted }, ...(waitingHidden ? [{ t: t('ui.moreWaiting', { n: waitingHidden }), fg: PALETTE.waiting, bold: true }] : []), { t: t('ui.moveHint'), fg: PALETTE.info }], TW));
   }
   lines.push(...(boxed ? tableBox(table, W, sessions.length) : table));

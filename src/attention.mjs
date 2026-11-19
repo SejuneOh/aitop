@@ -24,6 +24,10 @@ export function markSeen(state, id) {
   state.unseen.delete(id);
 }
 
+// 사람을 부르는 응답 대기인지. 부모 세션을 못 찾은 claude -p 실행(auto, cron 등)은 사람이 답할 수 없으므로
+// 응답 대기여도 알림·n 이동·창 제목·헤더 수·맨 위 올림에서 뺀다 (#286). 행 자체의 ◆ 와 상태 글은 그대로 보인다.
+export const callsYou = (s) => s.status === 'waiting' && !s.auto;
+
 // 오류로 멈춘 세션 (로그인 필요·연결 끊김 등, phase stopped). status 는 idle 이지만 사람이 손대야 하므로 대기와 따로 센다 (#262).
 export const isStopped = (s) => Boolean(s.live) && s.phase?.kind === 'stopped';
 
@@ -32,12 +36,12 @@ export const isStopped = (s) => Boolean(s.live) && s.phase?.kind === 'stopped';
 export function nextAttention(state, sessions, selectedId) {
   const at = sessions.findIndex((s) => s.id === selectedId);
   const ordered = at < 0 ? sessions : [...sessions.slice(at + 1), ...sessions.slice(0, at)];
-  return ordered.find((s) => s.status === 'waiting') ?? ordered.find(isStopped) ?? ordered.find((s) => state.unseen.has(s.id)) ?? null;
+  return ordered.find(callsYou) ?? ordered.find(isStopped) ?? ordered.find((s) => state.unseen.has(s.id)) ?? null;
 }
 
 // 응답 대기(◆), 멈춤(!), 확인 전(●) 수.
 export function attentionCounts(sessions) {
-  return { waiting: sessions.filter((s) => s.live && s.status === 'waiting').length, stopped: sessions.filter(isStopped).length, unseen: sessions.filter((s) => s.unseen).length };
+  return { waiting: sessions.filter((s) => s.live && callsYou(s)).length, stopped: sessions.filter(isStopped).length, unseen: sessions.filter((s) => s.unseen).length };
 }
 
 // 창 제목: 맨 앞 아이콘(탭 사이에서 aitop 을 찾게) + 응답 대기·멈춤·확인 전 수. 예: 󰚩 (2◆ 1! 1●) aitop
@@ -49,7 +53,7 @@ export function windowTitle(sessions, icon = '') {
 
 // 새로 응답 대기가 된 세션 목록. seen 은 지난번 응답 대기 세션 id 집합이며 여기서 갱신한다.
 export function freshWaiting(seen, sessions) {
-  const now = sessions.filter((s) => s.live && s.status === 'waiting');
+  const now = sessions.filter((s) => s.live && callsYou(s));
   const fresh = now.filter((s) => !seen.has(s.id));
   seen.clear();
   for (const s of now) seen.add(s.id);
@@ -99,7 +103,8 @@ export function takeEvents(watch, sessions, { now = Date.now(), ready = true } =
   const out = [];
   const ids = new Set();
   for (const s of sessions) {
-    if (!s.live || s.status === 'ended' || isSub(s)) continue;
+    // 부모를 못 찾은 claude -p 실행(auto)은 사람이 지켜보는 작업이 아니므로 완료·컨텍스트도 알리지 않는다 (#286).
+    if (!s.live || s.status === 'ended' || isSub(s) || s.auto) continue;
     ids.add(s.id);
     let st = watch.per.get(s.id);
     if (!st) watch.per.set(s.id, (st = { run: false, busyMs: 0, busyAt: null, idleSince: null, ctxArmed: true, first: true }));

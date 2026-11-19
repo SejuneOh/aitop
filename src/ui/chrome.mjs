@@ -46,10 +46,12 @@ const LEGEND_IDS = [
   ['legend.toolKey', 'legend.tool'],
   ['legend.elapsedKey', 'legend.elapsed'],
   ['legend.stalledKey', 'legend.stalled'],
+  ['member.sdk', 'legend.sdk'],
+  ['session.auto', 'legend.auto'],
 ];
 
 // 지금 언어의 상태 기호·열 설명. 제목 줄은 설명이 null 이다. {g} 는 팀원 경과 시간 표시(glyphs().elapsed)로 바꾼다.
-export const legend = () => LEGEND_IDS.map(([k, d]) => [/^(help|legend)\./.test(k) ? t(k, { g: glyphs().elapsed }) : k, d ? t(d) : d]);
+export const legend = () => LEGEND_IDS.map(([k, d]) => [/^(help|legend|member|session)\./.test(k) ? t(k, { g: glyphs().elapsed }) : k, d ? t(d) : d]);
 
 // 도움말 줄 목록: 지금 화면의 키 → (표에 검색어가 걸려 있으면) 그 키 → (상세 패널이 열려 있으면) 상세 패널 키 → 어디서나 쓰는 키 → 다른 화면 한 줄씩 → 옵션 → 상태 기호·열.
 // 넓으면(100칸 이상) 키는 왼쪽, 옵션·기호·열은 오른쪽 칸에 둔다.
