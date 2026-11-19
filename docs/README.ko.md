@@ -315,6 +315,8 @@ AI 코딩 에이전트를 위한 `top`. 내 PC 의 Claude Code · Codex CLI · A
 - 작업 중인 서브에이전트 행에는 시작한 뒤 지난 시간이 `◷` 를 앞에 붙여 보인다 (`◷42s`, `◷3m12s`, `◷1h05m`). 세션 행 IDLE(마지막 활동 후)과 같은 자리라 기호로 가르고, `AITOP_AMBIGUOUS=wide` 에서는 `~3m12s` 다.
 - 작업 중인 서브에이전트의 기록이 3분 동안 바뀌지 않으면 흐린 `멈춘 듯` 이 붙는다. 짐작일 뿐이다.
 - Antigravity 서브에이전트가 허락을 기다리면 부모 행도 `<에이전트>: <도구>` 로 응답 대기가 된다.
+- Claude 세션이 띄운 `claude -p` 실행(프로세스 부모, 끝난 뒤에는 작업 폴더 `~/.claude/jobs/<id>/`로 찾는다)은 그 세션 아래 `-p` 행으로 붙고 비용은 부모에 더한다. 부모가 없는 실행(cron 등)은 최상위에 `자동` 표시로 남고 응답 대기 알림에서 빠진다.
+- 부모 세션이 24시간 넘게 살아 있으면 그보다 오래 전에 끝난 `claude -p` 실행은 부모 합계에서 빠진다.
 
 <details>
 <summary>세부: <code>멈춘 듯</code>, Antigravity 대기</summary>
@@ -810,7 +812,7 @@ Claude Code 프로필을 여럿 쓰면(`CLAUDE_CONFIG_DIR=~/.claude-work claude`
 **다른 필드가 설명된 곳**
 
 - `cacheExpiresAt`, `toolStartedAt`, `usage.last7days.daily`, `usage.lastHour`, `usage.budget`: [화면](#화면).
-- `stalled`, `startedAt`, `lastActivityAt`: [서브에이전트](#서브에이전트).
+- `stalled`, `startedAt`, `lastActivityAt`, `entrypoint`, `auto`, `parentId`: [서브에이전트](#서브에이전트).
 - `resumeCmd`: [이어 열기](#이어-열기).
 - `waitDetail`: [옵션 전체](#옵션-전체) 의 `--show-requests`.
 - 리포트 출력: [기간 리포트](#기간-리포트), [세션 리포트](#세션-리포트).

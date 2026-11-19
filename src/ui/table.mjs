@@ -9,7 +9,7 @@ import { NOW, SPIN, cacheState, clock, toolElapsed, costOf, gauge, glyph, levelB
 import { glyphs } from './glyphs.mjs';
 import { phaseText, t } from '../i18n.mjs';
 import { NO_FOLDER } from '../order.mjs';
-import { isStopped } from '../attention.mjs';
+import { callsYou, isStopped } from '../attention.mjs';
 
 // 검색어가 세션 이름·폴더·모델 중 하나에 들어 있으면 남긴다 (대소문자 무시).
 export function filterSessions(sessions, query) {
@@ -65,7 +65,7 @@ export function header(view, W) {
   const live = sessions.filter((s) => s.live);
   const count = (pred) => live.filter(pred).length;
   const working = count((s) => ['busy', 'shell'].includes(s.status));
-  const waiting = count((s) => s.status === 'waiting');
+  const waiting = count(callsYou);
   const unseen = count((s) => s.unseen);
   // 오류로 멈춘 세션은 status 가 idle 이라도 대기에서 빼고 따로 센다 (#262).
   const stopped = count(isStopped);
@@ -351,7 +351,10 @@ export function sessionRow(s, c, W, selected, frame, hot, costMode = 'api', pinn
   // 좁아도 고정 표시는 남기고 이름 칸을 먼저 줄인다 (이름 칸이 2칸 이하면 기호만).
   const mark = glyphs().pin;
   const pin = pinned ? [{ t: c.name >= width(mark) + 2 ? `${mark} ` : mark, fg: ended ? PALETTE.ended : PALETTE.brand, bold: true }] : [];
-  segs.push(...pin, { t: pad(s.name ?? '', c.name - segsWidth(pin)) + ' ', fg: ended ? PALETTE.ended : PALETTE.text, bold: selected });
+  // 부모 세션을 못 찾은 claude -p 실행(cron 등)은 이름 앞에 '자동'(auto) 글자를 흐리게 붙인다. 색이 없어도 글자로 구분된다 (#286).
+  const autoMark = t('session.auto');
+  const auto = s.auto && c.name - segsWidth(pin) >= width(autoMark) + 4 ? [{ t: `${autoMark} `, fg: PALETTE.info, italic: true }] : [];
+  segs.push(...pin, ...auto, { t: pad(s.name ?? '', c.name - segsWidth(pin) - segsWidth(auto)) + ' ', fg: ended ? PALETTE.ended : PALETTE.text, bold: selected });
   if (c.showProject) segs.push({ t: pad(s.project ?? '', c.project) + ' ', fg: ended ? PALETTE.ended : PALETTE.muted });
   segs.push(
     ...statusCell(status, cacheState(s) ?? toolElapsed(s), c.status, { fg: pc, bold: s.status === 'waiting' }, briefStatus(s)),
@@ -420,8 +423,9 @@ export function memberRow(m, last, c, W, frame, parentModel, costMode = 'api', p
   // 같은 타입의 팀원이 여럿이어도 구분되도록, 하는 일(description)을 앞에 두고 타입은 흐리게 붙인다.
   // 팀원 행은 PROJECT 칸이 비므로 그 자리까지 하는 일 글을 이어 쓴다. general-purpose 타입은 정보가 없어 붙이지 않는다.
   const nameW = c.name - 2 + (c.showProject ? c.project + 1 : 0);
-  const suffix = m.task && m.name !== 'general-purpose' ? ` · ${m.name}` : '';
-  const label = truncate(m.task || m.name, nameW);
+  // 이 세션이 띄운 claude -p 실행(m.sdk)은 이름 앞에 -p 를 붙여 서브에이전트와 글자로 구분한다 (#286). 타입 덧붙임은 없다.
+  const suffix = m.task && m.name !== 'general-purpose' && !m.sdk ? ` · ${m.name}` : '';
+  const label = truncate((m.sdk ? `${t('member.sdk')} ` : '') + (m.task || m.name), nameW);
   const showSuffix = suffix && nameW - width(label) >= width(suffix);
   const started = m.started !== false;
   const sameModel = parentModel && shortModel(m.model) === shortModel(parentModel);

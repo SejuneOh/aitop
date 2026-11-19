@@ -7,6 +7,7 @@ import { renameSync } from './rename.mjs';
 import { dirname, join } from 'node:path';
 import { CACHE_ROOT } from './cache.mjs';
 import { debugIo } from './log.mjs';
+import { callsYou } from './attention.mjs';
 
 const V = 1;
 export const SUMMARY_FILE = join(CACHE_ROOT, 'summary.json');
@@ -44,7 +45,7 @@ const sinceKey = (t) => t ?? Number.MAX_SAFE_INTEGER;
 // 세션 목록에서 요약 값을 뽑는다. 화면 헤더(ui/table.mjs)와 같은 기준이다.
 export function summarize(sessions, now = Date.now()) {
   const live = sessions.filter((s) => s.live);
-  const waiting = live.filter((s) => s.status === 'waiting');
+  const waiting = live.filter(callsYou);
   return {
     v: V,
     at: now,
