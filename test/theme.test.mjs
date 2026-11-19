@@ -176,7 +176,7 @@ test('aitop --theme light 는 밝은 팔레트로 그리고, 모르는 값은 �
   assert.match(run('--theme=dark').stdout, /38;2;230;232;238m/, '어두운 테마 글자색 #e6e8ee');
   const bad = run('--theme', 'blue');
   assert.equal(bad.status, 2);
-  assert.match(bad.stderr, /모르는 옵션 --theme blue/);
+  assert.match(bad.stderr, /알 수 없는 옵션 --theme blue \(light 또는 dark\)/);
   for (const args of [['--theme'], ['--theme='], ['--theme', '--all']]) {
     const r = run(...args);
     assert.equal(r.status, 2, args.join(' '));

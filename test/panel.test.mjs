@@ -53,5 +53,5 @@ test('좁은 화면에서도 고른 탭은 잘리지 않는다', () => {
 
 test('컨텍스트 막대는 같은 높이의 얇은 블록으로 그리고 끝 조각을 쓰지 않는다', () => {
   const row = render(view(), 140, 30).map(strip).find((l) => /demo/.test(l) && /%/.test(l) && !l.startsWith('╭'));
-  assert.equal(row.match(/(\S+)\s+68%/)[1], '▃'.repeat(11));
+  assert.equal(row.match(/(\S+)\s+~68%/)[1], '▃'.repeat(11));
 });

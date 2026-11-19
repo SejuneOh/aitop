@@ -28,7 +28,7 @@ test('막대는 늘 같은 폭이고 채움과 빈칸 모두 ▃ (색으로 구�
   assert.match(gauge(-5, 1000, 11).at(-1).t, / 0%/);
 });
 
-test('NO_COLOR 에서는 빈칸을 ▁ 로 그려 모양으로 구분한다', () => {
+test('NO_COLOR 에서는 채운 칸 █ 와 빈칸 ░ 로 모양을 가른다', () => {
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', "const { gauge } = await import(process.argv[1]); console.log(gauge(570, 1000, 11).map((x) => x.t).join(''));", pathToFileURL(join(fileURLToPath(new URL('.', import.meta.url)), '..', 'src', 'ui', 'draw.mjs')).href], { env: { ...process.env, NO_COLOR: '1' }, encoding: 'utf8' });
-  assert.equal(r.stdout.trim(), '▃▃▃▃▃▃▁▁▁▁▁  57%');
+  assert.equal(r.stdout.trim(), '██████░░░░░  57%');
 });

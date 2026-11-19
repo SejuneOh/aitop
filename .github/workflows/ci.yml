@@ -98,7 +98,9 @@ jobs:
           grep -q 'setup check' doctor.txt
           noko < doctor.txt
           COLUMNS=100 LINES=30 node bin/aitop.mjs --once > once.txt
-          grep -q 'read-only' once.txt
+          # 파이프로 받으면 키 안내 줄(read-only 칩 포함)이 빠지고 (#292), 빈 화면 첫 줄은 실행 중 프로세스에 따라 바뀌므로 (#290)
+          # 늘 나오는 세션 상자 제목으로 본다.
+          grep -q 'Sessions 0' once.txt
           noko < once.txt
           code=0
           node bin/aitop.mjs --nope 2> err.txt || code=$?

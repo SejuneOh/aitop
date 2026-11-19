@@ -221,7 +221,8 @@ function toolPart(p, level, showEnded) {
   if (!p.live) {
     // 종료 세션을 함께 볼 때는 그 도구의 누적 토큰을 흐리게 남긴다. 기록 폴더가 없으면 미설치로 보인다.
     const more = !extra ? [] : p.missing ? [{ t: ` ${t('tools.missing')}`, fg: PALETTE.info, italic: true }] : showEnded && p.count ? [{ t: ` · ${fmtTokens(p.tok)}`, fg: PALETTE.info }] : [];
-    return [{ t: ` ${name}`, fg: PALETTE.info }, ...more];
+    // 실행 중 표시(▍) 자리를 비우지 않아 조각 사이가 고르게 2칸이다.
+    return [{ t: name, fg: PALETTE.info }, ...more];
   }
   const tc = PALETTE.tools[p.tool];
   return [{ t: glyphs().tool, fg: tc }, { t: name, fg: tc, bold: true }, { t: ` ${p.live}`, fg: PALETTE.text }, ...(extra ? [{ t: ` · ${fmtTokens(p.tok)}`, fg: PALETTE.muted }] : [])];
@@ -242,10 +243,10 @@ export function toolLastUsed(data, tool, now) {
   return times.length ? Math.max(...times) : 0;
 }
 
-// 도구 줄: 도구마다 실행 중 세션 수와 누적 토큰. 실행 중 세션도 없고 7일 동안 쓰지 않은 도구는 숨기고 끝에 '숨김 codex gemini'
-// (자리가 모자라면 '숨김 2') 를 적는다. 기록 폴더가 없는 도구(미설치)도 7일 동안 쓰지 않은 것이라 함께 숨긴다.
+// 도구 줄: 도구마다 실행 중 세션 수와 누적 토큰. 실행 중 세션도 없고 7일 동안 쓰지 않은 도구는 숨기고 끝에
+// '미설치: codex  7일 미사용: gemini' 처럼 미설치(기록 폴더 없음)와 미사용을 나눠 적는다 (자리가 모자라면 '미설치: 1  7일 미사용: 1').
 // 숨기면 줄에 남는 도구가 하나도 없을 때는 숨기지 않고 예전처럼 흐리게 (미설치 포함) 다 보인다.
-// 폭이 모자라면 간격 → 토큰 수 → 이름 순으로 줄이고, 그래도 넘치면 세션이 없는 도구부터 빼고 +N 으로 뺀 수를 적는다.
+// 조각 사이 간격은 2칸. 폭이 모자라면 토큰 수 → 이름 순으로 줄이고, 그래도 넘치면 세션이 없는 도구부터 빼고 +N 으로 뺀 수를 적는다.
 // 아주 좁으면 실행 중인 도구가 숨김 표시보다 먼저 남고, 숨김 표시는 중간에서 자르지 않고 뺀다.
 export function toolStrip(view, W) {
   const now = view.data.at ?? Date.now();
@@ -266,17 +267,19 @@ export function toolStrip(view, W) {
   const visible = all.filter((p) => !p.idle);
   const parts = visible.length ? visible : all;
   const hidden = all.filter((p) => !parts.includes(p));
-  // 숨김 표시: 도구 이름을 적고, 자리가 모자라면 개수만 적는다.
-  const notes = hidden.length ? [[{ t: t('tools.hidden', { list: hidden.map((p) => p.tool).join(' ') }), fg: PALETTE.info }], [{ t: t('tools.hidden', { list: hidden.length }), fg: PALETTE.info }]] : [[]];
+  // 숨김 표시: 미설치와 미사용을 나눠 도구 이름을 적고, 자리가 모자라면 개수만 적는다.
+  const groups = [['tools.hiddenMissing', hidden.filter((p) => p.missing)], ['tools.hiddenIdle', hidden.filter((p) => !p.missing)]].filter(([, g]) => g.length);
+  const note = (named) => groups.map(([key, g]) => ({ t: t(key, { list: named ? g.map((p) => p.tool).join(' ') : g.length }), fg: PALETTE.info }));
+  const notes = hidden.length ? [note(true), note(false)] : [[]];
   const plus = (n) => (n ? [{ t: `+${n}`, fg: PALETTE.info }] : []);
   const build = (shown, level, tail = []) => {
-    const gap = { t: level ? '  ' : '     ' };
+    const gap = { t: '  ' };
     const end = tail.flatMap((x, i) => [...(i ? [{ t: '  ' }] : []), x]);
     return [{ t: ' ' }, ...shown.flatMap((p, i) => [...(i ? [gap] : []), ...toolPart(p, level, view.showEnded)]), ...(end.length ? [...(shown.length ? [gap] : []), ...end] : [])];
   };
   const fits = (x) => segsWidth(x) <= W;
   let segs = null;
-  for (const level of [0, 1, 2, 3]) {
+  for (const level of [0, 2, 3]) {
     for (const note of notes) {
       const s = build(parts, level, note);
       if (fits(s)) {
@@ -306,7 +309,7 @@ export function toolStrip(view, W) {
     segs = fits(noted.segs) && liveOf(noted) >= liveOf(bare) ? noted.segs : bare.segs;
   }
   // 종료 세션 표시는 다 들어갈 때만 붙인다 (잘린 조각이 남지 않게).
-  const ended = [{ t: '     ' }, { t: t('tools.ended'), fg: PALETTE.info, italic: true }];
+  const ended = [{ t: '  ' }, { t: t('tools.ended'), fg: PALETTE.info, italic: true }];
   if (view.showEnded && segsWidth(segs) + segsWidth(ended) <= W) segs.push(...ended);
   return line(segs, W);
 }
@@ -357,7 +360,7 @@ export function sessionRow(s, c, W, selected, frame, hot, costMode = 'api', pinn
   segs.push(...pin, ...auto, { t: pad(s.name ?? '', c.name - segsWidth(pin) - segsWidth(auto)) + ' ', fg: ended ? PALETTE.ended : PALETTE.text, bold: selected });
   if (c.showProject) segs.push({ t: pad(s.project ?? '', c.project) + ' ', fg: ended ? PALETTE.ended : PALETTE.muted });
   segs.push(
-    ...statusCell(status, cacheState(s) ?? toolElapsed(s), c.status, { fg: pc, bold: s.status === 'waiting' }, briefStatus(s)),
+    ...statusCell(status, cacheState(s) ?? toolElapsed(s), c.status, { fg: pc, bold: s.status === 'waiting' }, briefStatus(s), status === statusText(s.phase) ? toolTarget(s.phase) : null),
     { t: pad(partial ? '…' : blank ? '' : fmtTokens(s.tokens.total), c.tokens, 'right') + ' ', fg: ended ? PALETTE.ended : partial ? PALETTE.info : PALETTE.muted },
   );
   if (c.showCost) segs.push(partial ? { t: pad('…', c.cost, 'right') + ' ', fg: PALETTE.info } : { t: pad(blank ? '' : (hot?.has(s.id) ? glyphs().hot : '') + money(costOf(s, costMode), s.costUnknown), c.cost, 'right') + ' ', fg: s.cost == null || ended ? PALETTE.info : hot?.has(s.id) ? PALETTE.money : PALETTE.muted, bold: Boolean(hot?.has(s.id)) });
@@ -371,12 +374,15 @@ export function sessionRow(s, c, W, selected, frame, hot, costMode = 'api', pinn
 // 덧붙인 글이 먼저 빠지는 정보다: 다 들어가면 그대로, 상태 글을 TAG_STATUS_MIN 칸까지 줄여 들어가면 줄여서 붙이고, 아니면 뺀다.
 // 경고 단계의 덧붙임(tag.warn: 캐시 1분 미만, 도구 10분 이상)은 거꾸로 상태 글보다 오래 남는다 (#264).
 // 그때 상태 글은 짧은 문구(brief, 예: '지시 대기')로 바꾸고, 그래도 넘치면 줄이고, 4칸도 안 남으면 덧붙임만 둔다.
+// target: 도구 실행 중이면 동사('도구 실행')를 뺀 대상('Bash $ npm test'). 칸이 모자라면 동사부터 빼고 대상과 덧붙임을 남긴다 (#293).
 const TAG_STATUS_MIN = 12;
 // 경고 덧붙임 앞에 남길 상태 글의 최소 칸. 이보다 좁으면 '지…' 처럼 줄임표만 남으므로 덧붙임만 둔다.
 const WARN_HEAD_MIN = 4;
-export function statusCell(status, tag, w, look, brief = null) {
+export function statusCell(status, tag, w, look, brief = null, target = null) {
   const plain = [{ t: pad(status, w) + ' ', ...look }];
-  if (!tag) return plain;
+  // 대상은 상태 글보다 짧을 때만 쓴다.
+  const tgt = target && width(target) < width(status) ? target : null;
+  if (!tag) return width(status) > w && tgt ? [{ t: pad(tgt, w) + ' ', ...look }] : plain;
   const tagSeg = { t: tag.text, fg: tag.fg, bold: tag.bold, dim: tag.dim };
   const withHead = (text, sep = ' · ') => {
     const room = w - width(sep) - width(tag.text);
@@ -387,15 +393,26 @@ export function statusCell(status, tag, w, look, brief = null) {
   if (room >= width(status)) return withHead(status);
   if (tag.warn) {
     // 경고 단계: 원문을 자르기보다 짧은 문구를 먼저 쓴다. · 와 함께 들어가지 않으면 사이를 한 칸으로 줄여 본다.
-    const head = brief && width(brief) < width(status) ? brief : status;
+    const head = tgt ?? (brief && width(brief) < width(status) ? brief : status);
     if (room >= width(head)) return withHead(head);
     if (room + width(' · ') - 1 >= width(head)) return withHead(head, ' ');
     // 줄임표만 남을 만큼 좁으면 상태 글을 빼고 덧붙임만 둔다.
     if (room >= WARN_HEAD_MIN) return withHead(head);
     return [{ ...tagSeg, t: pad(truncate(tag.text, w), w) + ' ' }];
   }
+  // 대상이 있으면 동사를 빼고 대상(줄여서라도)과 덧붙임을 남긴다. 4칸도 안 남으면 대상만.
+  if (tgt) return room >= WARN_HEAD_MIN ? withHead(tgt) : [{ t: pad(tgt, w) + ' ', ...look }];
   if (room >= Math.min(width(status), TAG_STATUS_MIN)) return withHead(status);
   return plain;
+}
+
+// 도구 실행 상태 글에서 동사를 뺀 대상: 'Bash $ npm test' (팀원 수가 있으면 뒤에 붙인다). 도구 실행이 아니면 null.
+export function toolTarget(phase) {
+  if (phase?.kind !== 'tool' || phase.msg || !phase.args?.what) return null;
+  const full = statusText(phase);
+  // '도구 실행 · Bash' 에서 '도구 실행 · ' 를 뗀다. 문구 모양이 다르면 쓰지 않는다.
+  const verb = statusText({ kind: 'tool', args: { what: '\0' } }).split('\0')[0];
+  return verb && full.startsWith(verb) ? full.slice(verb.length) : null;
 }
 
 // 경고 덧붙임 앞에 둘 짧은 상태 글. 다음 지시 대기만 짧은 문구가 따로 있고, 나머지는 상태 글을 줄여 쓴다.
@@ -464,8 +481,13 @@ export function memberRow(m, last, c, W, frame, parentModel, costMode = 'api', p
 export const MARK_COLOR = { ok: PALETTE.busy, missing: PALETTE.alert, limited: PALETTE.muted };
 
 export function emptyLines(view, W) {
-  const out = [line([{ t: `   ${t(view.showEnded ? 'empty.none24' : 'empty.none')}`, fg: PALETTE.muted, italic: true }], W), line([], W)];
   const tools = Object.values(view.data.tools?.tools ?? {});
+  // 프로세스는 실행 중인데 읽을 기록이 없으면 그 사실과 다음 할 일을 첫 줄에 적는다 (실행 1 과 '세션 없음' 이 엇갈리지 않게).
+  const running = tools.filter((r) => r.running > 0 && !r.records).map((r) => r.tool);
+  const head = running.length
+    ? [line([{ t: `   ${t('empty.procs', { list: running.join(' ') })}`, fg: PALETTE.muted, italic: true }], W), line([{ t: `   → ${t('empty.procsHint')}`, fg: PALETTE.info }], W)]
+    : [line([{ t: `   ${t(view.showEnded ? 'empty.none24' : 'empty.none')}`, fg: PALETTE.muted, italic: true }], W)];
+  const out = [...head, line([], W)];
   const pathW = Math.max(0, ...tools.map((r) => width(r.path)));
   for (const r of tools) {
     const d = describe(r, NOW);

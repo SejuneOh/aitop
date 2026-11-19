@@ -144,6 +144,8 @@ export function onKey(view, key, act) {
   }
   // y: 고른 세션을 이어 여는 명령을 복사한다 (bin 이 OSC 52 로 쓴다). 세션에는 아무것도 보내지 않는다.
   else if (key === 'y') act.copy?.(selectedSession(view));
+  // a: 응답 대기 데스크톱 알림을 켜고 끈다 (#294). 이번 실행에만, 설정 파일은 바꾸지 않는다. 실제 켜기·끄기는 bin 이 한다.
+  else if (key === 'a') act.toggleNotify?.();
   else if (key === 'c') view.costMode = view.costMode === 'net' ? 'api' : 'net';
   else if (key === 'd') {
     // view.rows: 마지막으로 그린 화면 높이. 'auto' 일 때 지금 보이는 상태를 뒤집는 데 쓴다.
