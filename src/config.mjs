@@ -9,7 +9,7 @@ import { appDir } from './paths.mjs';
 import { stripControl } from './text.mjs';
 import { langValue, localeLang, t } from './i18n.mjs';
 import { EVENT_KINDS } from './notify.mjs';
-import { DIR_ENV, pathLike, splitPaths } from './sources/dirs.mjs';
+import { DIR_ENV, agyAppEnv, pathLike, splitPaths } from './sources/dirs.mjs';
 
 const bool = (v) => typeof v === 'boolean';
 const oneOf = (...xs) => (v) => xs.includes(v);
@@ -81,6 +81,10 @@ export const KEYS = {
   // AITOP_CLAUDE_DIRS > 설정 파일 > 물려받은 CLAUDE_CONFIG_DIR (inherit, Claude Code 용 변수라 설정 파일보다 낮다) > ~/.claude.
   claudeDirs: { ok: pathList, expect: 'cfg.paths', def: () => [join(homedir(), DIR_ENV.claude.home)], env: [DIR_ENV.claude.own, (v) => splitPaths(v)], inherit: [DIR_ENV.claude.inherited, (v) => splitPaths(v)] },
   codexHomes: { ok: pathList, expect: 'cfg.paths', def: () => [join(homedir(), DIR_ENV.codex.home)], env: [DIR_ENV.codex.own, (v) => splitPaths(v)], inherit: [DIR_ENV.codex.inherited, (v) => splitPaths(v)] },
+  // Antigravity 데스크톱 앱 폴더 (#303, antigravity.mjs findAgyRoots). true 면 저절로 찾고, false 면 읽지 않고, 경로 배열이면 그 폴더만.
+  // AITOP_AGY_APP_HOME(경로 또는 off) > 설정 파일 > 기본(true). AITOP_AGY_HOME 을 주고 AITOP_AGY_APP_HOME 을 주지 않으면 이 값과 상관없이 읽지 않는다.
+  // masked: 이 환경 변수가 있으면(그리고 자기 환경 변수가 없으면) 값을 false 로 두고 출처를 그 변수로 보인다. 설정 파일 값은 무시됨으로 알린다.
+  agyApp: { ok: (v) => bool(v) || pathList(v), expect: 'cfg.agyApp', def: true, env: ['AITOP_AGY_APP_HOME', agyAppEnv], envProblem: true, envExpect: 'cfg.agyAppEnv', masked: 'AITOP_AGY_HOME' },
 };
 
 // Windows 는 XDG_CONFIG_HOME 이 없으면 %APPDATA%\aitop\config.json.
@@ -196,6 +200,11 @@ export function resolveConfig({ flags = {}, env = process.env, file } = {}) {
     else if (spec.inherit && spec.inherit[1](env[spec.inherit[0]]) !== undefined) values[key] = { value: spec.inherit[1](env[spec.inherit[0]]), source: 'env', env: spec.inherit[0] };
     // 기본값이 함수면 환경에서 고른다 (lang 은 로캘).
     else values[key] = { value: typeof spec.def === 'function' ? spec.def(env) : spec.def, source: 'default' };
+    // 다른 환경 변수가 이 값을 덮는 경우 (agyApp 과 AITOP_AGY_HOME, antigravity.mjs findAgyRoots).
+    if (spec.masked && env[spec.masked] != null && (values[key].source === 'file' || values[key].source === 'default')) {
+      if (values[key].source === 'file') problems.push(t('cfg.masked', { key, name: spec.masked }));
+      values[key] = { value: false, source: 'env', env: spec.masked };
+    }
   }
   return { path: file.path, exists: file.exists, values, problems };
 }

@@ -3,8 +3,8 @@
 // 세션 화면과 상관없이 끝난 대화까지 세야 해서 토큰만 가볍게 따로 읽고(진행 기록은 읽지 않는다), 어디까지 읽었는지는 캐시에 둔다.
 // 기록은 늘 immutable 로 열어 agy 폴더에 아무것도 만들거나 고치지 않는다.
 import { readdirSync, statSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
-import { AGY_ROOT, readCalls, sigOf, maxIdx } from './antigravity.mjs';
+import { dirname, join } from 'node:path';
+import { agyRoots, readCalls, sigOf, maxIdx, APP_TTL_MS } from './antigravity.mjs';
 import { openReadOnly, loadSqlite } from '../sqlite.mjs';
 import { loadCache, markDirty } from '../cache.mjs';
 import { dayKey, addSlot, addModel, recentDays } from './common.mjs';
@@ -73,6 +73,8 @@ export class AgyBook {
 
   update(budget) {
     const sig = sigOf(this.path);
+    // 이번에 본 서명. 끝까지 읽었는지(sig) 또는 실패로 멈춰 둔 것인지(failSig) 판단에 쓴다 (앱 폴더 TTL, #303).
+    this.seenSig = sig;
     if (sig === null || sig === this.sig || sig === this.failSig) return;
     if (outOf(budget)) {
       budget.exhausted = true;
@@ -147,25 +149,35 @@ export class AgyBook {
 }
 
 let listed = { at: 0, files: [], days: 0 };
+// 앱 폴더의 conversations/ 경로들 (#303). 이 아래 기록은 APP_TTL_MS 마다 한 번만 서명을 본다.
+let apps = new Set();
+const inApp = (p) => apps.has(dirname(p));
 
-// 최근 days 일(평소 7일, 리포트는 더 길게) 안에 바뀐 대화 기록.
-function recentFiles(days = DAYS) {
+// 최근 days 일(평소 7일, 리포트는 더 길게) 안에 바뀐 대화 기록. CLI 폴더와 앱 폴더를 모두 본다 (#303).
+// 장부·캐시는 파일 경로로 나뉘어 폴더끼리 섞이지 않는다. 같은 대화 id 가 두 폴더에 있으면 앞 폴더 것만 센다.
+function recentFiles(days = DAYS, roots = agyRoots()) {
   if (listed.days === days && Date.now() - listed.at < LIST_TTL_MS) return listed.files;
-  const dir = join(AGY_ROOT, 'conversations');
+  apps = new Set(roots.filter((r) => r.source === 'app').map((r) => join(r.dir, 'conversations')));
   const cutoff = Date.now() - days * 86400_000;
   const files = [];
-  let names = [];
-  try {
-    names = readdirSync(dir);
-  } catch (e) {
-    debugIo('ledger', 'agy conversations read failed', e);
-  }
-  for (const f of names) {
-    if (!f.endsWith('.db')) continue;
-    const p = join(dir, f);
+  const seen = new Set();
+  for (const r of roots) {
+    const dir = join(r.dir, 'conversations');
+    if (!existsSync(dir)) continue;
+    let names = [];
     try {
-      if (statSync(p).mtimeMs >= cutoff) files.push(p);
-    } catch {}
+      names = readdirSync(dir);
+    } catch (e) {
+      debugIo('ledger', 'agy conversations read failed', e);
+    }
+    for (const f of names) {
+      if (!f.endsWith('.db') || seen.has(f)) continue;
+      seen.add(f);
+      const p = join(dir, f);
+      try {
+        if (statSync(p).mtimeMs >= cutoff) files.push(p);
+      } catch {}
+    }
   }
   listed = { at: Date.now(), files, days };
   return files;
@@ -178,15 +190,23 @@ const books = new Map();
 // node:sqlite 를 못 쓰는 Node 에서는 비어 있다 (agy 는 프로세스만 보인다).
 export function collectAgyLedger({ budget, days = DAYS } = {}) {
   const out = { days: [], slots: [], paths: [], stale: [], pending: 0, size: 0 };
-  if (!loadSqlite() || !existsSync(join(AGY_ROOT, 'conversations'))) return out;
+  if (!loadSqlite() || !agyRoots().some((r) => existsSync(join(r.dir, 'conversations')))) return out;
   const files = recentFiles(days);
   const keep = new Set(files);
   for (const p of books.keys()) if (!keep.has(p)) books.delete(p);
   for (const p of files) {
     let b = books.get(p);
     if (!b) books.set(p, (b = new AgyBook(p)));
-    b.update(budget);
-    const size = b.size;
+    // 앱 폴더(/mnt/c 일 수 있음)의 기록은 지금 서명까지 다 읽었거나(sig), 실패로 멈춰 둔 서명(failSig)이면
+    // TTL 안에서는 다시 stat·열기를 하지 않고 지난 값을 쓴다. 읽기 한도에 걸려 덜 읽었으면 다음 갱신에 바로 이어 읽는다.
+    const app = inApp(p);
+    const fresh = app && b.checkedAt != null && Date.now() - b.checkedAt < APP_TTL_MS;
+    if (!fresh) {
+      b.update(budget);
+      if (app) b.checkedAt = b.seenSig != null && (b.seenSig === b.sig || b.seenSig === b.failSig) ? Date.now() : null;
+    }
+    const size = fresh ? b.lastSize : b.size;
+    b.lastSize = size;
     out.size += size;
     if (!b.complete) out.pending += size;
     // 실패한 기록은 빠졌을 수 있는 첫날, 아니면 null.
@@ -200,4 +220,12 @@ export function collectAgyLedger({ budget, days = DAYS } = {}) {
 
 // 테스트용: 기록을 연 횟수.
 let opens = 0;
-export const _test = { reset: () => ((listed = { at: 0, files: [], days: 0 }), books.clear()), opens: () => opens };
+export const _test = {
+  reset: () => ((listed = { at: 0, files: [], days: 0 }), books.clear()),
+  opens: () => opens,
+  // 앱 폴더 기록의 TTL 이 지난 것을 흉내 낸다.
+  age: (ms) => {
+    listed.at -= ms;
+    for (const b of books.values()) if (b.checkedAt != null) b.checkedAt -= ms;
+  },
+};
