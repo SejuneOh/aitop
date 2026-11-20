@@ -6,6 +6,7 @@ import { claudeCost } from '../pricing.mjs';
 import { addActivity, emptyTokens, pushEvent, describeTool, toolDetail, isNoisePrompt, parseTs, sessionName } from './common.mjs';
 import { debugIo } from '../log.mjs';
 import { addChange } from './files.mjs';
+import { ARTIFACT_CALLS_MAX, addArtifact, isPublish, pickArtifact } from './artifacts.mjs';
 
 const MAX_TURNS = 50;
 
@@ -191,7 +192,8 @@ export class ClaudeTracker {
     const c = loadCache(path);
     if (c) {
       this.tail.offset = c.offset;
-      Object.assign(this, { tokens: c.tokens, cost: c.cost, costNoCache: c.costNoCache, costUnknown: c.costUnknown, context: c.context, model: c.model, title: c.title, customTitle: c.customTitle ?? null, branch: c.branch, events: c.events, lastTool: c.lastTool, lastKind: c.lastKind, files: c.files ?? [], turns: c.turns ?? [], turnCount: c.turnCount ?? 0, firstAt: c.firstAt ?? null, activity: c.activity ?? {}, stopReason: c.stopReason ?? null, cacheAt: c.cacheAt ?? null, cacheTtl: c.cacheTtl ?? null, inputAt: c.inputAt ?? null, inputFor: c.inputFor ?? null });
+      Object.assign(this, { tokens: c.tokens, cost: c.cost, costNoCache: c.costNoCache, costUnknown: c.costUnknown, context: c.context, model: c.model, title: c.title, customTitle: c.customTitle ?? null, branch: c.branch, events: c.events, lastTool: c.lastTool, lastKind: c.lastKind, files: c.files ?? [], turns: c.turns ?? [], turnCount: c.turnCount ?? 0, firstAt: c.firstAt ?? null, activity: c.activity ?? {}, stopReason: c.stopReason ?? null, cacheAt: c.cacheAt ?? null, cacheTtl: c.cacheTtl ?? null, inputAt: c.inputAt ?? null, inputFor: c.inputFor ?? null, artifacts: c.artifacts ?? [] });
+      this.artCalls = new Map(c.artCalls ?? []);
       this.recent = new Map(c.recent);
       this.pending = new Map(c.pending);
       // 이 필드가 생기기 전 캐시는 이미 지나간 custom-title 을 모른다. 끝부분을 한 번 훑어 채우고 캐시에 다시 적어
@@ -253,6 +255,10 @@ export class ClaudeTracker {
     this.cacheTtl = null;
     this.inputAt = null;
     this.inputFor = null;
+    // Artifact 도구로 게시한 것 (artifacts.mjs): 최근 순, 묶은 아티팩트마다 { id, title, url, from, to, at, audience, edits }.
+    this.artifacts = [];
+    // 결과를 기다리는 게시 호출: tool_use id → edits 로 고쳤는지.
+    this.artCalls = new Map();
   }
 
   // 프롬프트 캐시가 만료되는 시각(ms). 캐시를 쓴 응답이 없으면 null.
@@ -308,6 +314,8 @@ export class ClaudeTracker {
       cacheTtl: this.cacheTtl,
       inputAt: this.inputAt,
       inputFor: this.inputFor,
+      artifacts: this.artifacts,
+      artCalls: [...this.artCalls],
     };
   }
 
@@ -358,6 +366,10 @@ export class ClaudeTracker {
           this.lastTool = describeTool(c.name, c.input);
           // at: 호출을 낸 줄의 시각 (도구 실행 경과 시간의 기준). resumeAt: 허락 대기를 마지막으로 본 시각 (markWaiting).
           this.pending.set(c.id, { name: c.name, what: this.lastTool, detail: toolDetail(c.name, c.input), agent: c.input?.subagent_type ?? null, at: parseTs(x.timestamp) });
+          if (c.name === 'Artifact' && isPublish(c.input)) {
+            this.artCalls.set(c.id, Boolean(c.input?.edits));
+            if (this.artCalls.size > ARTIFACT_CALLS_MAX) this.artCalls.delete(this.artCalls.keys().next().value);
+          }
           pushEvent(this, x.timestamp, 'tool', this.lastTool);
           this.lastKind = 'tool';
         } else if (c.type === 'text' && c.text?.trim()) {
@@ -371,6 +383,7 @@ export class ClaudeTracker {
       if (x.toolUseResult) addChange(this.files, x.toolUseResult, x.timestamp);
       const c = x.message.content;
       if (Array.isArray(c)) for (const p of c) if (p.type === 'tool_result') this.pending.delete(p.tool_use_id);
+      if (Array.isArray(c) && this.artCalls.size) this.applyArtifact(x, c);
       const text = typeof c === 'string' ? c : Array.isArray(c) ? c.filter((p) => p.type === 'text').map((p) => p.text).join(' ') : '';
       if (text && !isNoisePrompt(text)) {
         const e = pushEvent(this, x.timestamp, 'prompt', text);
@@ -381,6 +394,18 @@ export class ClaudeTracker {
         this.lastKind = 'prompt';
         this.pending.clear();
       } else if (Array.isArray(c) && c.some((p) => p.type === 'tool_result')) this.lastKind = 'result';
+    }
+  }
+
+  // 게시 호출의 결과 줄이면 아티팩트 목록에 더한다. 오류 결과는 빼고, 결과 값은 artifacts.mjs pickArtifact 가 고른 것만 담는다.
+  applyArtifact(x, content) {
+    for (const p of content) {
+      if (p.type !== 'tool_result' || !this.artCalls.has(p.tool_use_id)) continue;
+      const edits = this.artCalls.get(p.tool_use_id);
+      this.artCalls.delete(p.tool_use_id);
+      if (p.is_error) continue;
+      const a = pickArtifact(x.toolUseResult, parseTs(x.timestamp), edits);
+      if (a) this.artifacts = addArtifact(this.artifacts, a);
     }
   }
 

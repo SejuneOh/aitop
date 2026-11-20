@@ -10,6 +10,7 @@ import { isSessionAlive, parentPid } from '../procs.mjs';
 import { ClaudeTracker, headEntrypoint, tailCustomTitle, tailStopReason } from './claude-tracker.mjs';
 import { emptyTokens, isLongTool, mergeActivity, MEMBER_FADE_MS, sessionName } from './common.mjs';
 import { mergeFiles } from './files.mjs';
+import { mergeArtifacts } from './artifacts.mjs';
 import { debug, debugIo } from '../log.mjs';
 import { claudeDirs, claudeProjectRoots, dedupeBy } from './dirs.mjs';
 
@@ -96,7 +97,7 @@ function loadingPhase(t) {
 
 // 서브에이전트 전체(끝난 것 포함)의 토큰·비용 합계. 메인 세션 합계에 더해 화면에 보인다.
 export function emptySub() {
-  return { count: 0, tokens: emptyTokens(), cost: 0, costNoCache: 0, costUnknown: false, loading: false, files: [], activity: [] };
+  return { count: 0, tokens: emptyTokens(), cost: 0, costNoCache: 0, costUnknown: false, loading: false, files: [], activity: [], artifacts: [] };
 }
 
 // 메인 tracker 와 서브에이전트 합계를 화면에 보일 세션 숫자로 합친다. 기록을 아직 읽지 않았으면(t 없음) 비용은 null.
@@ -117,6 +118,8 @@ export function sessionTotals(t, sub) {
     turns: t?.turns ?? [],
     // 시간별 토큰: 메인과 서브에이전트를 칸별로 더한다.
     activity: mergeActivity([t?.activity, ...sub.activity]),
+    // Artifact 도구로 게시한 것: 메인과 서브에이전트를 아티팩트별로 묶는다 (artifacts.mjs).
+    artifacts: mergeArtifacts([t?.artifacts, ...sub.artifacts]),
   };
 }
 
@@ -141,6 +144,8 @@ export function readMembers(transcript, parent, budget, { track = (p, b) => trac
     sub.costUnknown ||= t.costUnknown;
     sub.loading ||= t.loading != null;
     sub.activity.push(t.activity);
+    // 서브에이전트가 게시한 아티팩트도 부모 세션 목록에 합친다 (#305).
+    sub.artifacts.push(t.artifacts ?? []);
     if (t.files.length) sub.files.push({ agent: meta.agentType ?? 'agent', files: t.files, startedAt: t.firstAt ?? undefined });
     const age = Date.now() - t.mtimeMs;
     const awaited = Boolean(meta.toolUseId && parent?.pending.has(meta.toolUseId));
@@ -776,6 +781,7 @@ function absorb(root, c) {
   root.costUnknown ||= Boolean(c.costUnknown);
   root.loading ||= Boolean(c.loading);
   root.activity = mergeActivity([root.activity, c.activity]);
+  if (c.artifacts?.length) root.artifacts = mergeArtifacts([root.artifacts, c.artifacts]);
 }
 
 // 팀원 행 모양 (readMembers 와 같은 칸). sdk: true 면 화면이 이름 앞에 -p 를 붙인다.

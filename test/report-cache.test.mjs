@@ -25,7 +25,7 @@ const today = dayKey(now);
 const fresh = fx.transcript('cccccccc-1', [{ ...assistant('c1', [], usage(1_000_000, 0), 'claude-opus-5-5'), timestamp: new Date(now - 60_000).toISOString() }]);
 const OLD = join(ROOT, `v13-${PRICE_TAG}`);
 mkdirSync(OLD, { recursive: true });
-// 같은 v14 폴더에 예전 kind(ledger) 로 남은 엉뚱한 캐시.
+// 같은 버전 폴더에 예전 kind(ledger) 로 남은 엉뚱한 캐시.
 mkdirSync(CACHE_DIR, { recursive: true });
 writeFileSync(join(CACHE_DIR, keyOf(fresh, 'ledger') + '.json'), JSON.stringify({ offset: statSync(fresh).size, days: { [today]: { tokens: 43, cost: 1, costNoCache: 1, unknown: false } }, slots: {}, recent: [], path: fresh, ino: statSync(fresh).ino }));
 writeFileSync(join(OLD, keyOf(fresh, 'ledger') + '.json'), JSON.stringify({ offset: statSync(fresh).size, days: { [today]: { tokens: 42, cost: 1, costNoCache: 1, unknown: false } }, slots: {}, recent: [], path: fresh, ino: statSync(fresh).ino }));
@@ -35,8 +35,8 @@ const tenAgo = now - 10 * 86400_000;
 const old = fx.transcript('cccccccc-2', [{ ...assistant('c2', [], usage(2_000_000, 0), 'claude-sonnet-5-5'), timestamp: new Date(tenAgo).toISOString() }], '-work-old');
 utimesSync(old, tenAgo / 1000, tenAgo / 1000);
 
-test('캐시 폴더는 v14 이고, v13 캐시는 쓰지 않고 기록을 다시 센다', () => {
-  assert.match(basename(CACHE_DIR), /^v14-/);
+test('캐시 폴더는 v16 이고, v13 캐시는 쓰지 않고 기록을 다시 센다', () => {
+  assert.match(basename(CACHE_DIR), /^v16-/);
   const r = collectLedger({ budget: createBudget(), now });
   assert.equal(r.today.tokens, 1_000_000, 'v13 의 엉뚱한 값(42)도, 예전 kind 의 값(43)도 아니라 다시 센 값');
   flushCache();

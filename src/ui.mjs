@@ -26,7 +26,8 @@ export function animating(view) {
 // 터미널이 아닌 곳(파이프·파일)으로 내는 --once 용 (#292). render 결과에서 맨 아래 키 안내 줄과,
 // 화면 높이를 맞추려고 채운 빈 줄(끝의 빈 줄, 상세 상자 아래쪽의 테두리만 있는 줄)과 줄 끝 공백을 뺀다.
 // 테두리 글자는 지금 기호 세트(AITOP_AMBIGUOUS=wide 면 ASCII)에서 고른다.
-const ANSI = /\x1b\[[0-9;]*m/g;
+// 색 코드와 OSC 8 링크 머리·꼬리 (#305).
+const ANSI = /\x1b\[[0-9;]*m|\x1b\]8;[^\x07\x1b]*(?:\x07|\x1b\\)/g;
 const plain = (l) => l.replace(ANSI, '');
 // 줄 끝의 공백과 색 코드를 지운다. 색 코드가 있던 줄은 끝에 초기화(ESC[0m)를 붙여 색이 다음 줄로 번지지 않게 한다.
 const trimEnd = (l) => {

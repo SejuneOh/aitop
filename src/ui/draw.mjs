@@ -2,7 +2,8 @@
 import { fmtElapsed, pad, stripControl, truncate, width } from '../text.mjs';
 import { homedir } from 'node:os';
 import { tildeIn } from '../paths.mjs';
-import { NO_COLOR, PALETTE, PHASE_COLOR, RESET, style } from './theme.mjs';
+import { NO_COLOR, PALETTE, PHASE_COLOR, RESET, linksOn, osc8, style } from './theme.mjs';
+import { artifactLink } from '../sources/artifacts.mjs';
 import { glyphs } from './glyphs.mjs';
 import { t as tr } from '../i18n.mjs';
 import { MEMBER_STALL_LONG_MS } from '../sources/common.mjs';
@@ -15,7 +16,9 @@ export function line(segs, W, bg) {
   for (const seg of segs) {
     if (used >= W) break;
     const t = truncate(stripControl(seg.t ?? ''), W - used);
-    out += style({ bg, ...seg }) + t;
+    // link: 아티팩트 주소 (#305). 허용 목록을 다시 지난 주소만, 링크를 켠 터미널에서만 OSC 8 로 감싼다. 폭은 t 로만 센다.
+    const url = seg.link && linksOn() ? artifactLink(seg.link) : null;
+    out += style({ bg, ...seg }) + (url && t ? osc8(url, t) : t);
     used += width(t);
   }
   return out + style({ bg }) + ' '.repeat(Math.max(0, W - used)) + RESET;

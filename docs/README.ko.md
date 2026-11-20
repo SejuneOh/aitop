@@ -112,6 +112,8 @@ AI 코딩 에이전트를 위한 `top`. 내 PC 의 Claude Code · Codex CLI · A
 - 토큰 합계 = 메인 + 서브에이전트 = 입력 + 출력 + 캐시 읽기 + 캐시 쓰기. 비용은 캐시 제외 금액도 함께 보인다.
 - 변경 파일: 세션(서브에이전트 포함)이 Edit/Write(Codex 는 apply_patch)로 고친 파일이 있으면 오른쪽 위에 `src/ui.mjs  편집 ×3  14:02` 처럼 편집 횟수와 마지막 시각이 보인다.
 - 지시 탭: `[이번 지시] T5 T3 전체`. 처음에는 마지막 지시 뒤에 고친 파일만 보인다.
+- 아티팩트: Claude(Cowork 포함, 서브에이전트 포함)가 Artifact 도구로 게시한 것이 있으면 오른쪽 위에 `── 아티팩트 N ──` 구획이 생긴다. 한 줄에 `제목 · v1→v3 · 14:02 · claude.ai/…` 처럼 버전 범위·마지막 게시 시각·링크가 보이고, `edits` 로 바로 고친 게시는 `바로 수정`, 조직 공유 링크는 `조직 공유`, 공개 링크는 `공개` 가 붙는다 (`owner` 는 표시 없음). 버전 범위는 게시 순번(seq)으로, 순번이 없으면 버전을 빼고 보인다. 자리가 모자라면 최근 것 몇 줄과 `+N`.
+  - 링크는 `https://claude.ai/` 주소만 OSC 8 클릭 링크로 그린다. NO_COLOR·파이프 출력·링크를 모르는 터미널에서는 평문이고, `FORCE_HYPERLINK=1`·`0` 으로 켜고 끈다. 기록에서 꺼내는 값은 제목·주소·게시 순번·시각·공유 범위·`edits` 사용 여부뿐이다 (파일 경로·고친 내용은 담지 않는다).
 
 **`--all`**
 
@@ -880,6 +882,7 @@ Claude Desktop 의 에이전트 모드(Cowork) 세션도 표에 보인다. TOOL 
 - `cacheExpiresAt`, `toolStartedAt`, `usage.last7days.daily`, `usage.lastHour`, `usage.budget`: [화면](#화면).
 - `stalled`, `startedAt`, `lastActivityAt`, `entrypoint`, `auto`, `parentId`: [서브에이전트](#서브에이전트).
 - `resumeCmd`: [이어 열기](#이어-열기).
+- `artifacts` (`title`, `url`, `versionFrom`, `versionTo`, `updatedAt`, `audience`, `viaEdits`): [화면](#화면) 의 상세 패널. `url` 은 `https://claude.ai/` 주소가 아니면 `null`.
 - `waitDetail`: [옵션 전체](#옵션-전체) 의 `--show-requests`.
 - 리포트 출력: [기간 리포트](#기간-리포트), [세션 리포트](#세션-리포트).
 - `dirs`, `candidates`: [기록 폴더 여러 개](#기록-폴더-여러-개).
