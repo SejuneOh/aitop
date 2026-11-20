@@ -13,7 +13,7 @@ import { addActivity, emptyTokens, mergeActivity, pushEvent, describeTool, toolD
 import { contextWindow, geminiCost } from '../pricing.mjs';
 import { debug, debugIo } from '../log.mjs';
 import { isWsl } from '../notify.mjs';
-import { agyAppEnv, agyAppSetting, expandHome, wslWindowsHomes } from './dirs.mjs';
+import { agyAppEnv, agyAppSetting, expandHome, wslPathOf, wslWindowsHomes } from './dirs.mjs';
 
 const isDir = (p) => {
   try {
@@ -586,7 +586,7 @@ export function cwdOf(workspaceUris, { wsl = null } = {}) {
     // Windows 의 file:///c%3A/… 는 c:\… 가 되므로 드라이브 문자를 대문자로 맞춘다 (Claude·Codex 의 C:\ 와 같은 프로젝트로 묶이게).
     if (process.platform === 'win32') return p.replace(/^[a-z](?=:)/, (d) => d.toUpperCase());
     const drive = /^\/?([A-Za-z]):(?:[\\/](.*))?$/.exec(p);
-    if (drive && (wsl ?? wslNow())) return ['/mnt', drive[1].toLowerCase(), ...(drive[2] ?? '').split(/[\\/]+/).filter(Boolean)].join('/');
+    if (drive && (wsl ?? wslNow())) return wslPathOf(p);
     return p;
   } catch (e) {
     debug('agy', 'workspace_uris parse failed', e);
