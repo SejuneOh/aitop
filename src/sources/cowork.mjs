@@ -3,16 +3,18 @@
 //   <앱>/local-agent-mode-sessions/<uuid>/<uuid>/local_<id>.json                 세션 메타 (제목, 모델, 마지막 활동 시각 등)
 //   <앱>/local-agent-mode-sessions/<uuid>/<uuid>/local_<id>/.claude/projects/*/*.jsonl   Claude Code 와 같은 대화 기록 (+ <id>/subagents/)
 //   <앱>/local-agent-mode-sessions/<uuid>/<uuid>/local_<id>/audit.jsonl          권한 요청·응답이 든 감사 기록
+// 예약 작업(메타 hostLoopMode: true, #313)은 기록 폴더가 local_<id>/ 가 아니라 id 앞 8자리 폴더(<uuid>/<uuid>/2c7ea83c/)이고
+// 대화 기록은 그 아래 .claude/projects/session/<cliSessionId>.jsonl 이다. 메타 cwd 는 Windows 경로(C:\…\2c7ea83c\outputs)다.
 // 앱 폴더에는 쿠키·Local Storage·설정 같은 다른 파일도 있으므로 위 세 가지만 연다 (허용 목록). 폴더는 목록만 읽는다.
 // 프로세스가 VM 안이라 보이지 않으므로 실행 중은 메타의 lastActivityAt 과 기록 수정 시각 중 늦은 쪽이 2분 안이면으로 본다.
 // 세션은 TOOL 칸에 cowork 로 보이고(색은 claude), 기록 파서는 Claude 것(claude-tracker.mjs)을 그대로 쓴다.
-import { readdirSync, readFileSync, statSync, openSync, readSync, closeSync, realpathSync } from 'node:fs';
-import { join, basename, resolve } from 'node:path';
+import { readdirSync, readFileSync, statSync, lstatSync, openSync, readSync, closeSync, realpathSync } from 'node:fs';
+import { join, basename, resolve, sep } from 'node:path';
 import { homedir } from 'node:os';
 import { ClaudeTracker } from './claude-tracker.mjs';
 import { sessionName } from './common.mjs';
 import { emptySub, sessionTotals, readMembers, withRunningMembers, phaseOf, stoppedPhase, cacheOf, toolStartOf } from './claude.mjs';
-import { coworkEnv, coworkSetting, expandHome, wslWindowsHomes } from './dirs.mjs';
+import { coworkEnv, coworkSetting, expandHome, wslPathOf, wslWindowsHomes } from './dirs.mjs';
 import { loadCache } from '../cache.mjs';
 import { isWsl } from '../notify.mjs';
 import { debugIo } from '../log.mjs';
@@ -118,6 +120,8 @@ export function pickMeta(m) {
     title: str(m.title),
     model: str(m.model),
     cwd: str(m.cwd),
+    // 사용자가 고른 폴더 중 첫 번째 (PROJECT 칸에 쓴다, #313).
+    folder: Array.isArray(m.userSelectedFolders) ? (m.userSelectedFolders.map(str).find(Boolean) ?? null) : null,
     createdAt: num(m.createdAt),
     lastActivityAt: num(m.lastActivityAt),
     isArchived: m.isArchived === true,
@@ -158,6 +162,45 @@ function readMeta(path) {
   const out = { mtime: st.mtimeMs, size: st.size, meta };
   metas.set(path, out);
   return out;
+}
+
+// 세션의 기록 폴더 (#313). 후보 순서: local_<id>/ → id 앞 8자리 폴더(예약 작업) → 메타 cwd 의 상위 폴더 이름
+// (cwd 가 local-agent-mode-sessions 아래일 때만). 메타와 같은 층의 폴더 목록(entries)에 있고 실제 폴더(심볼릭 링크 아님)인 것만 쓴다.
+// 하나도 없으면 local_<id>/ (없는 폴더라 기록 목록이 비고, 예전과 같다).
+const NAME_RE = /^[\w.-]{1,128}$/;
+function sessionDir(dir2, localId, meta, entries) {
+  const segs = String(meta.cwd ?? '').split(/[\\/]+/).filter(Boolean);
+  const cands = [localId, localId.slice(6, 14)];
+  if (segs.length >= 2 && segs.includes(SESSIONS_DIR)) cands.push(segs.at(-2));
+  for (const name of cands) {
+    if (!NAME_RE.test(name) || name === '.' || name === '..') continue;
+    const e = entries.get(name);
+    if (!e) continue;
+    const p = join(dir2, name);
+    let ok = e.isDirectory();
+    if (!ok && !e.isFile() && !e.isSymbolicLink()) {
+      try {
+        ok = lstatSync(p).isDirectory();
+      } catch {}
+    }
+    if (ok) return p;
+  }
+  return join(dir2, localId);
+}
+
+// 작업 폴더 경로를 이 컴퓨터에서 보이는 모양으로. WSL 에서 Windows 경로(C:\…)는 /mnt/c/… 로 바꾼다 (#313).
+let wslForce = null;
+let onWsl = null;
+const wslNow = () => wslForce ?? (onWsl ??= process.platform === 'linux' && isWsl());
+const hostPath = (p) => (p && wslNow() ? (wslPathOf(p) ?? p) : p);
+const lastName = (p) => String(p ?? '').split(/[\\/]+/).filter(Boolean).at(-1) ?? null;
+
+// PROJECT 칸: 사용자가 고른 폴더가 있으면 그 마지막 이름, 없으면 cowork (#313).
+// path: --by project 장부에 쓰는 값 (고른 폴더의 경로, 없으면 'cowork').
+export function coworkProject(meta) {
+  const folder = hostPath(meta?.folder ?? null);
+  const name = folder ? lastName(folder) : null;
+  return name ? { name, path: folder } : { name: 'cowork', path: 'cowork' };
 }
 
 // 세션 폴더의 대화 기록 목록: .claude/projects/<폴더>/*.jsonl 과 <id>/subagents/*.jsonl.
@@ -334,21 +377,23 @@ function scanRoot(root, days, now) {
     for (const b of ls(join(base, a.name), 'sessions read failed')) {
       if (!dirEnt(b, join(base, a.name, b.name))) continue;
       const dir2 = join(base, a.name, b.name);
-      for (const f of ls(dir2, 'sessions read failed')) {
+      const ents = ls(dir2, 'sessions read failed');
+      const byName = new Map(ents.map((e) => [e.name, e]));
+      for (const f of ents) {
         const m = /^(local_[\w-]+)\.json$/.exec(f.name);
         if (!m || !fileEnt(f)) continue;
         const metaPath = join(dir2, f.name);
         const got = readMeta(metaPath);
         if (!got?.meta) continue;
         const meta = got.meta;
-        const dir = join(dir2, m[1]);
+        const dir = sessionDir(dir2, m[1], meta, byName);
         const touched = Math.max(meta.lastActivityAt ?? 0, got.mtime);
         const recent = now - touched < days * 86400_000;
         const list = recent ? transcriptsOf(dir, meta, got.mtime) : { files: [], main: null };
         const newest = Math.max(0, ...list.files.map((x) => x.mtime));
         const activity = Math.max(meta.lastActivityAt ?? 0, newest);
         const maybe = !meta.isArchived && now - activity <= COWORK_WAIT_MAX_MS + COWORK_TTL_MS;
-        out.push({ localId: m[1], root, dir, meta, metaMtime: got.mtime, files: list.files, main: list.main, wait: maybe ? readAudit(join(dir, 'audit.jsonl')) : null, audited: maybe });
+        out.push({ localId: m[1], root, dir, metaPath, meta, metaMtime: got.mtime, files: list.files, main: list.main, wait: maybe ? readAudit(join(dir, 'audit.jsonl')) : null, audited: maybe });
       }
     }
   }
@@ -368,8 +413,8 @@ export function coworkSnapshot({ roots = coworkRoots(), days = DAYS, now = Date.
   // 이번 목록에 없는 세션(지워진 세션, 이제 읽지 않는 앱 폴더)의 캐시는 지운다. 기간이 다른 목록(리포트)은 세션이 같으므로 7일 목록 때만 한다.
   if (days === DAYS) {
     const dirs = new Set(snap.sessions.map((s) => s.dir));
-    const dirOf = (p, tail) => p.slice(0, -tail.length);
-    for (const p of metas.keys()) if (!dirs.has(dirOf(p, '.json'))) metas.delete(p);
+    const metaPaths = new Set(snap.sessions.map((s) => s.metaPath));
+    for (const p of metas.keys()) if (!metaPaths.has(p)) metas.delete(p);
     for (const d of listings.keys()) if (!dirs.has(d)) listings.delete(d);
     // audit 는 이번에 보지 않은 것(대기 기간이 지났거나 보관한 세션)도 지운다.
     const audited = new Set(snap.sessions.filter((s) => s.audited).map((s) => join(s.dir, 'audit.jsonl')));
@@ -382,6 +427,14 @@ export function coworkSnapshot({ roots = coworkRoots(), days = DAYS, now = Date.
 export function coworkLedgerFiles(days = DAYS, now = Date.now()) {
   const cutoff = now - days * 86400_000;
   return coworkSnapshot({ days: Math.max(DAYS, days), now }).sessions.flatMap((s) => s.files.filter((f) => f.mtime >= cutoff).map(({ key, path, mtime }) => ({ key, path, mtime })));
+}
+
+// --by project 용: Cowork 기록 파일이면 그 세션의 프로젝트(coworkProject 의 path), 아니면 null (#313).
+// 앱 폴더의 세션 목록 밖이어도 앱 폴더의 local-agent-mode-sessions 아래면 cowork 로 둔다.
+export function coworkProjectOf(path, roots = coworkRoots()) {
+  if (!path || !roots.some((r) => path.startsWith(join(r, SESSIONS_DIR) + sep))) return null;
+  const s = coworkSnapshot({ roots }).sessions.find((x) => path.startsWith(x.dir + sep));
+  return coworkProject(s?.meta).path;
 }
 
 // --report trace 가 세션 id 로 기록을 찾을 때 쓰는 projects/ 폴더 목록.
@@ -458,7 +511,8 @@ function row(s, { budget, now, want, timeLive }) {
   const waitingFor = wait ? `approve ${wait.tool}` : null;
   const status = statusOf(live, wait, t, mtime, now);
   const phase = withRunningMembers(phaseOf(status, { waitingFor }, t), status, members);
-  const name = sessionName(m.title ?? '') ?? t?.customTitle ?? t?.title ?? `${basename(m.cwd ?? '') || 'cowork'} · ${s.localId.slice(6, 14)}`;
+  const project = coworkProject(m).name;
+  const name = sessionName(m.title ?? '') ?? t?.customTitle ?? t?.title ?? `${project} · ${s.localId.slice(6, 14)}`;
   return {
     tool: 'cowork',
     id: m.cliSessionId ?? m.sessionId ?? s.localId,
@@ -466,8 +520,8 @@ function row(s, { budget, now, want, timeLive }) {
     kind: 'interactive',
     name,
     customName: null,
-    cwd: m.cwd,
-    project: basename(m.cwd ?? ''),
+    cwd: hostPath(m.cwd),
+    project,
     branch: t?.branch ?? null,
     model: t?.model ?? m.model,
     // Cowork 기록의 실행 방식 ('local-agent').
@@ -547,6 +601,10 @@ export const _test = {
   // 캐시에 남은 열쇠 (정리 확인용).
   keys() {
     return { metas: [...metas.keys()], listings: [...listings.keys()], audits: [...audits.keys()] };
+  },
+  // WSL 인지 정해 둔다 (null 이면 저절로).
+  wsl(v) {
+    wslForce = v;
   },
   reset() {
     snaps.clear();

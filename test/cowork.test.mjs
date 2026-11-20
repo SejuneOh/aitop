@@ -58,6 +58,9 @@ const { createBudget } = await import('../src/tail.mjs');
 const { flushCache } = await import('../src/cache.mjs');
 const { findTrace } = await import('../src/trace.mjs');
 const { summarize } = await import('../src/summary.mjs');
+const { attachProjects, projectLabels } = await import('../src/sources/projects.mjs');
+const { collectDaily } = await import('../src/sources/claude-ledger.mjs');
+const { wslPathOf } = await import('../src/sources/dirs.mjs');
 
 after(() => rmSync(base, { recursive: true, force: true }));
 
@@ -225,7 +228,7 @@ test('tool_input·_audit_hmac·audit 의 대화 내용과 메타의 initialMessa
     assert.ok(!out.includes(secret), `출력: ${secret}`);
     assert.ok(!cached.includes(secret), `캐시: ${secret}`);
   }
-  assert.deepEqual(Object.keys(pickMeta({ initialMessage: 'x', title: 't', foo: 1 })).sort(), ['cliSessionId', 'createdAt', 'cwd', 'isArchived', 'lastActivityAt', 'model', 'sessionId', 'title']);
+  assert.deepEqual(Object.keys(pickMeta({ initialMessage: 'x', title: 't', foo: 1 })).sort(), ['cliSessionId', 'createdAt', 'cwd', 'folder', 'isArchived', 'lastActivityAt', 'model', 'sessionId', 'title']);
 });
 
 test('세션 목록·메타·audit 는 10초(COWORK_TTL_MS)에 한 번만 다시 본다. 2분 판정은 지금 시각으로', () => {
@@ -392,4 +395,165 @@ test('사라진 세션의 메타·기록 목록·audit 캐시는 다음 목록�
   rmSync(dir + '.json', { force: true });
   collect2();
   assert.ok(!has(), '지운 세션의 캐시가 남지 않는다');
+});
+
+// ---- #313: 예약 작업(hostLoopMode) 세션 ----
+// 실제 모양: 메타 local_<id>.json, 기록 폴더는 id 앞 8자리(<id8>/), local_<id>/ 는 없다. cwd 는 Windows 경로(…\<id8>\outputs),
+// userSelectedFolders 는 빈 배열. 기록은 .claude/projects/session/<cliSessionId>.jsonl 이고 낯선 줄 종류가 섞여 있다.
+// 폴더에는 열면 안 되는 파일(.audit-key, .claude/.claude.json, policy-limits.json, host-cwd/, outputs/, uploads/, .claude/sessions/)도 있다.
+const WIN_LAMS = 'C:\\Users\\me\\AppData\\Roaming\\Claude\\local-agent-mode-sessions\\acct-1\\org-1';
+const SECRET_HOST = ['SECRET-AUDITKEY-313', 'SECRET-CLAUDEJSON-313', 'SECRET-POLICY-313', 'SECRET-HOSTCWD-313', 'SECRET-OUTPUTS-313', 'SECRET-UPLOADS-313', 'SECRET-SESSIONS-313', 'SECRET-COST-313', 'SECRET-APIREQ-313'];
+function makeHostRun(id, { sid, folderName = id.slice(0, 8), at, folders = [], cwdName = folderName }) {
+  const dir = join(lams, folderName);
+  const meta = { sessionId: `local_${id}`, cliSessionId: sid, cwd: `${WIN_LAMS}\\${cwdName}\\outputs`, userSelectedFolders: folders, hostLoopMode: true, createdAt: at - 120_000, lastActivityAt: at, model: 'claude-opus-5-5', isArchived: false, title: '예약 작업', initialMessage: 'SECRET-INITIAL-304' };
+  writeFileSync(join(lams, `local_${id}.json`), JSON.stringify(meta));
+  const pdir = join(dir, '.claude', 'projects', 'session');
+  mkdirSync(pdir, { recursive: true });
+  const ts = (d) => iso(at - d);
+  const rows = [
+    { type: 'queue-operation', operation: 'enqueue', timestamp: ts(60_000), content: 'x' },
+    { type: 'user', timestamp: ts(59_000), entrypoint: 'local-agent', cwd: `${WIN_LAMS}\\${cwdName}\\outputs`, message: { content: '메일 요약해줘' } },
+    { type: 'attachment', timestamp: ts(58_000), attachment: { type: 'x' } },
+    { type: 'assistant', timestamp: ts(50_000), entrypoint: 'local-agent', message: { id: `${sid}-a1`, model: 'claude-opus-5-5', content: [{ type: 'tool_use', id: 'tu1', name: 'Read', input: { file_path: '/x' } }], usage: u(1000, 100) } },
+    { type: 'user', timestamp: ts(45_000), entrypoint: 'local-agent', message: { content: [{ type: 'tool_result', tool_use_id: 'tu1', content: 'ok' }] } },
+    { type: 'api-request-shape', timestamp: ts(44_000), shape: { a: 1 } },
+    { type: 'api-request-blob', timestamp: ts(44_000), blob: 'SECRET-APIREQ-313' },
+    { type: 'api-request', timestamp: ts(44_000), messages: [{ role: 'user', content: 'SECRET-APIREQ-313' }], usage: u(999_999, 999_999) },
+    { type: 'assistant', timestamp: ts(40_000), entrypoint: 'local-agent', message: { id: `${sid}-a2`, model: 'claude-opus-5-5', content: [{ type: 'text', text: '요약했습니다' }], usage: u(2000, 200) } },
+    { type: 'last-prompt', timestamp: ts(39_000), lastPrompt: '메일 요약해줘' },
+    { type: 'atis-latch', timestamp: ts(39_000), latch: true },
+    { type: 'cost-state', timestamp: ts(39_000), state: { note: 'SECRET-COST-313', usage: u(777_777, 0) } },
+    'not json',
+  ];
+  writeFileSync(join(pdir, `${sid}.jsonl`), rows.map((r) => (typeof r === 'string' ? r : JSON.stringify(r))).join('\n') + '\n');
+  writeFileSync(join(dir, 'audit.jsonl'), lines([req('Read', at - 49_000), res('permission_response', at - 47_000), { type: 'result', subtype: 'success', _audit_hmac: HMAC, _audit_timestamp: ts(38_000) }]));
+  writeFileSync(join(dir, '.audit-key'), 'SECRET-AUDITKEY-313');
+  writeFileSync(join(dir, '.claude', '.claude.json'), 'SECRET-CLAUDEJSON-313');
+  writeFileSync(join(dir, '.claude', 'policy-limits.json'), 'SECRET-POLICY-313');
+  for (const [d, v] of [['host-cwd', 'SECRET-HOSTCWD-313'], ['outputs', 'SECRET-OUTPUTS-313'], ['uploads', 'SECRET-UPLOADS-313'], [join('.claude', 'sessions'), 'SECRET-SESSIONS-313']]) {
+    mkdirSync(join(dir, d), { recursive: true });
+    writeFileSync(join(dir, d, 'data.json'), v);
+  }
+  const main = join(pdir, `${sid}.jsonl`);
+  for (const p of [main, join(lams, `local_${id}.json`), join(dir, 'audit.jsonl')]) utimesSync(p, at / 1000, at / 1000);
+  return { dir, main };
+}
+
+const H = {
+  id: '2c7ea83c-fe01-4a00-8000-000000000001',
+  sid: '33333333-0000-4000-8000-000000000001',
+  pickId: '5e1ec7ed-0000-4000-8000-000000000002',
+  pickSid: '33333333-0000-4000-8000-000000000002',
+  cwdId: '0c0d0e0f-0000-4000-8000-000000000003',
+  cwdSid: '33333333-0000-4000-8000-000000000003',
+};
+// 앞 테스트의 세션 수·장부 합계와 섞이지 않게 #313 테스트가 시작할 때 만든다.
+let host, hostPick, hostCwd;
+function setupHost() {
+  if (host) return;
+  const hostAt = Date.now() - 30_000;
+  host = makeHostRun(H.id, { sid: H.sid, at: hostAt });
+  // 사용자가 폴더를 고른 예약 작업: PROJECT 는 그 폴더의 마지막 이름.
+  hostPick = makeHostRun(H.pickId, { sid: H.pickSid, at: hostAt, folders: ['C:\\Users\\me\\work\\reports'] });
+  // 앞 8자리 폴더가 없고 메타 cwd 의 상위 폴더 이름(run-0c0d)만 같은 층에 있는 경우.
+  hostCwd = makeHostRun(H.cwdId, { sid: H.cwdSid, at: hostAt, folderName: 'run-0c0d' });
+}
+const hostRows = (o = {}) => {
+  setupHost();
+  coworkTest.age(COWORK_TTL_MS);
+  return byId(collectCowork({ showEnded: true, budget: budget(), ...o }));
+};
+
+test('#313 예약 작업: id 앞 8자리 기록 폴더의 session/ 기록에서 토큰·비용을 읽고, 낯선 줄 종류는 건너뛴다', () => {
+  const s = hostRows().get(H.sid);
+  assert.ok(s, '예약 작업 세션이 보인다');
+  assert.equal(s.tool, 'cowork');
+  assert.equal(s.tokens.main, 1100 + 2200, 'assistant 줄의 usage 만 센다 (api-request·cost-state 의 usage 는 세지 않는다)');
+  assert.ok(s.cost > 0, '비용이 잡힌다');
+  assert.equal(s.model, 'claude-opus-5-5');
+  assert.equal(s.entrypoint, 'local-agent');
+  // 메타 cwd 의 상위 폴더 이름으로도 기록 폴더를 찾는다.
+  assert.equal(hostRows().get(H.cwdSid)?.tokens.main, 3300);
+  const out = JSON.stringify(toJson({ sessions: [...hostRows().values()] }, null, { showRequests: true }));
+  for (const x of SECRET_HOST) assert.ok(!out.includes(x), `출력: ${x}`);
+});
+
+test('#313 예약 작업: result 로 턴이 끝났으면 2분 안이어도 작업 중(busy)이 아니다', () => {
+  const s = hostRows().get(H.sid);
+  assert.equal(s.live, true, '2분 안이라 실행 중');
+  assert.notEqual(s.status, 'busy');
+  assert.equal(s.status, 'idle');
+  assert.equal(hostRows({ now: Date.now() + COWORK_LIVE_MS }).get(H.sid).status, 'ended');
+});
+
+test('#313 PROJECT 는 cowork (고른 폴더가 있으면 그 마지막 이름), WSL 에서 Windows cwd 는 /mnt/c/… 로', () => {
+  const winCwd = `${WIN_LAMS}\\2c7ea83c\\outputs`;
+  try {
+    coworkTest.wsl(true);
+    const m = hostRows();
+    assert.equal(m.get(H.sid).project, 'cowork');
+    assert.equal(m.get(H.sid).cwd, '/mnt/c/Users/me/AppData/Roaming/Claude/local-agent-mode-sessions/acct-1/org-1/2c7ea83c/outputs');
+    assert.equal(m.get(H.pickSid).project, 'reports');
+    coworkTest.wsl(false);
+    const n = hostRows();
+    assert.equal(n.get(H.sid).cwd, winCwd, 'WSL 이 아니면 그대로');
+    assert.equal(n.get(H.sid).project, 'cowork');
+    assert.equal(n.get(H.pickSid).project, 'reports');
+  } finally {
+    coworkTest.wsl(null);
+  }
+  assert.equal(wslPathOf('C:\\Users\\me\\x'), '/mnt/c/Users/me/x');
+  assert.equal(wslPathOf('/c:/Users/me'), '/mnt/c/Users/me');
+  assert.equal(wslPathOf('/home/me'), null);
+});
+
+test('#313 --report daily --by project: 예약 작업 기록은 cowork, 고른 폴더가 있으면 그 폴더로 묶인다', () => {
+  setupHost();
+  coworkTest.age(COWORK_TTL_MS);
+  try {
+    coworkTest.wsl(true);
+    // 장부의 파일 목록은 기간별로 30초 동안 지난 값을 쓰므로 앞 테스트(7일)와 다른 기간으로 모은다.
+    const books = attachProjects(collectDaily({ budget: budget(), days: 8 }).books);
+    const of = (main) => books.find((b) => b.path === main)?.project;
+    assert.equal(of(host.main), 'cowork');
+    assert.equal(of(hostCwd.main), 'cowork');
+    assert.equal(of(hostPick.main), '/mnt/c/Users/me/work/reports');
+    const labels = projectLabels(new Set([of(host.main), of(hostPick.main)]));
+    assert.equal(labels.get('cowork'), 'cowork');
+    assert.equal(labels.get('/mnt/c/Users/me/work/reports'), 'reports');
+  } finally {
+    coworkTest.wsl(null);
+  }
+});
+
+test('#313 예약 작업 폴더에서도 메타·기록 jsonl·audit.jsonl 만 열고 다른 파일은 열지 않는다', () => {
+  hostRows();
+  for (const d of [host.dir, hostPick.dir, hostCwd.dir]) {
+    const mine = [...touched].filter((p) => p === d || p.startsWith(d + sep));
+    assert.ok(mine.some((p) => p.endsWith('.jsonl')), '기록은 읽었다');
+    const bad = mine.filter((p) => {
+      const rel = p.slice(d.length + 1).split(sep);
+      if (p === d || (rel.length === 1 && rel[0] === 'audit.jsonl')) return false;
+      if (rel[0] !== '.claude') return true;
+      if (rel.length === 1) return false;
+      if (rel[1] !== 'projects') return true;
+      const st = statSync(p, { throwIfNoEntry: false });
+      return !(rel.length <= 3 || p.endsWith('.jsonl') || !st || st.isDirectory());
+    });
+    assert.deepEqual(bad, []);
+  }
+});
+
+test('#313 예전 모양: local_<id>/ 가 있으면 그것을 쓴다 (앞 8자리 폴더가 함께 있어도)', () => {
+  const t0 = Date.now() - 20_000;
+  const id = 'abcdef12-0000-4000-8000-000000000009';
+  const sid = '44444444-0000-4000-8000-000000000009';
+  makeSession(id, { into: lams2, sid, last: t0, rows: convo(t0, 'old9', 700) });
+  // 같은 층의 앞 8자리 폴더(다른 기록)는 쓰지 않는다.
+  const decoy = join(lams2, 'abcdef12', '.claude', 'projects', 'session');
+  mkdirSync(decoy, { recursive: true });
+  writeFileSync(join(decoy, `${sid}.jsonl`), lines(convo(t0, 'decoy', 99_999)));
+  const s = collect2().get(sid);
+  assert.equal(s.tokens.main, 800);
+  assert.equal(s.project, 'x', '고른 폴더(/x)의 마지막 이름');
 });

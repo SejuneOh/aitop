@@ -794,6 +794,7 @@ Claude Desktop 의 에이전트 모드(Cowork) 세션도 표에 보인다. TOOL 
 - 이름은 앱의 세션 제목, 토큰·비용·진행 단계·서브에이전트는 Claude Code 와 같은 기록(jsonl)에서 읽는다. 상세 패널의 종류 줄과 `--json` 의 `entrypoint` 에 `local-agent` 가 보인다.
 - 헤더 오늘·7일 합계, 월별 보관함, `--report`(daily·sessions·trace)에 Claude 몫으로 함께 더한다. 같은 기록이 `~/.claude/projects` 에도 있으면 한 번만 센다.
 - 권한 요청을 기다리면 응답 대기(◆)로 보이고, `--notify`·`--on-waiting`·`n`·헤더 대기 수·창 제목·`--line` 에도 들어간다.
+- PROJECT 칸과 `--report ... --by project` 는 `cowork` 로 묶는다. 세션을 만들 때 고른 폴더가 있으면 그 폴더(칸에는 마지막 이름)를 쓴다. WSL 에서는 Windows 작업 폴더(`C:\…`)를 `/mnt/c/…` 로 바꿔 보인다.
 
 <details>
 <summary>세부: 실행 중·응답 대기 판정, 읽는 파일</summary>
@@ -801,7 +802,8 @@ Claude Desktop 의 에이전트 모드(Cowork) 세션도 표에 보인다. TOOL 
 - Cowork 는 앱이 띄우는 VM 안에서 돌아 프로세스가 보이지 않는다. 세션 메타의 마지막 활동 시각(`lastActivityAt`)과 기록 수정 시각 중 늦은 쪽이 2분 안이면 실행 중으로 본다. 보관한 세션(`isArchived`)은 종료다.
 - 응답 대기: 세션 폴더의 `audit.jsonl` 끝에서 마지막 `permission_request` 뒤에 응답(`permission_response`·`permission_denied`·`permission_auto_approved`)이나 턴 끝(`result`)·새 시작(`init`) 줄이 없으면 그 `tool_name` 을 기다린다고 본다. 요청과 응답을 잇는 id 가 없어 순서로만 판단하고, 대화 기록에 열린 도구 호출이 없으면 대기로 보지 않는다.
 - 응답 대기는 2분 기준과 상관없이 요청 뒤 1시간까지 이어지고, 그보다 오래된 요청은 버려진 것으로 보고 종료로 둔다.
-- 읽는 파일은 세 가지뿐이다: 세션 메타 `local_<id>.json`(제목·모델·작업 폴더·시각·보관 여부·기록 id 만 쓴다), 기록 `.claude/projects/**/*.jsonl`, `audit.jsonl`. 같은 앱 폴더의 쿠키·Local Storage·설정과 서브에이전트 메타는 열지 않는다.
+- 세션 기록 폴더는 `local_<id>/` 이고, 없으면 id 앞 8자리 폴더(예약 작업, 메타 `hostLoopMode`), 그다음 메타 작업 폴더의 상위 폴더 이름을 같은 층에서 찾는다. 실제 폴더(심볼릭 링크 아님)만 쓴다.
+- 읽는 파일은 세 가지뿐이다: 세션 메타 `local_<id>.json`(제목·모델·작업 폴더·고른 폴더·시각·보관 여부·기록 id 만 쓴다), 기록 `.claude/projects/**/*.jsonl`, `audit.jsonl`. 기록 폴더의 `.audit-key`·`.claude.json`·`policy-limits.json`·`outputs/`·`uploads/` 등도 열지 않는다. 같은 앱 폴더의 쿠키·Local Storage·설정과 서브에이전트 메타는 열지 않는다.
 - `audit.jsonl` 에서는 권한 줄의 종류·도구 이름·시각만 꺼낸다. 요청 내용(`tool_input`)·서명(`_audit_hmac`)·대화 내용은 화면·캐시·`--json` 에 남기지 않는다. 비용은 `total_cost_usd` 가 아니라 기록의 사용량으로 센다.
 - 느린 `/mnt/c` 를 덜 건드리려고 세션 목록·메타·기록 목록·`audit.jsonl` 은 10초에 한 번만 본다. 그래서 응답 대기가 10초쯤 늦게 보일 수 있다. 2분 실행 중 판정은 늘 지금 시각으로 한다.
 - 7일 넘게 활동이 없는 세션은 메타만 읽고 기록 목록을 훑지 않는다.
