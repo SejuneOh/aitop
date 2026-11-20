@@ -95,12 +95,12 @@ function loadingPhase(t) {
 }
 
 // 서브에이전트 전체(끝난 것 포함)의 토큰·비용 합계. 메인 세션 합계에 더해 화면에 보인다.
-function emptySub() {
+export function emptySub() {
   return { count: 0, tokens: emptyTokens(), cost: 0, costNoCache: 0, costUnknown: false, loading: false, files: [], activity: [] };
 }
 
 // 메인 tracker 와 서브에이전트 합계를 화면에 보일 세션 숫자로 합친다. 기록을 아직 읽지 않았으면(t 없음) 비용은 null.
-function sessionTotals(t, sub) {
+export function sessionTotals(t, sub) {
   const main = t?.tokens ?? emptyTokens();
   const tokens = { main: main.total, sub: sub.tokens.total, subCount: sub.count };
   for (const k of Object.keys(main)) tokens[k] = main[k] + sub.tokens[k];
@@ -120,16 +120,20 @@ function sessionTotals(t, sub) {
   };
 }
 
-function readMembers(transcript, parent, budget) {
+// track: 서브에이전트 기록 tracker 를 얻는 함수 (Cowork 는 자기 tracker 목록을 쓴다, cowork.mjs).
+// meta: false 면 agent-<id>.meta.json 을 열지 않고 agent-<id>.jsonl 만 본다 (Cowork 앱 폴더의 허용 목록, #304).
+// 그때는 팀원 이름이 'agent' 이고 작업 설명이 비며, 끝남 표시가 없어 기록이 MEMBER_STALE_MS 넘게 그대로면 끝난 것으로 본다.
+export function readMembers(transcript, parent, budget, { track = (p, b) => tracker(subTrackers, p, b), meta: withMeta = true } = {}) {
   const dir = join(transcript.replace(/\.jsonl$/, ''), 'subagents');
   const sub = emptySub();
   if (!existsSync(dir)) return { members: [], sub };
   const members = [];
+  const tail = withMeta ? '.meta.json' : '.jsonl';
   for (const f of readdirSync(dir)) {
-    if (!f.endsWith('.meta.json')) continue;
-    const id = f.slice('agent-'.length, -'.meta.json'.length);
-    const meta = readJson(join(dir, f)) ?? {};
-    const t = tracker(subTrackers, join(dir, `agent-${id}.jsonl`), budget);
+    if (!f.startsWith('agent-') || !f.endsWith(tail)) continue;
+    const id = f.slice('agent-'.length, -tail.length);
+    const meta = (withMeta ? readJson(join(dir, f)) : null) ?? {};
+    const t = track(join(dir, `agent-${id}.jsonl`), budget);
     sub.count++;
     for (const k of Object.keys(sub.tokens)) sub.tokens[k] += t.tokens[k];
     sub.cost += t.cost;
@@ -178,13 +182,13 @@ function statusOf(entry, alive, mtime) {
 }
 
 // 응답 대기는 Claude Code 가 세션 파일에 적은 값이다. 그동안 서브에이전트가 돌고 있으면 수를 args.agents 로 함께 보내 구분되게 한다.
-function withRunningMembers(phase, status, members) {
+export function withRunningMembers(phase, status, members) {
   if (status !== 'waiting') return phase;
   const running = members.filter((m) => m.status !== 'done' && m.phase?.kind !== 'done').length;
   return running ? { ...phase, args: { ...phase.args, agents: running } } : phase;
 }
 
-function phaseOf(status, entry, t) {
+export function phaseOf(status, entry, t) {
   switch (status) {
     case 'ended':
       return { kind: 'ended' };
@@ -202,12 +206,12 @@ function phaseOf(status, entry, t) {
 // 대기(idle) 중인 세션의 마지막 대화 줄이 API 오류면 '멈춤' 으로 보인다 (claude-tracker.mjs stopReasonOf).
 // 응답 대기·작업 중·종료는 그대로 두고, 기록을 다 읽기 전에는 판단하지 않는다.
 const STOP_MSG = { auth: 'stopAuth', network: 'stopNetwork', api: 'stopApi' };
-function stoppedPhase(t) {
+export function stoppedPhase(t) {
   const r = t?.loading == null ? t?.stopReason : null;
   return r ? { kind: 'stopped', msg: STOP_MSG[r.kind] ?? 'stopApi' } : null;
 }
 
-function cacheOf(alive, status, t) {
+export function cacheOf(alive, status, t) {
   const at = t?.cacheExpiresAt;
   if (!alive || at == null || t.loading != null || (status !== 'waiting' && status !== 'idle') || (status === 'idle' && stoppedPhase(t))) return { cacheExpiresAt: null, cacheTtl: null };
   return { cacheExpiresAt: at, cacheTtl: t.cacheTtl };
@@ -216,7 +220,7 @@ function cacheOf(alive, status, t) {
 // 도구가 돌기 시작한 시각(ms). 작업 중(busy)이고 진행 단계가 열린 도구 실행일 때만 둔다 (claude-tracker.mjs toolStartedAt).
 // 허락 대기 중에는 두지 않고, 그동안 본 시각을 적어 두어 허락한 뒤에는 그때부터 잰다 (markWaiting).
 // 쉘 명령(! 입력, status 'shell')은 기록에 tool_use 가 없어 빼고, 기록을 다 읽기 전에도 뺀다.
-function toolStartOf(status, phase, t) {
+export function toolStartOf(status, phase, t) {
   if (!t) return null;
   if (status === 'waiting') {
     t.markWaiting();

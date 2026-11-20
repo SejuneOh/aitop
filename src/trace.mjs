@@ -385,7 +385,8 @@ export async function findTrace(query, { claudeRoots, codexRoots, agyRoot } = {}
   if (!q) return { error: 'none', candidates: [] };
   if (claudeRoots == null || codexRoots == null) {
     const d = await import('./sources/dirs.mjs');
-    claudeRoots ??= d.claudeProjectRoots();
+    // Claude Desktop Cowork 세션의 기록 폴더도 함께 본다 (#304).
+    claudeRoots ??= [...d.claudeProjectRoots(), ...(await import('./sources/cowork.mjs')).coworkProjectRoots()];
     codexRoots ??= d.codexSessionRoots();
   }
   // agy 기록 폴더: CLI 폴더와 앱 폴더 (#303). agyRoot 는 폴더 하나 또는 목록.

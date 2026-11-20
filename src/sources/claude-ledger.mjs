@@ -14,6 +14,7 @@ import { debugIo } from '../log.mjs';
 import { foldArchive, foldHi } from '../monthly.mjs';
 import { attachProjects } from './projects.mjs';
 import { claudeProjectRoots, dedupeBy } from './dirs.mjs';
+import { coworkLedgerFiles } from './cowork.mjs';
 
 export { dayKey };
 
@@ -127,6 +128,13 @@ function recentFiles(days = DAYS) {
         }
       }
     }
+  }
+  // Claude Desktop Cowork 기록도 Claude 몫으로 함께 센다 (#304). key 가 같은 모양이라 ~/.claude/projects 에도 같은 기록이 있으면 한 번만.
+  // audit.jsonl 의 total_cost_usd 는 쓰지 않는다 (기록의 사용량으로만 센다).
+  try {
+    found.push(...coworkLedgerFiles(days));
+  } catch (e) {
+    debugIo('ledger', 'cowork files failed', e);
   }
   const files = dedupeBy(found).map((f) => f.path);
   listed = { at: Date.now(), files, days };

@@ -16,6 +16,8 @@ export function makeClaudeHome() {
   // 이 PC 의 실제 agy·Codex 기록을 읽지 않게 한다 (기록 폴더가 없으면 보지 않는다).
   process.env.AITOP_AGY_HOME = join(root, 'agy-missing');
   process.env.CODEX_HOME = join(root, 'codex-missing');
+  // 이 PC 의 Claude Desktop Cowork 앱 폴더도 읽지 않게 한다 (#304).
+  process.env.AITOP_COWORK_HOME = 'off';
 
   const lines = (rows) => rows.map((r) => JSON.stringify(r)).join('\n') + '\n';
 

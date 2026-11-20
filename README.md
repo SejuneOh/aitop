@@ -459,6 +459,34 @@ Conversations from the Antigravity desktop app show in the Gemini tab next to ag
 
 </details>
 
+## Claude Desktop Cowork
+
+Claude Desktop agent mode (Cowork) sessions show in the table as `cowork` in the TOOL column (Claude color), counted apart from claude in the tool row. aitop reads the app folder when it exists.
+
+> `aitop --doctor`
+>
+> `AITOP_COWORK_HOME=off aitop`
+
+- Folders: macOS `~/Library/Application Support/Claude`, Windows `%LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming\Claude` (Store install) and `%APPDATA%\Claude`. On WSL, `AppData/Local/Packages/Claude_*/LocalCache/Roaming/Claude` and `AppData/Roaming/Claude` in your Windows home (same rule as the Antigravity app).
+- Only folders with `local-agent-mode-sessions/` are read. `aitop --doctor` shows a `cowork` line (`Claude app · N sessions`), or no line when there is no app folder.
+- Turn it off with `"cowork": false` in the config file or `AITOP_COWORK_HOME=off`. Give absolute app folder paths (joined by `:` on Linux and macOS, `;` on Windows) to read only those. Other values are ignored with a warning in `--doctor` and `--print-config`.
+- The name is the app's session title. Tokens, cost, progress and subagents come from the same jsonl log Claude Code writes. The detail panel and `--json` `entrypoint` show `local-agent`.
+- Header today and 7-day totals, the monthly archive and `--report` (daily, sessions, trace) add them to Claude. A log that is also in `~/.claude/projects` is counted once.
+- A pending permission request shows as waiting (◆) and counts for `--notify`, `--on-waiting`, `n`, the header, the window title and `--line`.
+
+<details>
+<summary>Details: running and waiting, files read</summary>
+
+- Cowork runs in a VM the app starts, so its process is not visible. A session is running when the later of its `lastActivityAt` and its log's modified time is within 2 minutes. Archived sessions (`isArchived`) are ended.
+- Waiting: if the last `permission_request` at the end of the session's `audit.jsonl` comes after the last `permission_response`, `permission_denied` or `permission_auto_approved`, the session waits for that `tool_name`. There is no id linking requests and answers, so only the order counts.
+- Only three kinds of files are opened: the session meta `local_<id>.json` (only title, model, folder, times, archived flag and log id are used), logs under `.claude/projects/**/*.jsonl`, and `audit.jsonl`. Cookies, Local Storage, settings and subagent meta files in the same app folder are not opened.
+- From `audit.jsonl` only the kind, tool name and time of permission lines are taken. Request contents (`tool_input`), signatures (`_audit_hmac`) and messages never reach the screen, the cache or `--json`. Cost comes from log usage, not `total_cost_usd`.
+- To keep a slow `/mnt/c` cheap, the session list, meta, log list and `audit.jsonl` are checked at most every 10 seconds, so waiting can show up to 10 seconds late. The 2-minute running check still uses the current time.
+- Sessions idle for over 7 days are known from their meta only; their log folders are not listed.
+- No resume command is made. The format is private and may change with app updates; unreadable parts are skipped quietly.
+
+</details>
+
 ## Resume a session elsewhere
 
 Continue a session elsewhere, for example when you cannot jump to its tab, as in Windows Terminal with WSL. The detail panel shows a `Resume` command and `y` copies it. The panel wraps it at spaces, `/` and `\`, keeps the resume part (`claude --resume <id>`) on the last line(s), and keeps the session id on one line when the width allows. A long `cd` part is shortened in the middle with `…`; `y` still copies the whole command.
