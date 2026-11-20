@@ -431,6 +431,34 @@ aitop reads `~/.claude` and `~/.codex` by default. List more profiles to read th
 
 </details>
 
+## Antigravity desktop app
+
+Conversations from the Antigravity desktop app show in the Gemini tab next to agy CLI ones. aitop reads the app folder when it exists.
+
+> `aitop --doctor`
+>
+> `AITOP_AGY_APP_HOME=off aitop`
+
+- Folder: `~/.gemini/antigravity`. On WSL, also `.gemini/antigravity` in your Windows home.
+- The Windows home is `USERPROFILE` when it is passed in, otherwise each user folder in `/mnt/c/Users` except shared ones (Public, Default, ...).
+- Only folders with `conversations/` are read. `aitop --doctor` shows them as `+ … Antigravity app` under agy.
+- Turn it off with `"agyApp": false` in the config file or `AITOP_AGY_APP_HOME=off`. Give absolute paths (joined by `:` on Linux and macOS, `;` on Windows) to read only those. Other values (`on`, `1`, relative paths) are ignored with a warning in `--doctor` and `--print-config`.
+- The detail panel shows `interactive · app` and `--json` has `source: "app"` (`"cli"` for agy CLI). No new table column.
+- The 7-day usage and monthly reports add both.
+
+<details>
+<summary>Details: running state, files read</summary>
+
+- The app process is not visible from WSL, so an app conversation counts as running when its log (`conversations/<id>.db-wal`) or the conversation list changed in the last 2 minutes.
+- So an app conversation quiet for over 2 minutes shows as ended, and a closed app stays running for up to 2 minutes.
+- App conversations cannot be resumed with the agy CLI, so no resume command is made.
+- The app folder also holds sign-in tokens and other files. aitop opens only `conversations/` and `conversation_summaries.db`, read-only (immutable).
+- With `AITOP_AGY_HOME` set, the app folder is read only if `AITOP_AGY_APP_HOME` is set too (keeps tests away from real logs). `--print-config` then shows `agyApp false env (AITOP_AGY_HOME)`.
+- To keep a slow `/mnt/c` cheap, the app folder's file list and log signatures are checked at most every 10 seconds. The 2-minute running check still uses the current time.
+- If the same conversation id is in both folders, the agy CLI one wins.
+
+</details>
+
 ## Resume a session elsewhere
 
 Continue a session elsewhere, for example when you cannot jump to its tab, as in Windows Terminal with WSL. The detail panel shows a `Resume` command and `y` copies it. The panel wraps it at spaces, `/` and `\`, keeps the resume part (`claude --resume <id>`) on the last line(s), and keeps the session id on one line when the width allows. A long `cd` part is shortened in the middle with `…`; `y` still copies the whole command.

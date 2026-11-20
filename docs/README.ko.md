@@ -752,6 +752,34 @@ Claude Code 프로필을 여럿 쓰면(`CLAUDE_CONFIG_DIR=~/.claude-work claude`
 
 </details>
 
+## Antigravity 데스크톱 앱
+
+Antigravity 데스크톱 앱의 대화도 agy CLI 대화와 함께 Gemini 탭에 보인다. 앱 폴더가 있으면 저절로 읽는다.
+
+> `aitop --doctor`
+>
+> `AITOP_AGY_APP_HOME=off aitop`
+
+- 읽는 폴더: `~/.gemini/antigravity`. WSL 이면 Windows 홈의 `.gemini/antigravity` 도 본다.
+- Windows 홈은 `USERPROFILE` 이 넘어와 있으면 그 폴더, 없으면 `/mnt/c/Users/*` 에서 공용 폴더(Public, Default 등)를 뺀 사용자 폴더다.
+- `conversations/` 가 있는 폴더만 읽는다. `aitop --doctor` 의 agy 아래 `+ … Antigravity 앱` 줄에 찾은 폴더가 보인다.
+- 끄기: 설정 파일 `"agyApp": false` 또는 `AITOP_AGY_APP_HOME=off`. 절대 경로를 주면(여러 개는 Linux·macOS `:`, Windows `;` 로 잇는다) 그 폴더만 읽는다. 그 밖의 값(`on`, `1`, 상대 경로)은 `--doctor`·`--print-config` 에 경고하고 무시한다.
+- 상세 패널의 종류 줄에 `interactive · 앱`, `--json` 의 `source` 에 `app` 이 보인다 (agy CLI 대화는 `cli`). 표에는 열이 없다.
+- 7일 사용량과 월별 리포트에도 함께 더한다.
+
+<details>
+<summary>세부: 실행 중 판정, 읽는 파일</summary>
+
+- 앱 프로세스는 WSL 에서 보이지 않으므로, 대화 기록(`conversations/<id>.db-wal`)이나 대화 목록의 마지막 수정이 2분 안이면 실행 중으로 본다.
+- 그래서 2분 넘게 조용한 앱 대화는 끝남으로 보이고, 앱을 닫아도 2분 동안은 실행 중으로 남는다.
+- 앱 대화는 agy CLI 로 이어 열 수 없어 이어 열기 명령을 만들지 않는다.
+- 앱 폴더에는 로그인 토큰 같은 다른 파일도 있다. aitop 은 `conversations/` 와 `conversation_summaries.db` 만 immutable 로 연다.
+- `AITOP_AGY_HOME` 을 주면 `AITOP_AGY_APP_HOME` 을 함께 주지 않는 한 앱 폴더를 읽지 않는다 (테스트를 실제 기록과 떼어 놓는다). 이때 `--print-config` 에는 `agyApp false env (AITOP_AGY_HOME)` 로 보인다.
+- 느린 `/mnt/c` 를 덜 건드리려고 앱 폴더의 파일 목록과 기록 서명은 10초에 한 번만 본다. 2분 실행 중 판정은 늘 지금 시각으로 한다.
+- 같은 대화 id 가 두 폴더에 있으면 agy CLI 폴더 것을 쓴다.
+
+</details>
+
 ## 이어 열기
 
 다른 곳에서 세션을 이어 연다. `y` 는 고른 세션을 이어 여는 명령을 클립보드로 복사한다 (OSC 52). 상세 패널의 `이어 열기` 에 같은 명령이 보인다.
@@ -934,6 +962,7 @@ Claude Code 프로필을 여럿 쓰면(`CLAUDE_CONFIG_DIR=~/.claude-work claude`
 | `lang` | `ko` · `en` | `--lang`, `AITOP_LANG`. 없으면 로캘로 고른다 ([언어](#언어)) |
 | `claudeDirs` | 절대 경로(또는 `~/...`) 배열, 1~16개. 기본 `["~/.claude"]` | `AITOP_CLAUDE_DIRS` (설정 파일보다 먼저). 물려받은 `CLAUDE_CONFIG_DIR` 는 설정 파일 다음. [기록 폴더 여러 개](#기록-폴더-여러-개) |
 | `codexHomes` | 같은 모양. 기본 `["~/.codex"]` | `AITOP_CODEX_HOMES` (같은 구분자). 물려받은 `CODEX_HOME` 는 설정 파일 다음 |
+| `agyApp` | true (기본, 저절로 찾음) · false · 경로 배열 | `AITOP_AGY_APP_HOME` (`off` 또는 절대 경로, 여러 개는 Linux·macOS `:`, Windows `;`). [Antigravity 데스크톱 앱](#antigravity-데스크톱-앱) |
 
 <details>
 <summary>세부: <code>showRequests</code>, <code>onWaiting</code> 권한</summary>
@@ -1055,6 +1084,7 @@ end)
 | Claude Code | `~/.claude/sessions/<pid>.json` + pid 가 살아 있는지 | `~/.claude/projects/*/<sessionId>.jsonl`, `…/subagents/agent-*.jsonl` |
 | Codex CLI | `codex` 프로세스와 작업 폴더 (Linux `/proc`, macOS `ps`·`lsof`). Windows 는 PowerShell CIM 의 프로세스 시작 시각 | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` |
 | Antigravity CLI (`agy`) | `agy` 프로세스가 열어 둔 `presence/<id>.lock` (Linux `/proc/<pid>/fd`). macOS 는 작업 폴더로 짝짓는다 | `~/.gemini/antigravity-cli/conversation_summaries.db`(제목·상태·서브에이전트), `conversations/<id>.db` 의 `gen_metadata`(모델·토큰)·`steps`(지시·답변·도구 호출) |
+| Antigravity 데스크톱 앱 | 대화 기록·목록의 마지막 수정이 2분 안 | `~/.gemini/antigravity` (WSL 은 Windows 홈도) 의 같은 두 파일 |
 | Gemini CLI | `gemini` 프로세스 | 아직 미지원 |
 
 ## 알려진 한계
@@ -1093,7 +1123,7 @@ end)
 - Antigravity CLI 세션은 Gemini 탭에 보인다.
 - 지시·답변·도구 호출은 `conversations/<id>.db` 의 `steps` 에서 읽지만 변경 파일은 아직 읽지 않는다.
 - 토큰·단계 필드 번호는 실제 기록에서 확인한 값이라(출력 = 생각 + 답변) agy 업데이트로 바뀔 수 있다.
-- Windows Antigravity 앱(`/mnt/c/…/.gemini/antigravity`)은 읽지 않는다.
+- Antigravity 데스크톱 앱의 대화도 읽는다 ([Antigravity 데스크톱 앱](#antigravity-데스크톱-앱)).
 - agy 기록은 파일을 하나도 건드리지 않으려고 `-wal` 을 읽지 않는다.
 - 그래서 진행 내용과 응답 대기(도구 허락 대기)는 agy 가 `-wal` 을 본 파일에 합친 뒤에야 보이고, 보통 30초쯤 늦다.
 - 허락한 뒤에는 `-wal` 이 다시 바뀌는 것을 보고 바로 작업 중으로 돌린다.

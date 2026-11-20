@@ -3,7 +3,7 @@
 // - conversations/<id>.db 의 gen_metadata: 모델 호출 한 번에 한 줄. protobuf 안에 모델 이름과 토큰 사용량이 있다.
 // 실행 중인 agy 와 대화는 /proc/<pid>/fd 에 열린 presence/<id>.lock 으로 짝짓는다. /proc 이 없으면 작업 폴더로 짝짓는다.
 // 세션은 Gemini 탭에 보인다 (agy 는 Gemini CLI 의 후속 도구다).
-import { statSync, openSync, readSync, closeSync, existsSync, realpathSync } from 'node:fs';
+import { statSync, openSync, readSync, closeSync, existsSync, realpathSync, readdirSync } from 'node:fs';
 import { join, basename, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -12,6 +12,16 @@ import { findProcesses, isAgy, openFiles } from '../procs.mjs';
 import { addActivity, emptyTokens, mergeActivity, pushEvent, describeTool, toolDetail, isNoisePrompt, isLongTool, MEMBER_FADE_MS } from './common.mjs';
 import { contextWindow, geminiCost } from '../pricing.mjs';
 import { debug, debugIo } from '../log.mjs';
+import { isWsl } from '../notify.mjs';
+import { agyAppEnv, agyAppSetting, expandHome, wslWindowsHomes } from './dirs.mjs';
+
+const isDir = (p) => {
+  try {
+    return statSync(p).isDirectory();
+  } catch {
+    return false;
+  }
+};
 
 // /proc/<pid>/fd 의 링크는 늘 심볼릭 링크를 푼 절대 경로라서, 기록 폴더도 같은 모양으로 바꿔 둔다
 // (끝의 /, 상대 경로, 심볼릭 링크로 걸린 ~/.gemini). 폴더가 없으면 절대 경로까지만 바꾼다.
@@ -24,6 +34,39 @@ export function agyRoot(dir) {
   }
 }
 
+// 기록 폴더 목록 (#303): agy CLI 폴더와 Antigravity 데스크톱 앱 폴더. 앱의 대화 db 도 표 구성이 CLI 와 같다.
+// - AITOP_AGY_APP_HOME: 앱 폴더 (여럿이면 path.delimiter 로 잇는다). off·0·none·false 면 앱 폴더를 읽지 않는다. 가장 높다.
+// - AITOP_AGY_HOME: CLI 폴더 하나를 바꾼다. 이것을 주면 앱 폴더는 AITOP_AGY_APP_HOME 을 줄 때만 읽는다 (테스트를 실제 기록과 떼어 놓는다).
+// - app: 설정 파일의 agyApp (false 면 끔, 경로 배열이면 그 폴더들, true·undefined 면 저절로 찾는다).
+// - 저절로: ~/.gemini/antigravity, WSL 이면 Windows 홈의 .gemini/antigravity 도 (dirs.mjs wslWindowsHomes).
+// CLI 폴더는 없어도 목록에 둔다 (--doctor 가 '없음' 으로 보인다). 앱 폴더는 conversations/ 가 있는 것만 넣는다.
+// 앱 폴더에는 로그인 토큰 같은 다른 파일도 있으므로 conversations/, conversation_summaries.db 만 연다 (presence/ 는 CLI 의 /proc 짝짓기에서 경로만 본다).
+// 같은 실제 폴더는 한 번만. 순서는 CLI 먼저, 대화 id 가 겹치면 앞 폴더 것을 쓴다.
+export function findAgyRoots({ env = process.env, home = homedir(), app, wsl = null, winHomes = null, has = isDir } = {}) {
+  const roots = [{ dir: agyRoot(env.AITOP_AGY_HOME ?? join(home, '.gemini', 'antigravity-cli')), source: 'cli' }];
+  const own = agyAppEnv(env.AITOP_AGY_APP_HOME);
+  const choice = own !== undefined ? own : env.AITOP_AGY_HOME != null ? false : app;
+  let apps = [];
+  if (Array.isArray(choice)) apps = choice.map((p) => expandHome(p, home));
+  else if (choice !== false) {
+    apps = [join(home, '.gemini', 'antigravity')];
+    const onWsl = wsl ?? (process.platform === 'linux' && isWsl(env));
+    if (onWsl) for (const h of (winHomes ?? (() => wslWindowsHomes({ env })))()) apps.push(join(h, '.gemini', 'antigravity'));
+  }
+  const seen = new Set([roots[0].dir]);
+  for (const a of apps) {
+    const dir = agyRoot(a);
+    if (seen.has(dir) || !has(join(dir, 'conversations'))) continue;
+    seen.add(dir);
+    roots.push({ dir, source: 'app' });
+  }
+  return roots;
+}
+
+// 처음 쓸 때 정한다. bin/aitop.mjs 가 설정 파일의 agyApp 을 setDataDirs 로 넘긴 뒤에 불려야 해서 모듈을 불러올 때 정하지 않는다.
+let rootsCache = null;
+export const agyRoots = () => (rootsCache ??= findAgyRoots({ app: agyAppSetting() }));
+// CLI 폴더 (예전 이름 그대로, 기본값으로 쓰는 곳이 많다). 앱 설정과 상관없다.
 export const AGY_ROOT = agyRoot(process.env.AITOP_AGY_HOME ?? join(homedir(), '.gemini', 'antigravity-cli'));
 
 const RECENT_MS = 24 * 3600 * 1000;
@@ -466,12 +509,18 @@ const mtimeOf = (path) => {
 export const maxIdx = (db, table) => db.prepare(`select max(idx) m from ${table}`).get()?.m ?? -1;
 
 // 대화 기록 하나를 한 번 열어 토큰(gen_metadata)과 진행 기록(steps)을 함께 읽는다.
-export function readConversation(id, budget) {
-  let g = convs.get(id);
-  if (!g) convs.set(id, (g = fresh()));
-  const path = join(AGY_ROOT, 'conversations', `${id}.db`);
+// root: 기록 폴더 (CLI 또는 앱). 읽은 상태는 파일 경로로 두어 폴더끼리 섞이지 않는다.
+// ttl: 끝까지 읽은 뒤 이 시간(ms) 안에는 파일 서명도 다시 보지 않는다 (앱 폴더가 /mnt/c 처럼 느린 곳일 때, APP_TTL_MS).
+export function readConversation(id, budget, root = AGY_ROOT, ttl = 0) {
+  const path = join(root, 'conversations', `${id}.db`);
+  let g = convs.get(path);
+  if (!g) convs.set(path, (g = fresh()));
+  if (ttl && g.checkedAt != null && Date.now() - g.checkedAt < ttl) return g;
   const sig = sigOf(path);
-  if (sig === null || sig === g.sig) return g;
+  if (sig === null || sig === g.sig) {
+    if (ttl && sig !== null) g.checkedAt = Date.now();
+    return g;
+  }
   const mainSig = sigOf(path, false);
   if (outOf(budget)) {
     budget.exhausted = true;
@@ -510,6 +559,8 @@ export function readConversation(id, budget) {
     db?.close();
   }
   if (ok) Object.assign(g, n);
+  // 끝까지 읽었을 때만 TTL 을 시작한다 (읽기 한도에 걸렸으면 다음 갱신에 이어 읽는다).
+  if (ttl) g.checkedAt = ok && g.sig === sig ? Date.now() : null;
   return g;
 }
 
@@ -521,13 +572,22 @@ export function parseTime(s) {
   return Date.parse(s) || null;
 }
 
-export function cwdOf(workspaceUris) {
+// WSL 인지는 한 번만 본다 (/proc/version 읽기).
+let onWsl = null;
+const wslNow = () => (onWsl ??= process.platform === 'linux' && isWsl());
+
+// wsl: WSL 인지 (테스트에서 바꿔 끼운다). WSL 에서 읽은 Windows 앱 대화의 작업 폴더(file:///c%3A/Users/…)는 /c:/Users/… 로 풀리므로
+// /mnt/c/Users/… 로 바꿔 같은 폴더의 Claude·Codex 세션과 한 프로젝트로 묶이게 한다.
+export function cwdOf(workspaceUris, { wsl = null } = {}) {
   try {
     const first = JSON.parse(workspaceUris || '[]')[0];
     if (!first) return null;
     const p = first.startsWith('file:') ? fileURLToPath(first) : first;
     // Windows 의 file:///c%3A/… 는 c:\… 가 되므로 드라이브 문자를 대문자로 맞춘다 (Claude·Codex 의 C:\ 와 같은 프로젝트로 묶이게).
-    return process.platform === 'win32' ? p.replace(/^[a-z](?=:)/, (d) => d.toUpperCase()) : p;
+    if (process.platform === 'win32') return p.replace(/^[a-z](?=:)/, (d) => d.toUpperCase());
+    const drive = /^\/?([A-Za-z]):(?:[\\/](.*))?$/.exec(p);
+    if (drive && (wsl ?? wslNow())) return ['/mnt', drive[1].toLowerCase(), ...(drive[2] ?? '').split(/[\\/]+/).filter(Boolean)].join('/');
+    return p;
   } catch (e) {
     debug('agy', 'workspace_uris parse failed', e);
     return null;
@@ -535,12 +595,14 @@ export function cwdOf(workspaceUris) {
 }
 
 // 읽는 동안 agy 가 쓰면 결과를 버리고 지난번 목록을 쓴다 (한 번 갱신 동안 세션이 사라져 보이지 않게).
-let summaries = { sig: null, rows: [] };
+// 기록 폴더마다 따로 둔다. 줄마다 root(기록 폴더)와 source('cli'|'app')를 붙인다.
+const summaryCache = new Map();
 
-function readSummaries() {
-  const path = join(AGY_ROOT, 'conversation_summaries.db');
+function readSummaries(root = AGY_ROOT, source = 'cli') {
+  const path = join(root, 'conversation_summaries.db');
   const sig = sigOf(path);
   if (sig === null) return [];
+  let summaries = summaryCache.get(root) ?? { sig: null, rows: [] };
   if (sig === summaries.sig) return summaries.rows;
   const mainSig = sigOf(path, false);
   let db;
@@ -554,8 +616,8 @@ function readSummaries() {
            from conversation_summaries order by last_modified_time desc limit 500`,
       )
       .all()
-      .map((r) => ({ ...r, cwd: cwdOf(r.ws), updatedAt: parseTime(r.modified), running: r.status === RUNNING || Boolean(r.busy) }));
-    if (sigOf(path, false) === mainSig) summaries = { sig, rows };
+      .map((r) => ({ ...r, cwd: cwdOf(r.ws), updatedAt: parseTime(r.modified), running: r.status === RUNNING || Boolean(r.busy), root, source }));
+    if (sigOf(path, false) === mainSig) summaryCache.set(root, (summaries = { sig, rows }));
   } catch (e) {
     debugIo('agy', 'conversation_summaries read failed', e, path);
     // 다음 갱신에 다시 읽는다.
@@ -580,13 +642,15 @@ const rootOf = (id, byId) => {
 };
 
 // 실행 중인 agy 프로세스와 최상위 대화를 짝짓는다. 짝을 못 찾은 프로세스는 따로 돌려준다.
+// dir: CLI 기록 폴더 하나 또는 목록. 앱 대화(source 'app')는 agy 프로세스가 열지 않으므로 작업 폴더 짐작에서 뺀다.
 export function matchLive(procs, rows, filesOf = openFiles, dir = AGY_ROOT) {
+  const dirs = [dir].flat();
   const byId = new Map(rows.map((r) => [r.id, r]));
   const live = new Map();
   const loose = [];
   for (const p of procs) {
     const files = filesOf(p.pid);
-    const ids = (files ?? []).map((f) => idFromPath(f, dir)).filter((id) => id && byId.has(id));
+    const ids = (files ?? []).flatMap((f) => dirs.map((d) => idFromPath(f, d))).filter((id) => id && byId.has(id));
     if (ids.length) {
       for (const id of ids) {
         const root = rootOf(id, byId);
@@ -595,7 +659,7 @@ export function matchLive(procs, rows, filesOf = openFiles, dir = AGY_ROOT) {
       continue;
     }
     // /proc 이 없으면 같은 작업 폴더에서 가장 최근에 바뀐 대화를 고른다.
-    const guess = files === null ? rows.find((r) => !r.parent && r.cwd === p.cwd && !live.has(r.id)) : null;
+    const guess = files === null ? rows.find((r) => !r.parent && r.source !== 'app' && r.cwd === p.cwd && !live.has(r.id)) : null;
     if (guess) live.set(guess.id, p.pid);
     else loose.push(p);
   }
@@ -695,6 +759,7 @@ function placeholder(p, msg) {
     id: `agy-${p.pid}`,
     pid: p.pid,
     kind: 'interactive',
+    source: 'cli',
     name: basename(p.cwd ?? '') || 'agy',
     cwd: p.cwd,
     project: basename(p.cwd ?? ''),
@@ -712,14 +777,93 @@ function placeholder(p, msg) {
   };
 }
 
-export function collectAgy({ showEnded, budget }) {
-  const procs = findProcesses(isAgy);
-  // 기록 폴더가 없으면 agy 를 실행한 적이 없는 것이다 (테스트에서 AITOP_AGY_HOME 으로 실제 기록과 떼어 놓을 때도 쓴다).
-  if (!existsSync(AGY_ROOT) || (!procs.length && !showEnded)) return [];
+// 앱 대화의 실행 중 판정 (#303). 앱 프로세스는 WSL 에서 /proc 에 보이지 않고 열린 파일로 짝지을 수도 없어,
+// APP_LIVE_MS 안에 바뀐 기록을 실행 중으로 본다 (codex 의 NO_PROC_LIVE_MS 와 따로 둔다).
+export const APP_LIVE_MS = 2 * 60_000;
+// conversations/ 목록을 한 번 읽고 -wal 만 stat 한다 (앱이 쓰고 있는 대화에만 -wal 이 있다). 대화 목록의 마지막 수정 시각도 본다.
+// 서브에이전트 대화가 바뀌었으면 그 부모(최상위) 대화를 실행 중으로 본다.
+// 앱 폴더의 -wal 수정 시각 (대화 id → ms). 폴더 목록을 한 번 읽고 -wal 만 stat 한다.
+export function appWal(root) {
+  const out = new Map();
+  const dir = join(root, 'conversations');
+  let names = [];
+  try {
+    names = readdirSync(dir);
+  } catch (e) {
+    debugIo('agy', 'app conversations list failed', e, dir);
+  }
+  for (const n of names) {
+    const m = /^([\w-]+)\.db-wal$/.exec(n);
+    if (!m) continue;
+    try {
+      out.set(m[1], statSync(join(dir, n)).mtimeMs);
+    } catch {}
+  }
+  return out;
+}
+
+// wal: appWal 결과 (TTL 동안은 지난 값을 쓴다). 2분 판정은 늘 지금 시각으로 한다.
+export function appLive(root, rows, now = Date.now(), wal = appWal(root)) {
+  const ids = new Set();
+  for (const [id, at] of wal) if (now - at <= APP_LIVE_MS) ids.add(id);
+  for (const r of rows) if (r.updatedAt != null && now - r.updatedAt <= APP_LIVE_MS) ids.add(r.id);
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  return new Set([...ids].filter((id) => byId.has(id)).map((id) => rootOf(id, byId)));
+}
+
+// 앱 폴더는 WSL 에서 /mnt/c(9P, stat 한 번에 약 0.6ms)에 있을 수 있어, 폴더가 있는지·대화 목록·-wal 목록·대화 기록 서명을
+// APP_TTL_MS 마다 한 번만 본다. 실행 중 판정(APP_LIVE_MS)은 매 갱신 지금 시각으로 다시 한다.
+export const APP_TTL_MS = 10_000;
+const appCache = new Map();
+
+// 앱 폴더 하나의 { exists, rows, wal }. TTL 안이면 지난 값을 쓴다.
+function appSnapshot(root) {
+  const c = appCache.get(root);
+  if (c && Date.now() - c.at < APP_TTL_MS) return c;
+  const exists = existsSync(root);
+  const snap = { at: Date.now(), exists, rows: exists ? readSummaries(root, 'app') : [], wal: exists ? appWal(root) : new Map() };
+  appCache.set(root, snap);
+  return snap;
+}
+
+// 테스트용: 앱 폴더 캐시를 ms 만큼 오래된 것으로 만든다 (TTL 이 지난 것을 흉내 낸다).
+export const _test = {
+  age(ms) {
+    for (const c of appCache.values()) c.at -= ms;
+    for (const g of convs.values()) if (g.checkedAt != null) g.checkedAt -= ms;
+  },
+};
+
+// 폴더마다 대화 목록을 읽어 합친다. 같은 대화 id 가 여러 폴더에 있으면 앞 폴더(CLI) 것만 둔다.
+function readAllSummaries(roots) {
+  const seen = new Set();
+  const out = [];
+  for (const r of roots) {
+    for (const row of r.source === 'app' ? appSnapshot(r.dir).rows : readSummaries(r.dir, r.source)) {
+      if (seen.has(row.id)) continue;
+      seen.add(row.id);
+      out.push(row);
+    }
+  }
+  return out;
+}
+
+export function collectAgy({ showEnded, budget, roots = agyRoots() }) {
+  // 기록 폴더가 없으면 그 쪽은 실행한 적이 없는 것이다 (테스트에서 AITOP_AGY_HOME 으로 실제 기록과 떼어 놓을 때도 쓴다).
+  // CLI 폴더가 없으면 agy 프로세스도 보지 않는다 (예전과 같다).
+  const have = roots.filter((r) => (r.source === 'app' ? appSnapshot(r.dir).exists : existsSync(r.dir)));
+  const cli = have.filter((r) => r.source !== 'app');
+  const apps = have.filter((r) => r.source === 'app');
+  const procs = cli.length ? findProcesses(isAgy) : [];
+  // 앱 대화는 프로세스 없이 수정 시각으로 판정하므로, agy 프로세스가 없어도 앱 폴더가 있으면 읽는다.
+  if (!have.length || (!procs.length && !apps.length && !showEnded)) return [];
   if (!loadSqlite()) return procs.map((p) => placeholder(p, 'agyOldNode'));
 
-  const rows = readSummaries();
-  const { live, loose } = matchLive(procs, rows);
+  const rows = readAllSummaries(have);
+  const { live, loose } = matchLive(procs, rows, openFiles, cli.map((r) => r.dir));
+  for (const a of apps) {
+    for (const id of appLive(a.dir, rows.filter((r) => r.root === a.dir), Date.now(), appSnapshot(a.dir).wal)) if (!live.has(id)) live.set(id, null);
+  }
   const byId = new Map(rows.map((r) => [r.id, r]));
   const children = new Map();
   for (const r of rows) if (r.parent) {
@@ -734,10 +878,11 @@ export function collectAgy({ showEnded, budget }) {
   tops.sort((a, b) => Number(live.has(b.id)) - Number(live.has(a.id)));
   for (const r of tops) {
     const isLive = live.has(r.id);
-    const g = readConversation(r.id, budget);
+    const ttlOf = (x) => (x.source === 'app' ? APP_TTL_MS : 0);
+    const g = readConversation(r.id, budget, r.root, ttlOf(r));
     const kids = children.get(r.id) ?? [];
     // 서브에이전트 기록은 한 번만 읽어 행과 합계가 같은 값을 쓰게 한다.
-    const kidUsage = kids.map((c) => readConversation(c.id, budget));
+    const kidUsage = kids.map((c) => readConversation(c.id, budget, c.root, ttlOf(c)));
     const kidWaits = kids.map((c, i) => subWait(isLive, c, kidUsage[i]));
     // 끝난 서브에이전트는 Claude 팀원처럼 잠시 "완료"로 보였다가 행에서 빠진다. 합계에는 그대로 남는다.
     const members = kids
@@ -782,6 +927,8 @@ export function collectAgy({ showEnded, budget }) {
       id: r.id,
       pid: live.get(r.id) ?? null,
       kind: 'interactive',
+      // 기록이 온 곳: 'cli'(agy CLI 폴더) 또는 'app'(Antigravity 데스크톱 앱 폴더). 상세 패널과 --json 에 보인다.
+      source: r.source ?? 'cli',
       name: r.title || basename(r.cwd ?? '') || 'agy',
       cwd: r.cwd,
       project: basename(r.cwd ?? ''),
@@ -813,7 +960,7 @@ export function collectAgy({ showEnded, budget }) {
   }
   for (const p of loose) out.push(placeholder(p, 'firstInput'));
 
-  const keep = new Set(rows.map((r) => r.id));
-  for (const id of convs.keys()) if (!keep.has(id)) convs.delete(id);
+  const keep = new Set(rows.map((r) => join(r.root, 'conversations', `${r.id}.db`)));
+  for (const path of convs.keys()) if (!keep.has(path)) convs.delete(path);
   return out;
 }

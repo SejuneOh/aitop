@@ -36,7 +36,8 @@ function resumeArgs(s) {
     const u = codexId(id);
     return u ? ['codex', 'resume', u] : null;
   }
-  if (s.tool === 'gemini') return isUuid(id) ? ['agy', '--conversation', id] : null;
+  // Antigravity 데스크톱 앱의 대화(source 'app')는 agy CLI 로 이어 열 수 없어 만들지 않는다 (#303).
+  if (s.tool === 'gemini') return isUuid(id) && s.source !== 'app' ? ['agy', '--conversation', id] : null;
   return null;
 }
 

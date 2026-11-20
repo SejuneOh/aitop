@@ -197,7 +197,8 @@ test('표의 STATUS 칸과 상세 창의 상태 문구는 화면 언어를 따�
 // 실제 bin. 언어 관련 환경 변수를 지우고 원하는 것만 넣는다. 설정 파일은 빈 임시 폴더.
 const xdg = mkdtempSync(join(tmpdir(), 'aitop-i18n-'));
 const run = (args, extra = {}) => {
-  const env = { ...process.env, XDG_CONFIG_HOME: xdg, ...extra };
+  // agy CLI·앱 기록은 빈 임시 폴더와 off 로 막아 --doctor 가 실제 기록(WSL 의 /mnt/c 포함)을 열지 않게 한다 (#303).
+  const env = { ...process.env, XDG_CONFIG_HOME: xdg, AITOP_AGY_HOME: join(xdg, 'agy-none'), AITOP_AGY_APP_HOME: 'off', ...extra };
   for (const k of ['AITOP_LANG', 'LC_ALL', 'LC_MESSAGES', 'LANG']) if (!(k in extra)) delete env[k];
   return spawnSync(process.execPath, [BIN, ...args], { env, encoding: 'utf8', timeout: 20_000 });
 };

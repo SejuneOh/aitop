@@ -29,88 +29,14 @@ const { flushCache } = await import('../src/cache.mjs');
 const sqlite = loadSqlite();
 const noSqlite = !sqlite && 'agy 기록을 immutable 로 열 수 없는 Node (22.15 미만)';
 
-// ---- protobuf 만들기 ----
-const varint = (n) => {
-  const out = [];
-  do {
-    let b = n % 128;
-    n = Math.floor(n / 128);
-    if (n) b |= 128;
-    out.push(b);
-  } while (n);
-  return Buffer.from(out);
-};
-const num = (f, v) => Buffer.concat([varint(f * 8), varint(v)]);
-const bytes = (f, v) => {
-  const b = Buffer.isBuffer(v) ? v : Buffer.from(v);
-  return Buffer.concat([varint(f * 8 + 2), varint(b.length), b]);
-};
-// 실제 기록과 같은 모양: 1 → { 3 모델 번호, 17 → 2 → 사용량, 19 모델 이름, 20 {1 이름, 2 값} 목록 }, 앞뒤에 상관없는 필드.
-// step 을 주면 20 목록에 last_step_index 로 넣는다.
-const kv = (k, v) => bytes(20, Buffer.concat([bytes(1, k), bytes(2, v)]));
-function generation({ model = 'gemini-4-argon', input = 0, output = 0, cacheRead = 0, cacheWrite = 0, step } = {}) {
-  const usage = Buffer.concat([num(1, 1417), num(2, input), num(3, output), ...(cacheWrite ? [num(4, cacheWrite)] : []), num(5, cacheRead), num(6, 3), bytes(7, 'bot-x'), num(9, 1), num(10, Math.max(0, output - 1))]);
-  const tail = [bytes(20, 'tool'), kv('trajectory_id', 'x'), ...(step != null ? [kv('last_step_index', String(step))] : []), kv('model_enum', 'M')];
-  const gen = Buffer.concat([num(3, 1319), bytes(4, 'x'.repeat(30)), bytes(17, bytes(2, usage)), bytes(19, model), ...tail]);
-  return Buffer.concat([bytes(2, '4'), bytes(4, 'uuid'), bytes(8, bytes(214280, 'cfg')), bytes(1, gen)]);
-}
+import * as fx from './agy-fixture.mjs';
 
-function makeConversation(id, gens) {
-  const db = new sqlite.DatabaseSync(join(root, 'conversations', `${id}.db`));
-  db.exec('create table if not exists gen_metadata (idx integer primary key, data blob, size integer not null default 0)');
-  const ins = db.prepare('insert into gen_metadata (idx, data) values (?, ?)');
-  const start = db.prepare('select coalesce(max(idx), -1) + 1 n from gen_metadata').get().n;
-  gens.forEach((g, i) => ins.run(start + i, generation(g)));
-  db.close();
-}
-
-// steps 한 줄. 실제 기록과 같은 모양: 1 종류, 4 상태, 5 메타 {1 만든 시각, 4 도구 호출}, 19 사용자 입력, 20 답변, 140 도구 결과.
-const T0 = Date.UTC(2026, 10, 6, 2, 0, 0);
-const stamp = (ms) => Buffer.concat([num(1, Math.floor(ms / 1000)), num(2, (ms % 1000) * 1e6 + 123)]);
-const call = (name, args) => Buffer.concat([bytes(1, 'call_1'), bytes(2, name), bytes(3, JSON.stringify(args)), bytes(7, Buffer.from([1, 0xc8, 0x3d, 0x6b]))]);
-const meta = (at, tool) => Buffer.concat([bytes(1, stamp(at)), num(3, 2), ...(tool ? [bytes(4, call(...tool))] : []), num(11, 1319), bytes(12, 'uuid'), bytes(35, 'hash')]);
-function step({ type, status = 3, at = T0, text, tool }) {
-  const parts = [num(1, type), num(4, status), bytes(5, meta(at, type === STEP.TOOL ? tool : null))];
-  if (type === STEP.PROMPT) parts.push(bytes(19, Buffer.concat([bytes(2, text), bytes(3, `\n${text}`), bytes(4, '')])));
-  if (type === STEP.REPLY) parts.push(bytes(20, Buffer.concat([...(text ? [bytes(1, text)] : []), bytes(3, '**Thinking**'), bytes(6, 'bot-x'), ...(tool ? [bytes(7, call(...tool))] : []), num(12, 2)])));
-  if (type === STEP.TOOL) parts.push(bytes(140, bytes(1, Buffer.concat([bytes(1, 'Path'), bytes(2, '/x')]))));
-  return Buffer.concat(parts);
-}
-const prompt = (text, at) => ({ type: STEP.PROMPT, text, at });
-const reply = (text, tool, at) => ({ type: STEP.REPLY, text, tool, at });
-const toolStep = (tool, status = 3, at) => ({ type: STEP.TOOL, tool, status, at });
-
-function makeSteps(id, steps) {
-  const db = new sqlite.DatabaseSync(join(root, 'conversations', `${id}.db`));
-  db.exec(`create table if not exists steps (idx integer, step_type integer not null default 0, status integer not null default 0, has_subtrajectory numeric not null default false,
-    metadata blob, error_details blob, permissions blob, task_details blob, render_info blob, step_payload blob, step_format integer not null default 0, primary key (idx))`);
-  const ins = db.prepare('insert into steps (idx, step_type, status, step_payload) values (?, ?, ?, ?)');
-  const start = db.prepare('select coalesce(max(idx), -1) + 1 n from steps').get().n;
-  steps.forEach((s, i) => ins.run(start + i, s.type, s.status ?? 3, Buffer.isBuffer(s.raw) ? s.raw : step(s)));
-  db.close();
-}
-
-function setStep(id, idx, s) {
-  const db = new sqlite.DatabaseSync(join(root, 'conversations', `${id}.db`));
-  db.prepare('update steps set status = ?, step_payload = ? where idx = ?').run(s.status ?? 3, step(s), idx);
-  db.close();
-}
-
-const kinds = (g) => g.events.map((e) => `${e.kind}:${e.text}`);
-
-function makeSummaries(rows) {
-  const db = new sqlite.DatabaseSync(join(root, 'conversation_summaries.db'));
-  db.exec(`drop table if exists conversation_summaries;
-    create table conversation_summaries (conversation_id text primary key, title text not null default '', step_count integer not null default 0,
-      last_modified_time datetime not null, workspace_uris text not null, status text not null default '', agent_name text not null default '',
-      parent_conversation_id text not null default '', nesting_depth integer not null default 0, not_fully_idle numeric not null default false,
-      killed numeric not null default false)`);
-  const ins = db.prepare('insert into conversation_summaries values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-  for (const r of rows) ins.run(r.id, r.title ?? '', r.steps ?? 1, r.modified, JSON.stringify(r.ws ?? []), r.status ?? 'CASCADE_RUN_STATUS_IDLE', r.agent ?? '', r.parent ?? '', r.parent ? 1 : 0, r.busy ? 1 : 0, 0);
-  db.close();
-}
-
-const ts = (ms) => new Date(ms).toISOString().replace('T', ' ').replace('Z', '+00:00');
+// ---- 기록 만들기 (agy-fixture.mjs, 이 파일의 root 에) ----
+const { num, bytes, generation, T0, step, prompt, reply, toolStep, kinds, ts } = fx;
+const makeConversation = (id, gens) => fx.makeConversation(root, id, gens);
+const makeSteps = (id, steps) => fx.makeSteps(root, id, steps);
+const setStep = (id, idx, s) => fx.setStep(root, id, idx, s);
+const makeSummaries = (rows) => fx.makeSummaries(root, rows);
 
 // 단계가 없는 대화는 기록 파일의 수정 시각 가격으로 센다. 실행 날짜와 상관없게 그 시각을 고정한다.
 function pinTime(id, ms) {

@@ -43,6 +43,8 @@ export function toJson(data, version = null, opts = {}) {
       // 실행 방식 (Claude 기록의 entrypoint: 'cli', 'sdk-cli' 등, 모르면 null). auto 는 부모 세션을 못 찾은 claude -p 실행 (#286).
       // 부모를 찾은 claude -p 실행은 여기 없고 부모의 members 에 entrypoint·parentId 와 함께 들어간다 (합계도 부모에 더해져 있다).
       entrypoint: s.entrypoint ?? null,
+      // 기록이 온 곳. Antigravity(tool 'gemini' 이고 기록이 있는 세션)만 'cli'(agy CLI) 또는 'app'(데스크톱 앱), 나머지는 null (#303).
+      source: s.source ?? null,
       auto: Boolean(s.auto),
       pid: s.pid ?? null,
       live: Boolean(s.live),

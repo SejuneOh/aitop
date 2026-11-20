@@ -319,7 +319,7 @@ export function summaryLines(s, w, frame, view) {
   const cache = cacheState(s);
   const optional = [
     s.branch && [sep, { t: s.branch, fg: PALETTE.info }],
-    s.kind && [sep, { t: s.kind, fg: PALETTE.info }],
+    s.kind && [sep, { t: s.source === 'app' ? `${s.kind} · ${tr('detail.app')}` : s.kind, fg: PALETTE.info }],
     s.startedAt && [sep, { t: tr('detail.startedAgo', { at: hhmm(s.startedAt), ago: fmtAgo(NOW - s.startedAt) }), fg: PALETTE.info }],
     // 캐시 남은 시간은 표의 STATUS 칸과 같은 짧은 글로, 가장 먼저 뺀다.
     cache && [sep, { t: cache.text, fg: cache.fg, bold: cache.bold }],
@@ -487,7 +487,8 @@ export function detail(s, W, H, frame, view) {
   kv(tr('detail.folder'), tilde(s.cwd));
   if (s.branch) kv(tr('detail.branch'), s.branch);
   kv(tr('detail.model'), s.model ?? '-');
-  kv(tr('detail.kind'), `${s.kind ?? '-'}${s.pid ? ` · pid ${s.pid}` : ''}`);
+  // Antigravity 데스크톱 앱의 대화는 종류 뒤에 짧게 '앱' 을 붙인다 (#303, 표에는 열을 만들지 않는다).
+  kv(tr('detail.kind'), `${s.kind ?? '-'}${s.source === 'app' ? ` · ${tr('detail.app')}` : ''}${s.pid ? ` · pid ${s.pid}` : ''}`);
   if (s.startedAt) kv(tr('detail.started'), tr('detail.ago', { at: clock(s.startedAt), ago: fmtAgo(NOW - s.startedAt) }));
 
   // 합계 = 메인 + 서브 = 입력 + 출력 + 캐시 읽기 + 캐시 쓰기 가 화면에서 그대로 맞아떨어지게 보인다.

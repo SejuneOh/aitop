@@ -5,7 +5,7 @@ import { readdirSync, readFileSync, statSync, existsSync, openSync, readSync, cl
 import { basename, join } from 'node:path';
 import { homedir, platform } from 'node:os';
 import { findProcesses, isCodex, isGemini, isAgy, canListProcesses, isAlive, isSessionAlive, processMethod } from './procs.mjs';
-import { AGY_ROOT } from './sources/antigravity.mjs';
+import { agyRoots } from './sources/antigravity.mjs';
 import { loadSqlite, openReadOnly } from './sqlite.mjs';
 import { fmtAgo, pad, stripControl, width } from './text.mjs';
 import { BRAND } from './brand.mjs';
@@ -174,25 +174,39 @@ function gemini() {
   };
 }
 
-// Antigravity CLI: 요약 DB 를 열어 대화 목록을 읽을 수 있는지 본다. node:sqlite 가 없으면 프로세스만 센다.
-function agy() {
-  const dir = join(AGY_ROOT, 'conversations');
+// Antigravity CLI 와 데스크톱 앱(#303): 요약 DB 를 열어 대화 목록을 읽을 수 있는지 본다. node:sqlite 가 없으면 프로세스만 센다.
+// path 는 CLI 폴더(예전 모양). 앱 폴더가 있으면 dirs 에 폴더마다 { path, found, records, source } 를 두고 둘째 줄부터 보인다.
+// 앱 폴더는 있는 것만 목록에 들어오므로(findAgyRoots) 없으면 줄이 생기지 않는다. 앱 폴더에서도 conversations/ 와 요약 DB 만 본다.
+function agy(roots = agyRoots()) {
   const running = canListProcesses() ? findProcesses(isAgy).length : null;
-  const files = existsSync(dir) ? walk(dir, 0, (n) => n.endsWith('.db')) : null;
-  if (!files) return { tool: 'agy', state: 'missing', path: tilde(AGY_ROOT), records: 0, lastAt: null, running, readable: null, hint: null };
-  const last = newest(files.flatMap((f) => [f, `${f}-wal`]).filter((f) => existsSync(f)));
-  if (!loadSqlite()) return { tool: 'agy', state: 'limited', path: tilde(AGY_ROOT), records: files.length, lastAt: last?.mtime ?? null, running, readable: null, hint: null };
-  let readable = false;
-  let db;
-  try {
-    db = openReadOnly(join(AGY_ROOT, 'conversation_summaries.db'));
-    db.prepare('select count(*) n from conversation_summaries').get();
-    readable = true;
-  } catch {
-  } finally {
-    db?.close();
+  const dirs = [];
+  const files = [];
+  for (const r of roots) {
+    const dir = join(r.dir, 'conversations');
+    const got = existsSync(dir) ? walk(dir, 0, (n) => n.endsWith('.db')) : null;
+    dirs.push({ path: tilde(r.dir), found: Boolean(got), records: got?.length ?? 0, source: r.source, root: r.dir });
+    files.push(...(got ?? []));
   }
-  return { tool: 'agy', state: 'ok', path: tilde(AGY_ROOT), records: files.length, lastAt: last?.mtime ?? null, running, readable, hint: null };
+  const path = dirs[0].path;
+  // 앱 폴더가 없으면 예전과 같은 모양 (dirs 없음).
+  const more = dirs.length > 1 ? { dirs: dirs.map(({ root, ...d }) => d) } : {};
+  if (!dirs.some((d) => d.found)) return { tool: 'agy', state: 'missing', path, ...more, records: 0, lastAt: null, running, readable: null, hint: null };
+  const last = newest(files.flatMap((f) => [f, `${f}-wal`]).filter((f) => existsSync(f)));
+  if (!loadSqlite()) return { tool: 'agy', state: 'limited', path, ...more, records: files.length, lastAt: last?.mtime ?? null, running, readable: null, hint: null };
+  // 기록이 있는 폴더의 요약 DB 를 모두 읽을 수 있어야 읽을 수 있다고 본다.
+  let readable = true;
+  for (const d of dirs.filter((x) => x.found)) {
+    let db;
+    try {
+      db = openReadOnly(join(d.root, 'conversation_summaries.db'));
+      db.prepare('select count(*) n from conversation_summaries').get();
+    } catch {
+      readable = false;
+    } finally {
+      db?.close();
+    }
+  }
+  return { tool: 'agy', state: 'ok', path, ...more, records: files.length, lastAt: last?.mtime ?? null, running, readable, hint: null };
 }
 
 // 도구별 안내 한 줄. 없으면 null. 점검 결과(--json 의 tools.*.hint)에는 예전처럼 한국어로 넣고, --doctor 글은 지금 언어로 다시 만든다.
@@ -290,7 +304,8 @@ export function doctorText(result, version, now = Date.now(), lang = getLang()) 
     const d = describe(t, now, lang);
     out.push(`${d.mark} ${pad(t.tool, 7)}${pad(d.state, 10)}${d.path}`);
     // 기록 폴더가 여럿이면 둘째부터 한 줄씩, 읽지 않는 후보 폴더는 넣는 방법과 함께 (#212).
-    for (const x of t.dirs?.slice(1) ?? []) out.push(`  + ${pad('', 15)}${x.path}  ${x.found ? tr('doctor.records', { n: x.records.toLocaleString('en-US') }, o) : tr('doctor.dirMissing', null, o)}`);
+    // Antigravity 앱 폴더(source 'app', #303)는 기록 수 앞에 '앱' 을 붙인다.
+    for (const x of t.dirs?.slice(1) ?? []) out.push(`  + ${pad('', 15)}${x.path}  ${x.source === 'app' ? `${tr('doctor.agyApp', null, o)} · ` : ''}${x.found ? tr('doctor.records', { n: x.records.toLocaleString('en-US') }, o) : tr('doctor.dirMissing', null, o)}`);
     out.push(`         ${d.detail}`);
     if (d.hint) out.push(`         → ${d.hint}`);
     if (t.candidates?.length) {

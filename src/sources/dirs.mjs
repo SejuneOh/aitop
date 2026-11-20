@@ -67,13 +67,25 @@ export const defaultCodexHomes = (env = process.env, home = homedir()) => envDir
 let chosen = null;
 
 // 설정까지 반영한 목록을 정한다. 소스 모듈이 처음 읽기 전에 불러야 한다.
-export function setDataDirs({ claude, codex } = {}) {
-  chosen = { claude: uniqueDirs(claude ?? defaultClaudeDirs()), codex: uniqueDirs(codex ?? defaultCodexHomes()) };
+// agyApp: 설정 파일·환경 변수의 Antigravity 앱 폴더 설정 (false, 경로 배열, true). 정하지 않았으면 undefined (antigravity.mjs findAgyRoots).
+export function setDataDirs({ claude, codex, agyApp } = {}) {
+  chosen = { claude: uniqueDirs(claude ?? defaultClaudeDirs()), codex: uniqueDirs(codex ?? defaultCodexHomes()), agyApp };
 }
 
 const pick = () => (chosen ??= { claude: uniqueDirs(defaultClaudeDirs()), codex: uniqueDirs(defaultCodexHomes()) });
 export const claudeDirs = () => pick().claude;
 export const codexHomes = () => pick().codex;
+export const agyAppSetting = () => chosen?.agyApp;
+
+// AITOP_AGY_APP_HOME 값 (#303): off·0·none·false 면 false(앱 폴더를 읽지 않음), 절대 경로(또는 ~)면 배열.
+// 비었거나 없거나 잘못된 값(on·1·true·상대 경로 등)이면 undefined. 잘못된 값은 config.mjs 가 --doctor·--print-config 에 알린다.
+const OFF = /^(?:0|off|none|false)$/i;
+export const agyAppEnv = (v) => {
+  if (typeof v !== 'string' || !v.trim()) return undefined;
+  if (OFF.test(v.trim())) return false;
+  const list = splitPaths(v);
+  return list && list.every(pathLike) ? list : undefined;
+};
 export const claudeProjectRoots = () => claudeDirs().map((d) => join(d, 'projects'));
 export const codexSessionRoots = () => codexHomes().map((h) => join(h, 'sessions'));
 
@@ -137,4 +149,28 @@ export function candidateDirs({ home = homedir(), claude = claudeDirs(), codex =
     claude: look([...inherited('claude'), join(home, '.claude'), ...near(/^\.claude[-_.]./), join(home, '.config', 'claude')], claude, 'projects'),
     codex: look([...inherited('codex'), join(home, '.codex'), ...near(/^\.codex[-_.]./)], codex, 'sessions'),
   };
+}
+
+// WSL 에서 Windows 사용자 홈 폴더 후보 (#303). Windows 앱의 기록은 /mnt/c/Users/<사용자> 아래에 있다.
+// USERPROFILE 이 WSLENV 로 넘어와 있으면(C:\Users\me) 그 폴더만, 없으면 usersDir 아래 사용자 폴더 전부.
+// 공용·기본 프로필 폴더는 건너뛴다. 폴더 이름과 존재만 보고 안은 읽지 않는다.
+const WIN_SKIP = new Set(['all users', 'default', 'default user', 'public', 'defaultapppool', 'wdagutilityaccount']);
+export function wslWindowsHomes({ env = process.env, usersDir = '/mnt/c/Users', has = isDir } = {}) {
+  const prof = /^([A-Za-z]):[\\/](.+)$/.exec(String(env.USERPROFILE ?? ''));
+  // USERPROFILE 의 폴더가 없으면(다른 드라이브 마운트 등) 사용자 폴더 훑기로 넘어간다.
+  if (prof) {
+    const p = join('/mnt', prof[1].toLowerCase(), ...prof[2].split(/[\\/]+/).filter(Boolean));
+    if (has(p)) return [p];
+  }
+  let names = [];
+  try {
+    names = readdirSync(usersDir);
+  } catch {
+    return [];
+  }
+  return names
+    .filter((n) => !WIN_SKIP.has(n.toLowerCase()) && !n.startsWith('.') && !/\.ini$/i.test(n))
+    .sort()
+    .map((n) => join(usersDir, n))
+    .filter((p) => has(p));
 }

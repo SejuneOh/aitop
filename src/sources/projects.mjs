@@ -5,7 +5,7 @@
 // 장부 캐시 모양은 그대로 두고, 리포트를 낼 때만 파일 앞부분을 조금 읽는다.
 import { openSync, readSync, closeSync, statSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, sep } from 'node:path';
-import { AGY_ROOT, cwdOf } from './antigravity.mjs';
+import { agyRoots, cwdOf } from './antigravity.mjs';
 import { openReadOnly } from '../sqlite.mjs';
 import { debugIo } from '../log.mjs';
 import { claudeProjectRoots } from './dirs.mjs';
@@ -102,13 +102,19 @@ export function codexProject(path) {
 }
 
 // 대화 id → 작업 폴더. 서브에이전트는 작업 폴더가 비어 있으면 부모를 따라 올라간다. 리포트 한 번에 한 번만 읽는다.
-export function agyWorkspaces(root = AGY_ROOT) {
+export function agyWorkspaces(root = agyRoots().map((r) => r.dir)) {
   return new Map([...agyConversations(root)].map(([id, c]) => [id, c.cwd]));
 }
 
 // 대화 id → { cwd, title, root }. root: 부모를 끝까지 따라간 맨 위 대화 id (서브에이전트를 그 세션에 묶을 때 쓴다).
 // title 은 agy 가 붙인 대화 제목 (세션 리포트의 '그 밖 이름').
-export function agyConversations(root = AGY_ROOT) {
+// root: 기록 폴더 하나 또는 목록 (CLI 폴더와 앱 폴더, #303). 같은 대화 id 가 여러 폴더에 있으면 앞 폴더 것을 쓴다.
+export function agyConversations(root = agyRoots().map((r) => r.dir)) {
+  if (Array.isArray(root)) {
+    const all = new Map();
+    for (const dir of root) for (const [id, c] of agyConversations(dir)) if (!all.has(id)) all.set(id, c);
+    return all;
+  }
   const out = new Map();
   let db;
   try {
