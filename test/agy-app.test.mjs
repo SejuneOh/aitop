@@ -5,7 +5,8 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs, { mkdtempSync, mkdirSync, writeFileSync, realpathSync, rmSync, utimesSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
-import { join, sep } from 'node:path';
+import { join, resolve, sep } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { tmpdir } from 'node:os';
 import { loadSqlite } from '../src/sqlite.mjs';
 import * as fx from './agy-fixture.mjs';
@@ -51,7 +52,8 @@ const { createBudget } = await import('../src/tail.mjs');
 after(() => rmSync(base, { recursive: true, force: true }));
 
 const noSqlite = !loadSqlite() && 'agy 기록을 immutable 로 열 수 없는 Node (22.15 미만)';
-const ws = (dir) => [`file://${dir}`];
+// Windows 에서는 드라이브 문자가 없는 file:///w/… 를 경로로 바꿀 수 없으므로 OS 에 맞는 주소를 만든다.
+const ws = (dir) => [pathToFileURL(dir).href];
 
 test('기록 폴더: CLI 먼저, 앱 폴더는 conversations/ 가 있을 때만. AITOP_AGY_HOME 만 주면 앱 폴더를 읽지 않는다', () => {
   const h = join(base, 'h1');
@@ -188,8 +190,8 @@ test('7일 사용량 장부와 리포트용 대화 목록은 두 폴더를 함�
   const tokens = out.days.flatMap((d) => Object.values(d)).reduce((a, x) => a + (x.tokens ?? 0), 0);
   assert.ok(tokens >= 330, `CLI 110 + 앱 220 이상 (${tokens})`);
   const conv = agyConversations();
-  assert.equal(conv.get('cli-1')?.cwd, '/w/cli');
-  assert.equal(conv.get('app-1')?.cwd, '/w/app');
+  assert.equal(conv.get('cli-1')?.cwd, resolve('/w/cli'));
+  assert.equal(conv.get('app-1')?.cwd, resolve('/w/app'));
 });
 
 test('--doctor 에 앱 폴더 줄이 보인다', { skip: noSqlite }, () => {
