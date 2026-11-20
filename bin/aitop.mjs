@@ -88,7 +88,10 @@ if (config.values.icons.source === 'file') process.env.AITOP_ICONS = opt.icons;
 setAmbiguous(opt.ambiguous);
 // 읽을 Claude·Codex 기록 폴더 목록. 기록을 읽는 모듈을 불러오기 전에 정한다 (#212).
 const { setDataDirs } = await import('../src/sources/dirs.mjs');
-setDataDirs({ claude: opt.claudeDirs, codex: opt.codexHomes });
+// agyApp 은 정하지 않았으면(기본값) 넘기지 않아 AITOP_AGY_HOME 격리 규칙(antigravity.mjs findAgyRoots)을 그대로 따른다.
+// cowork(#304)도 같다: 기본값이면 넘기지 않고 findCoworkRoots 가 AITOP_COWORK_HOME 과 저절로 찾기를 따른다.
+const chosen = (k) => (config.values[k].source === 'default' ? undefined : opt[k]);
+setDataDirs({ claude: opt.claudeDirs, codex: opt.codexHomes, agyApp: chosen('agyApp'), cowork: chosen('cowork') });
 const { BRAND, userVarsSeq } = await import('../src/brand.mjs');
 const { keysText } = await import('../src/help.mjs');
 const { debug, initLog, logPath } = await import('../src/log.mjs');

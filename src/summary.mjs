@@ -51,7 +51,7 @@ export function summarize(sessions, now = Date.now()) {
     at: now,
     running: live.filter((s) => s.status === 'busy' || s.status === 'shell').length,
     waiting: waiting.length,
-    // Claude 대기 수는 --line 이 세션 파일에서 바로 세므로, 그 밖의 도구 몫(지금은 Antigravity 만 대기 상태가 있다)을 따로 적는다.
+    // Claude 대기 수는 --line 이 세션 파일에서 바로 세므로, 그 밖의 도구 몫(Antigravity, Claude Desktop Cowork)을 따로 적는다.
     waitingOther: waiting.filter((s) => s.tool !== 'claude').length,
     // 그중 가장 오래 기다린 세션 이름과 대기 시작 시각 (화면 IDLE 칸과 같은 기준). 대기 시간은 읽는 쪽이 지금 시각으로 센다.
     // v 는 그대로 둔다: 예전 aitop 은 이 칸을 모르고 넘기고, 새 aitop 은 이 칸이 없는 예전 요약도 읽는다.

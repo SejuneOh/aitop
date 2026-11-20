@@ -2,6 +2,7 @@ import { collectClaude } from './sources/claude.mjs';
 import { collectCodex } from './sources/codex.mjs';
 import { collectGemini } from './sources/gemini.mjs';
 import { collectAgy } from './sources/antigravity.mjs';
+import { collectCowork } from './sources/cowork.mjs';
 import { collectLedger } from './sources/claude-ledger.mjs';
 import { createBudget } from './tail.mjs';
 
@@ -29,7 +30,7 @@ export function collect({ budgetBytes = Infinity, budgetMs = Infinity, ...opts }
   const budgetOf = (name, bytes, ms) => (budgets[name] = createBudget(bytes, ms));
   const sessions = [];
   const errors = [];
-  for (const [tool, fn] of [['claude', collectClaude], ['codex', collectCodex], ['gemini', collectGemini], ['agy', collectAgy]]) {
+  for (const [tool, fn] of [['claude', collectClaude], ['cowork', collectCowork], ['codex', collectCodex], ['gemini', collectGemini], ['agy', collectAgy]]) {
     try {
       sessions.push(...fn({ ...opts, budget: budgetOf(tool, budgetBytes, budgetMs) }));
     } catch (err) {

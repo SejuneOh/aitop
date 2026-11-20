@@ -385,10 +385,12 @@ export async function findTrace(query, { claudeRoots, codexRoots, agyRoot } = {}
   if (!q) return { error: 'none', candidates: [] };
   if (claudeRoots == null || codexRoots == null) {
     const d = await import('./sources/dirs.mjs');
-    claudeRoots ??= d.claudeProjectRoots();
+    // Claude Desktop Cowork 세션의 기록 폴더도 함께 본다 (#304).
+    claudeRoots ??= [...d.claudeProjectRoots(), ...(await import('./sources/cowork.mjs')).coworkProjectRoots()];
     codexRoots ??= d.codexSessionRoots();
   }
-  if (agyRoot == null) agyRoot = (await import('./sources/antigravity.mjs')).AGY_ROOT;
+  // agy 기록 폴더: CLI 폴더와 앱 폴더 (#303). agyRoot 는 폴더 하나 또는 목록.
+  const agyDirs = agyRoot == null ? (await import('./sources/antigravity.mjs')).agyRoots().map((r) => r.dir) : [agyRoot].flat();
   // 1) 파일 경로
   if (/\.(jsonl|db)$/i.test(q) && existsSync(q)) {
     const p = resolve(q);
@@ -429,8 +431,8 @@ export async function findTrace(query, { claudeRoots, codexRoots, agyRoot } = {}
           }
   }
   // agy: conversations/<id>.db
-  for (const f of list(join(agyRoot, 'conversations'))) {
-    if (f.endsWith('.db') && f.toLowerCase().startsWith(low)) found.push({ tool: 'agy', id: f.slice(0, -3), path: join(agyRoot, 'conversations', f), mtime: mtimeOf(join(agyRoot, 'conversations', f)) });
+  for (const dir of agyDirs) for (const f of list(join(dir, 'conversations'))) {
+    if (f.endsWith('.db') && f.toLowerCase().startsWith(low) && !found.some((x) => x.tool === 'agy' && x.id === f.slice(0, -3))) found.push({ tool: 'agy', id: f.slice(0, -3), path: join(dir, 'conversations', f), mtime: mtimeOf(join(dir, 'conversations', f)) });
   }
   // 3) 이름: 최근 Claude 기록의 /rename 이름·제목. 순서: id 가 똑같은 것 > 이름이 똑같은 것 > id 앞부분 > 이름에 들어 있는 것.
   // id 가 똑같거나 id 앞부분으로 하나가 정해지면 이름을 읽지 않는다 (최근 기록 300개를 읽는 비용을 아낀다). 이름은 많아야 한 번 읽는다.
