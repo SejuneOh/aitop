@@ -1,5 +1,5 @@
 // 기간 리포트 --by project 용: 기록 파일 하나가 어느 프로젝트(작업 폴더)의 것인지 찾는다.
-// Claude 는 기록 앞부분 줄의 cwd (없으면 projects/ 아래 폴더 이름), Codex 는 turn_context.cwd (없으면 session_meta.cwd),
+// Claude 는 기록 앞부분 줄의 cwd (없으면 projects/ 아래 폴더 이름, Cowork 기록은 cowork 또는 고른 폴더), Codex 는 turn_context.cwd (없으면 session_meta.cwd),
 // agy 는 conversation_summaries.db 의 workspace_uris (서브에이전트는 부모 대화의 것) 를 쓴다. 못 찾으면 null.
 // agy 기록은 immutable 로 열어 -wal 에만 있는 막 생긴 대화는 아직 안 보이므로, 그 대화는 (unknown) 으로 나올 수 있다.
 // 장부 캐시 모양은 그대로 두고, 리포트를 낼 때만 파일 앞부분을 조금 읽는다.
@@ -9,6 +9,7 @@ import { agyRoots, cwdOf } from './antigravity.mjs';
 import { openReadOnly } from '../sqlite.mjs';
 import { debugIo } from '../log.mjs';
 import { claudeProjectRoots } from './dirs.mjs';
+import { coworkProjectOf } from './cowork.mjs';
 
 // 앞부분에서 cwd 를 찾을 때 읽는 최대 크기. Codex 의 첫 줄(session_meta)은 지침 글이 들어 있어 길 수 있다.
 const HEAD_BYTES = 256 * 1024;
@@ -160,7 +161,8 @@ export function attachProjects(books, root) {
     let fallback = null;
     if (b.path) {
       if (b.tool === 'claude') {
-        project = claudeProject(b.path);
+        // Claude Desktop Cowork 기록은 기록 안의 cwd(VM·outputs 폴더) 대신 cowork 또는 사용자가 고른 폴더로 묶는다 (#313).
+        project = coworkProjectOf(b.path) ?? claudeProject(b.path);
         if (!project) fallback = claudeFolder(b.path, root);
       } else if (b.tool === 'codex') project = codexProject(b.path);
       else if (b.tool === 'agy') project = (agy ??= agyWorkspaces()).get(basename(b.path, '.db')) ?? null;

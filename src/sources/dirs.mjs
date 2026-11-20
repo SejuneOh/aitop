@@ -155,6 +155,12 @@ export function candidateDirs({ home = homedir(), claude = claudeDirs(), codex =
   };
 }
 
+// Windows 드라이브 경로(C:\…, C:/…, /c:/…)를 WSL 의 /mnt/c/… 로 바꾼다 (#303, #313). 드라이브 경로가 아니면 null.
+export function wslPathOf(p) {
+  const m = /^\/?([A-Za-z]):(?:[\\/](.*))?$/.exec(typeof p === 'string' ? p : '');
+  return m ? ['/mnt', m[1].toLowerCase(), ...(m[2] ?? '').split(/[\\/]+/).filter(Boolean)].join('/') : null;
+}
+
 // WSL 에서 Windows 사용자 홈 폴더 후보 (#303). Windows 앱의 기록은 /mnt/c/Users/<사용자> 아래에 있다.
 // USERPROFILE 이 WSLENV 로 넘어와 있으면(C:\Users\me) 그 폴더만, 없으면 usersDir 아래 사용자 폴더 전부.
 // 공용·기본 프로필 폴더는 건너뛴다. 폴더 이름과 존재만 보고 안은 읽지 않는다.

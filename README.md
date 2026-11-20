@@ -473,6 +473,7 @@ Claude Desktop agent mode (Cowork) sessions show in the table as `cowork` in the
 - The name is the app's session title. Tokens, cost, progress and subagents come from the same jsonl log Claude Code writes. The detail panel and `--json` `entrypoint` show `local-agent`.
 - Header today and 7-day totals, the monthly archive and `--report` (daily, sessions, trace) add them to Claude. A log that is also in `~/.claude/projects` is counted once.
 - A pending permission request shows as waiting (◆) and counts for `--notify`, `--on-waiting`, `n`, the header, the window title and `--line`.
+- The PROJECT column and `--report ... --by project` group them as `cowork`, or under the folder picked for the session (the column shows its last name). On WSL a Windows working folder (`C:\…`) shows as `/mnt/c/…`.
 
 <details>
 <summary>Details: running and waiting, files read</summary>
@@ -480,7 +481,8 @@ Claude Desktop agent mode (Cowork) sessions show in the table as `cowork` in the
 - Cowork runs in a VM the app starts, so its process is not visible. A session is running when the later of its `lastActivityAt` and its log's modified time is within 2 minutes. Archived sessions (`isArchived`) are ended.
 - Waiting: if no answer (`permission_response`, `permission_denied`, `permission_auto_approved`), turn end (`result`) or restart (`init`) line follows the last `permission_request` at the end of the session's `audit.jsonl`, the session waits for that `tool_name`. There is no id linking requests and answers, so only the order counts, and a session whose log has no open tool call is not waiting.
 - Waiting lasts regardless of the 2-minute rule for up to 1 hour after the request. Older requests count as abandoned and the session as ended.
-- Only three kinds of files are opened: the session meta `local_<id>.json` (only title, model, folder, times, archived flag and log id are used), logs under `.claude/projects/**/*.jsonl`, and `audit.jsonl`. Cookies, Local Storage, settings and subagent meta files in the same app folder are not opened.
+- The session's log folder is `local_<id>/`, else the folder named after the first 8 characters of the id (scheduled tasks, meta `hostLoopMode`), else the parent folder name of the meta's working folder, at the same level. Only real folders (not symlinks) are used.
+- Only three kinds of files are opened: the session meta `local_<id>.json` (only title, model, folder, picked folder, times, archived flag and log id are used), logs under `.claude/projects/**/*.jsonl`, and `audit.jsonl`. `.audit-key`, `.claude.json`, `policy-limits.json`, `outputs/`, `uploads/` and the like in the log folder are not opened either. Cookies, Local Storage, settings and subagent meta files in the same app folder are not opened.
 - From `audit.jsonl` only the kind, tool name and time of permission lines are taken. Request contents (`tool_input`), signatures (`_audit_hmac`) and messages never reach the screen, the cache or `--json`. Cost comes from log usage, not `total_cost_usd`.
 - To keep a slow `/mnt/c` cheap, the session list, meta, log list and `audit.jsonl` are checked at most every 10 seconds, so waiting can show up to 10 seconds late. The 2-minute running check still uses the current time.
 - Sessions idle for over 7 days are known from their meta only; their log folders are not listed.
