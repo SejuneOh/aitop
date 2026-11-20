@@ -780,6 +780,35 @@ Antigravity 데스크톱 앱의 대화도 agy CLI 대화와 함께 Gemini 탭에
 
 </details>
 
+## Claude Desktop Cowork
+
+Claude Desktop 의 에이전트 모드(Cowork) 세션도 표에 보인다. TOOL 칸에 `cowork` (claude 색)로 나오고, 도구 줄에서 claude 와 따로 센다. 앱 폴더가 있으면 저절로 읽는다.
+
+> `aitop --doctor`
+>
+> `AITOP_COWORK_HOME=off aitop`
+
+- 읽는 폴더: macOS `~/Library/Application Support/Claude`, Windows `%LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming\Claude`(스토어 설치)와 `%APPDATA%\Claude`. WSL 이면 Windows 홈(위 Antigravity 와 같은 규칙)의 `AppData/Local/Packages/Claude_*/LocalCache/Roaming/Claude` 와 `AppData/Roaming/Claude`.
+- `local-agent-mode-sessions/` 가 있는 폴더만 읽는다. `aitop --doctor` 에 `cowork` 줄(`Claude 앱 · 세션 N개`)로 보인다. 앱 폴더가 없으면 줄도 없다.
+- 끄기: 설정 파일 `"cowork": false` 또는 `AITOP_COWORK_HOME=off`. 절대 경로(앱 폴더, 여러 개는 Linux·macOS `:`, Windows `;`)를 주면 그 폴더만 읽는다. 그 밖의 값은 `--doctor`·`--print-config` 에 경고하고 무시한다.
+- 이름은 앱의 세션 제목, 토큰·비용·진행 단계·서브에이전트는 Claude Code 와 같은 기록(jsonl)에서 읽는다. 상세 패널의 종류 줄과 `--json` 의 `entrypoint` 에 `local-agent` 가 보인다.
+- 헤더 오늘·7일 합계, 월별 보관함, `--report`(daily·sessions·trace)에 Claude 몫으로 함께 더한다. 같은 기록이 `~/.claude/projects` 에도 있으면 한 번만 센다.
+- 권한 요청을 기다리면 응답 대기(◆)로 보이고, `--notify`·`--on-waiting`·`n`·헤더 대기 수·창 제목·`--line` 에도 들어간다.
+
+<details>
+<summary>세부: 실행 중·응답 대기 판정, 읽는 파일</summary>
+
+- Cowork 는 앱이 띄우는 VM 안에서 돌아 프로세스가 보이지 않는다. 세션 메타의 마지막 활동 시각(`lastActivityAt`)과 기록 수정 시각 중 늦은 쪽이 2분 안이면 실행 중으로 본다. 보관한 세션(`isArchived`)은 종료다.
+- 응답 대기: 세션 폴더의 `audit.jsonl` 끝에서 마지막 `permission_request` 뒤에 응답(`permission_response`·`permission_denied`·`permission_auto_approved`)이나 턴 끝(`result`)·새 시작(`init`) 줄이 없으면 그 `tool_name` 을 기다린다고 본다. 요청과 응답을 잇는 id 가 없어 순서로만 판단하고, 대화 기록에 열린 도구 호출이 없으면 대기로 보지 않는다.
+- 응답 대기는 2분 기준과 상관없이 요청 뒤 1시간까지 이어지고, 그보다 오래된 요청은 버려진 것으로 보고 종료로 둔다.
+- 읽는 파일은 세 가지뿐이다: 세션 메타 `local_<id>.json`(제목·모델·작업 폴더·시각·보관 여부·기록 id 만 쓴다), 기록 `.claude/projects/**/*.jsonl`, `audit.jsonl`. 같은 앱 폴더의 쿠키·Local Storage·설정과 서브에이전트 메타는 열지 않는다.
+- `audit.jsonl` 에서는 권한 줄의 종류·도구 이름·시각만 꺼낸다. 요청 내용(`tool_input`)·서명(`_audit_hmac`)·대화 내용은 화면·캐시·`--json` 에 남기지 않는다. 비용은 `total_cost_usd` 가 아니라 기록의 사용량으로 센다.
+- 느린 `/mnt/c` 를 덜 건드리려고 세션 목록·메타·기록 목록·`audit.jsonl` 은 10초에 한 번만 본다. 그래서 응답 대기가 10초쯤 늦게 보일 수 있다. 2분 실행 중 판정은 늘 지금 시각으로 한다.
+- 7일 넘게 활동이 없는 세션은 메타만 읽고 기록 목록을 훑지 않는다.
+- 이어 열기 명령은 만들지 않는다. 비공개 형식이라 앱 업데이트로 바뀔 수 있고, 못 읽으면 조용히 건너뛴다.
+
+</details>
+
 ## 이어 열기
 
 다른 곳에서 세션을 이어 연다. `y` 는 고른 세션을 이어 여는 명령을 클립보드로 복사한다 (OSC 52). 상세 패널의 `이어 열기` 에 같은 명령이 보인다.
@@ -963,6 +992,7 @@ Antigravity 데스크톱 앱의 대화도 agy CLI 대화와 함께 Gemini 탭에
 | `claudeDirs` | 절대 경로(또는 `~/...`) 배열, 1~16개. 기본 `["~/.claude"]` | `AITOP_CLAUDE_DIRS` (설정 파일보다 먼저). 물려받은 `CLAUDE_CONFIG_DIR` 는 설정 파일 다음. [기록 폴더 여러 개](#기록-폴더-여러-개) |
 | `codexHomes` | 같은 모양. 기본 `["~/.codex"]` | `AITOP_CODEX_HOMES` (같은 구분자). 물려받은 `CODEX_HOME` 는 설정 파일 다음 |
 | `agyApp` | true (기본, 저절로 찾음) · false · 경로 배열 | `AITOP_AGY_APP_HOME` (`off` 또는 절대 경로, 여러 개는 Linux·macOS `:`, Windows `;`). [Antigravity 데스크톱 앱](#antigravity-데스크톱-앱) |
+| `cowork` | true (기본, 저절로 찾음) · false · 경로 배열 | `AITOP_COWORK_HOME` (`off` 또는 앱 폴더 절대 경로). [Claude Desktop Cowork](#claude-desktop-cowork) |
 
 <details>
 <summary>세부: <code>showRequests</code>, <code>onWaiting</code> 권한</summary>
@@ -1085,6 +1115,7 @@ end)
 | Codex CLI | `codex` 프로세스와 작업 폴더 (Linux `/proc`, macOS `ps`·`lsof`). Windows 는 PowerShell CIM 의 프로세스 시작 시각 | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` |
 | Antigravity CLI (`agy`) | `agy` 프로세스가 열어 둔 `presence/<id>.lock` (Linux `/proc/<pid>/fd`). macOS 는 작업 폴더로 짝짓는다 | `~/.gemini/antigravity-cli/conversation_summaries.db`(제목·상태·서브에이전트), `conversations/<id>.db` 의 `gen_metadata`(모델·토큰)·`steps`(지시·답변·도구 호출) |
 | Antigravity 데스크톱 앱 | 대화 기록·목록의 마지막 수정이 2분 안 | `~/.gemini/antigravity` (WSL 은 Windows 홈도) 의 같은 두 파일 |
+| Claude Desktop Cowork | 세션 메타의 마지막 활동·기록 수정이 2분 안, 응답 대기는 `audit.jsonl` 의 권한 요청 | 앱 폴더 `local-agent-mode-sessions/**/.claude/projects/**/*.jsonl` |
 | Gemini CLI | `gemini` 프로세스 | 아직 미지원 |
 
 ## 알려진 한계

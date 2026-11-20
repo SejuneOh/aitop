@@ -68,14 +68,16 @@ let chosen = null;
 
 // 설정까지 반영한 목록을 정한다. 소스 모듈이 처음 읽기 전에 불러야 한다.
 // agyApp: 설정 파일·환경 변수의 Antigravity 앱 폴더 설정 (false, 경로 배열, true). 정하지 않았으면 undefined (antigravity.mjs findAgyRoots).
-export function setDataDirs({ claude, codex, agyApp } = {}) {
-  chosen = { claude: uniqueDirs(claude ?? defaultClaudeDirs()), codex: uniqueDirs(codex ?? defaultCodexHomes()), agyApp };
+// cowork: Claude Desktop 앱 폴더 설정 (#304, 같은 모양). 정하지 않았으면 undefined (cowork.mjs findCoworkRoots).
+export function setDataDirs({ claude, codex, agyApp, cowork } = {}) {
+  chosen = { claude: uniqueDirs(claude ?? defaultClaudeDirs()), codex: uniqueDirs(codex ?? defaultCodexHomes()), agyApp, cowork };
 }
 
 const pick = () => (chosen ??= { claude: uniqueDirs(defaultClaudeDirs()), codex: uniqueDirs(defaultCodexHomes()) });
 export const claudeDirs = () => pick().claude;
 export const codexHomes = () => pick().codex;
 export const agyAppSetting = () => chosen?.agyApp;
+export const coworkSetting = () => chosen?.cowork;
 
 // AITOP_AGY_APP_HOME 값 (#303): off·0·none·false 면 false(앱 폴더를 읽지 않음), 절대 경로(또는 ~)면 배열.
 // 비었거나 없거나 잘못된 값(on·1·true·상대 경로 등)이면 undefined. 잘못된 값은 config.mjs 가 --doctor·--print-config 에 알린다.
@@ -86,6 +88,8 @@ export const agyAppEnv = (v) => {
   const list = splitPaths(v);
   return list && list.every(pathLike) ? list : undefined;
 };
+// AITOP_COWORK_HOME 값 (#304). 규칙은 AITOP_AGY_APP_HOME 과 같다: off 면 false, 절대 경로 목록이면 배열, 그 밖은 undefined.
+export const coworkEnv = agyAppEnv;
 export const claudeProjectRoots = () => claudeDirs().map((d) => join(d, 'projects'));
 export const codexSessionRoots = () => codexHomes().map((h) => join(h, 'sessions'));
 

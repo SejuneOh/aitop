@@ -190,7 +190,7 @@ test('bin: AITOP_LANG 없이 LANG=C 의 --once 는 영어 화면이다', () => {
   const now = Date.now();
   fx.session({ sessionId: 'en000000-1', name: 'english', status: 'idle', cwd: '/work/en' });
   fx.transcript('en000000-1', [{ ...user('add a test'), timestamp: new Date(now - 60_000).toISOString() }, { ...assistant('m1', [{ type: 'text', text: 'done' }], usage(1000, 10)), timestamp: new Date(now - 50_000).toISOString() }], '-work-en');
-  const env = { ...process.env, LANG: 'C', LC_ALL: '', LC_MESSAGES: '', COLUMNS: '120', LINES: '40' };
+  const env = { ...process.env, LANG: 'C', LC_ALL: '', LC_MESSAGES: '', COLUMNS: '120', LINES: '40', AITOP_COWORK_HOME: 'off' };
   delete env.AITOP_LANG;
   const r = spawnSync(process.execPath, [BIN, '--once'], { env, encoding: 'utf8', timeout: 20_000 });
   assert.equal(r.status, 0, r.stderr);

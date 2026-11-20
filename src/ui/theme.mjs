@@ -107,6 +107,8 @@ export const paletteName = (theme, colorBlind) => (colorBlind ? `${theme}-cb` : 
 export const THEME = pickTheme();
 export const COLOR_BLIND = pickColorBlind();
 export const PALETTES = { dark: DARK, light: LIGHT, 'dark-cb': DARK_CB, 'light-cb': LIGHT_CB };
+// Claude Desktop Cowork(#304) 세션은 claude 와 같은 색이다.
+for (const p of Object.values(PALETTES)) p.tools = { ...p.tools, cowork: p.tools.claude };
 export const PALETTE = PALETTES[paletteName(THEME, COLOR_BLIND)];
 
 export const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)).join(';');

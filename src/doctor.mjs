@@ -6,6 +6,7 @@ import { basename, join } from 'node:path';
 import { homedir, platform } from 'node:os';
 import { findProcesses, isCodex, isGemini, isAgy, canListProcesses, isAlive, isSessionAlive, processMethod } from './procs.mjs';
 import { agyRoots } from './sources/antigravity.mjs';
+import { coworkCheck } from './sources/cowork.mjs';
 import { loadSqlite, openReadOnly } from './sqlite.mjs';
 import { fmtAgo, pad, stripControl, width } from './text.mjs';
 import { BRAND } from './brand.mjs';
@@ -209,21 +210,35 @@ function agy(roots = agyRoots()) {
   return { tool: 'agy', state: 'ok', path, ...more, records: files.length, lastAt: last?.mtime ?? null, running, readable, hint: null };
 }
 
+// Claude Desktop Cowork(#304): 앱 폴더마다 세션 목록(메타)만 본다. 기록 내용·audit.jsonl 은 읽지 않는다.
+// 앱 폴더를 하나도 찾지 못했으면(앱을 쓰지 않거나 끔) null 이고, --doctor 와 도구 줄에 cowork 가 보이지 않는다.
+// path 는 첫 앱 폴더, 둘째부터는 dirs 로 한 줄씩. 세션 목록을 읽지 못한 폴더가 있으면 readable 이 false 다.
+function cowork(roots) {
+  const list = roots ? coworkCheck(roots) : coworkCheck();
+  if (!list.length) return null;
+  const dirs = list.map((r) => ({ path: tilde(r.dir), found: r.ok, records: r.sessions, source: 'cowork' }));
+  const lastAt = Math.max(0, ...list.map((r) => r.lastAt ?? 0)) || null;
+  const records = list.reduce((a, r) => a + r.sessions, 0);
+  return { tool: 'cowork', state: 'ok', path: dirs[0].path, ...(dirs.length > 1 ? { dirs } : {}), records, lastAt, running: null, readable: list.every((r) => r.ok), hint: null };
+}
+
 // 도구별 안내 한 줄. 없으면 null. 점검 결과(--json 의 tools.*.hint)에는 예전처럼 한국어로 넣고, --doctor 글은 지금 언어로 다시 만든다.
 export function hintOf(r, lang = 'ko') {
   const o = { lang };
   if (r.tool === 'gemini') return tr('doctor.hint.gemini', null, o);
+  if (r.tool === 'cowork') return r.readable === false ? tr('doctor.hint.coworkUnread', null, o) : null;
   if (r.state === 'missing') return r.tool === 'agy' ? tr('doctor.hint.agyMissing', null, o) : tr('doctor.hint.missing', { tool: r.tool }, o);
   if (r.tool === 'agy' && r.state === 'limited') return tr('doctor.hint.agyNode', { node: process.versions.node }, o);
   return null;
 }
 
-// home: 후보 폴더를 찾을 홈 폴더 (테스트에서 바꿔 끼운다).
-export function checkTools({ home = HOME } = {}) {
+// home: 후보 폴더를 찾을 홈 폴더 (테스트에서 바꿔 끼운다). coworkRoots: Cowork 앱 폴더 목록 (테스트용, 주지 않으면 찾은 것).
+export function checkTools({ home = HOME, coworkRoots } = {}) {
   const cand = candidateDirs({ home });
   const tools = {};
-  for (const fn of [claude, codex, gemini, agy]) {
-    const r = fn === claude ? claude(cand.claude) : fn === codex ? codex(cand.codex) : fn();
+  for (const fn of [claude, cowork, codex, gemini, agy]) {
+    const r = fn === claude ? claude(cand.claude) : fn === codex ? codex(cand.codex) : fn === cowork ? cowork(coworkRoots) : fn();
+    if (!r) continue;
     r.hint = hintOf(r, 'ko');
     tools[r.tool] = r;
   }
@@ -289,7 +304,18 @@ export function describe(t, now = Date.now(), lang = getLang()) {
   if (t.keys?.length) parts.push(tr('doctor.keys', { keys: t.keys.join(', ') }, o));
   // 한국어 안내는 점검 결과에 든 그대로, 다른 언어는 같은 조건으로 다시 만든다.
   const hint = lang === 'ko' || !t.hint ? t.hint : (hintOf(t, lang) ?? t.hint);
-  return { mark: MARK[t.state], state: lang === 'ko' ? STATE_TEXT[t.state] : tr(`doctor.state.${t.state}`, null, { lang, short: true }), path: t.path, detail: parts.join(' · '), hint };
+  // Cowork 는 기록 수 대신 세션 수를 보이고, 실행 중 수는 뺀다 (프로세스가 VM 안이라 보이지 않는다).
+  const detail = t.tool === 'cowork' ? coworkDetail(t, now, lang) : parts.join(' · ');
+  return { mark: MARK[t.state], state: lang === 'ko' ? STATE_TEXT[t.state] : tr(`doctor.state.${t.state}`, null, { lang, short: true }), path: t.path, detail, hint };
+}
+
+// Cowork 줄의 설명: 'Claude 앱 · 세션 N개 · 마지막 …'.
+function coworkDetail(t, now, lang) {
+  const o = { lang };
+  const parts = [tr('doctor.coworkApp', null, o), tr('doctor.coworkSessions', { n: t.records.toLocaleString('en-US') }, o)];
+  if (t.lastAt) parts.push(tr('doctor.last', { ago: lang === 'ko' ? ago(now - t.lastAt) : fmtAgo(now - t.lastAt) }, o));
+  if (t.readable === false) parts.push(tr('doctor.unreadable', null, o));
+  return parts.join(' · ');
 }
 
 // aitop --doctor 의 사람용 출력.
@@ -305,7 +331,9 @@ export function doctorText(result, version, now = Date.now(), lang = getLang()) 
     out.push(`${d.mark} ${pad(t.tool, 7)}${pad(d.state, 10)}${d.path}`);
     // 기록 폴더가 여럿이면 둘째부터 한 줄씩, 읽지 않는 후보 폴더는 넣는 방법과 함께 (#212).
     // Antigravity 앱 폴더(source 'app', #303)는 기록 수 앞에 '앱' 을 붙인다.
-    for (const x of t.dirs?.slice(1) ?? []) out.push(`  + ${pad('', 15)}${x.path}  ${x.source === 'app' ? `${tr('doctor.agyApp', null, o)} · ` : ''}${x.found ? tr('doctor.records', { n: x.records.toLocaleString('en-US') }, o) : tr('doctor.dirMissing', null, o)}`);
+    const count = (x) => tr(x.source === 'cowork' ? 'doctor.coworkSessions' : 'doctor.records', { n: x.records.toLocaleString('en-US') }, o);
+    const tag = (x) => (x.source === 'app' ? `${tr('doctor.agyApp', null, o)} · ` : x.source === 'cowork' ? `${tr('doctor.coworkApp', null, o)} · ` : '');
+    for (const x of t.dirs?.slice(1) ?? []) out.push(`  + ${pad('', 15)}${x.path}  ${tag(x)}${x.found ? count(x) : tr('doctor.dirMissing', null, o)}`);
     out.push(`         ${d.detail}`);
     if (d.hint) out.push(`         → ${d.hint}`);
     if (t.candidates?.length) {

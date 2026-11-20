@@ -50,6 +50,8 @@ const LEGEND_IDS = [
   ['legend.stalledKey', 'legend.stalled'],
   ['member.sdk', 'legend.sdk'],
   ['session.auto', 'legend.auto'],
+  // TOOL 칸의 cowork (#304).
+  ['cowork', 'legend.cowork'],
 ];
 
 // 지금 언어의 상태 기호·열 설명. 제목 줄은 설명이 null 이다. {g} 는 팀원 경과 시간 표시(glyphs().elapsed)로 바꾼다.

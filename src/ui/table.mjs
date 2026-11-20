@@ -211,7 +211,7 @@ export function progressSegs(r, bg) {
 }
 
 // 폭이 모자랄 때 도구 이름 대신 쓰는 짧은 이름.
-export const TOOL_SHORT = { claude: 'cla', codex: 'cdx', gemini: 'gem' };
+export const TOOL_SHORT = { claude: 'cla', cowork: 'cwk', codex: 'cdx', gemini: 'gem' };
 
 // 도구 하나의 조각. level 0 은 다 보이고, 2 부터 토큰 수·미설치 글을 빼고, 3 은 이름을 줄인다.
 function toolPart(p, level, showEnded) {
@@ -250,7 +250,9 @@ export function toolLastUsed(data, tool, now) {
 // 아주 좁으면 실행 중인 도구가 숨김 표시보다 먼저 남고, 숨김 표시는 중간에서 자르지 않고 뺀다.
 export function toolStrip(view, W) {
   const now = view.data.at ?? Date.now();
-  const all = ['claude', 'codex', 'gemini'].map((tool) => {
+  // Cowork(#304)는 claude 와 따로 센다. 앱 폴더를 찾았거나(--doctor 점검에 있음) 세션이 있을 때만 줄에 넣는다.
+  const hasCowork = Boolean(view.data.tools?.tools?.cowork) || view.data.sessions.some((s) => s.tool === 'cowork');
+  const all = ['claude', ...(hasCowork ? ['cowork'] : []), 'codex', 'gemini'].map((tool) => {
     const list = view.data.sessions.filter((s) => s.tool === tool);
     const live = list.filter((s) => s.live).length;
     const last = toolLastUsed(view.data, tool, now);

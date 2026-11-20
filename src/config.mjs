@@ -9,7 +9,7 @@ import { appDir } from './paths.mjs';
 import { stripControl } from './text.mjs';
 import { langValue, localeLang, t } from './i18n.mjs';
 import { EVENT_KINDS } from './notify.mjs';
-import { DIR_ENV, agyAppEnv, pathLike, splitPaths } from './sources/dirs.mjs';
+import { DIR_ENV, agyAppEnv, coworkEnv, pathLike, splitPaths } from './sources/dirs.mjs';
 
 const bool = (v) => typeof v === 'boolean';
 const oneOf = (...xs) => (v) => xs.includes(v);
@@ -85,6 +85,9 @@ export const KEYS = {
   // AITOP_AGY_APP_HOME(경로 또는 off) > 설정 파일 > 기본(true). AITOP_AGY_HOME 을 주고 AITOP_AGY_APP_HOME 을 주지 않으면 이 값과 상관없이 읽지 않는다.
   // masked: 이 환경 변수가 있으면(그리고 자기 환경 변수가 없으면) 값을 false 로 두고 출처를 그 변수로 보인다. 설정 파일 값은 무시됨으로 알린다.
   agyApp: { ok: (v) => bool(v) || pathList(v), expect: 'cfg.agyApp', def: true, env: ['AITOP_AGY_APP_HOME', agyAppEnv], envProblem: true, envExpect: 'cfg.agyAppEnv', masked: 'AITOP_AGY_HOME' },
+  // Claude Desktop Cowork(에이전트 모드) 세션을 담은 앱 폴더 (#304, cowork.mjs findCoworkRoots). 모양은 agyApp 과 같다.
+  // AITOP_COWORK_HOME(경로 또는 off) > 설정 파일 > 기본(true, 저절로 찾음).
+  cowork: { ok: (v) => bool(v) || pathList(v), expect: 'cfg.cowork', def: true, env: ['AITOP_COWORK_HOME', coworkEnv], envProblem: true, envExpect: 'cfg.agyAppEnv' },
 };
 
 // Windows 는 XDG_CONFIG_HOME 이 없으면 %APPDATA%\aitop\config.json.

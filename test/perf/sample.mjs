@@ -139,6 +139,7 @@ function fill(fx, root, now) {
     CODEX_HOME: codexHome,
     GEMINI_HOME: join(root, 'gemini-missing'),
     AITOP_AGY_HOME: join(root, 'agy-missing'),
+    AITOP_COWORK_HOME: 'off',
     XDG_CONFIG_HOME: join(root, 'config'),
     XDG_STATE_HOME: join(root, 'state'),
     AITOP_LANG: 'en',
