@@ -47,7 +47,7 @@ for (const name of ['openSync', 'readFileSync', 'readdirSync', 'statSync', 'exis
 syncBuiltinESMExports();
 
 const cw = await import('../src/sources/cowork.mjs');
-const { findCoworkRoots, collectCowork, auditWait, pickMeta, COWORK_LIVE_MS, COWORK_TTL_MS, _test: coworkTest } = cw;
+const { findCoworkRoots, collectCowork, auditWait, pickMeta, COWORK_LIVE_MS, COWORK_TTL_MS, COWORK_WAIT_MAX_MS, _test: coworkTest } = cw;
 const { coworkEnv } = await import('../src/sources/dirs.mjs');
 const { collectLedger } = await import('../src/sources/claude-ledger.mjs');
 const { checkTools, doctorText } = await import('../src/doctor.mjs');
@@ -68,7 +68,8 @@ const SECRET_INPUT = 'rm -rf /SECRET-TOOL-INPUT-304';
 const HMAC = 'SECRET-HMAC-304';
 
 // 세션 하나: 메타 local_<id>.json, 기록 .claude/projects/<폴더>/<sid>.jsonl (+ 서브에이전트), audit.jsonl.
-function makeSession(id, { sid, title = '코워크 작업', last = Date.now(), archived = false, rows, sub = null, audit = null, enc = '-sessions-demo', mtime = null }) {
+function makeSession(id, { sid, title = '코워크 작업', last = Date.now(), archived = false, rows, sub = null, audit = null, enc = '-sessions-demo', mtime = null, into = lams }) {
+  const lams = into;
   const dir = join(lams, `local_${id}`);
   const meta = { sessionId: `local_${id}`, processName: 'p', cliSessionId: sid, cwd: '/sessions/demo', userSelectedFolders: ['/x'], createdAt: last - 600_000, lastActivityAt: last, model: 'claude-opus-5-5', isArchived: archived, title, vmProcessName: 'vm', initialMessage: 'SECRET-INITIAL-304', enabledMcpTools: [] };
   writeFileSync(join(lams, `local_${id}.json`), JSON.stringify(meta));
@@ -84,13 +85,14 @@ function makeSession(id, { sid, title = '코워크 작업', last = Date.now(), a
   // 세션 폴더의 다른 파일 (열면 안 된다).
   writeFileSync(join(dir, 'outputs.txt'), 'SECRET-OUTPUT-304');
   if (audit) writeFileSync(join(dir, 'audit.jsonl'), lines(audit));
-  if (mtime != null) for (const p of [main]) utimesSync(p, mtime / 1000, mtime / 1000);
+  if (mtime != null) for (const p of [main, join(lams, `local_${id}.json`)]) utimesSync(p, mtime / 1000, mtime / 1000);
   return { dir, main, metaPath: join(lams, `local_${id}.json`) };
 }
 
-const convo = (at, id = 'm1', n = 1000) => [
+// tool: 주면 답변 대신 열린 tool_use (허락을 기다릴 도구 호출)로 끝난다.
+const convo = (at, id = 'm1', n = 1000, tool = null) => [
   { type: 'user', timestamp: iso(at - 20_000), entrypoint: 'local-agent', cwd: '/sessions/demo', message: { content: '보고서 정리해줘' } },
-  { type: 'assistant', timestamp: iso(at - 10_000), entrypoint: 'local-agent', message: { id, model: 'claude-opus-5-5', content: [{ type: 'text', text: '정리했습니다' }], usage: u(n, 100) } },
+  { type: 'assistant', timestamp: iso(at - 10_000), entrypoint: 'local-agent', message: { id, model: 'claude-opus-5-5', content: [tool ? { type: 'tool_use', id: `tu-${id}`, name: tool, input: { command: 'ls' } } : { type: 'text', text: '정리했습니다' }], usage: u(n, 100) } },
 ];
 const req = (tool, at) => ({ type: 'system', subtype: 'permission_request', session_id: 's', tool_name: tool, tool_input: { command: SECRET_INPUT }, uuid: 'u1', _audit_hmac: HMAC, _audit_timestamp: iso(at) });
 const res = (sub, at) => ({ type: 'system', subtype: sub, session_id: 's', tool_name: 'Bash', decision: 'once', granted: true, uuid: 'u2', _audit_hmac: HMAC, _audit_timestamp: iso(at) });
@@ -110,8 +112,8 @@ const S = {
   live: makeSession('aaaa0001', { sid: SID.live, title: '분기 보고서 sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUV', last: now - 30_000, rows: convo(now - 30_000), sub: [{ type: 'assistant', timestamp: iso(now - 20_000), message: { id: 's1', model: 'claude-opus-5-5', content: [], usage: u(500, 50) } }] }),
   old: makeSession('aaaa0002', { sid: SID.old, title: '어제 작업', last: now - 3600_000, rows: convo(now - 3600_000, 'm2', 2000), mtime: now - 3600_000 }),
   arch: makeSession('aaaa0003', { sid: SID.arch, title: '보관함', last: now - 10_000, archived: true, rows: convo(now - 10_000, 'm3', 300) }),
-  wait: makeSession('aaaa0004', { sid: SID.wait, title: '대기 세션', last: now - 20_000, rows: convo(now - 20_000, 'm4', 400), audit: [noise(now - 40_000), res('permission_response', now - 35_000), req('Bash', now - 15_000), noise(now - 14_000)] }),
-  ok: makeSession('aaaa0005', { sid: SID.ok, title: '응답한 세션', last: now - 20_000, rows: convo(now - 20_000, 'm5', 400), audit: [req('Bash', now - 30_000), res('permission_response', now - 25_000)] }),
+  wait: makeSession('aaaa0004', { sid: SID.wait, title: '대기 세션', last: now - 20_000, rows: convo(now - 20_000, 'm4', 400, 'Bash'), audit: [noise(now - 40_000), res('permission_response', now - 35_000), req('Bash', now - 15_000), noise(now - 14_000)] }),
+  ok: makeSession('aaaa0005', { sid: SID.ok, title: '응답한 세션', last: now - 20_000, rows: convo(now - 20_000, 'm5', 400, 'Read'), audit: [req('Bash', now - 30_000), res('permission_response', now - 25_000)] }),
   auto: makeSession('aaaa0006', { sid: SID.auto, title: '자동 승인 세션', last: now - 20_000, rows: convo(now - 20_000, 'm6', 400), audit: [req('Edit', now - 30_000), res('permission_auto_approved', now - 25_000)] }),
   // 메타의 lastActivityAt 은 오래됐지만 기록이 막 바뀐 세션 → 실행 중.
   fresh: makeSession('aaaa0007', { sid: SID.fresh, title: '기록만 새로움', last: now - 3 * 3600_000, rows: convo(now - 30_000, 'm7', 100) }),
@@ -202,9 +204,9 @@ test('응답 대기: audit.jsonl 의 마지막 권한 요청이 마지막 응답
   assert.equal(auditWait(L(req('Bash', now), res('permission_denied', now))), null, '요청 → 거절');
   assert.equal(auditWait(L(res('permission_response', now), req('Write', now))).tool, 'Write', '응답 뒤의 새 요청');
   assert.equal(auditWait(['{bad', 'permission_ x']), null);
-  // 끝난 세션은 audit 에 요청이 남아 있어도 대기가 아니다.
-  const ended = byId(collectCowork({ showEnded: true, budget: budget(), now: now + COWORK_LIVE_MS + 5_000 })).get(SID.wait);
-  assert.equal(ended.status, 'ended');
+  // 응답 없는 요청은 2분이 지나도 대기로 남고, 요청 뒤 1시간이 지나면 종료로 본다.
+  assert.equal(byId(collectCowork({ showEnded: true, budget: budget(), now: now + COWORK_LIVE_MS + 5_000 })).get(SID.wait).status, 'waiting');
+  assert.equal(byId(collectCowork({ showEnded: true, budget: budget(), now: now + COWORK_WAIT_MAX_MS + 60_000 })).get(SID.wait).status, 'ended');
 });
 
 test('tool_input·_audit_hmac·audit 의 대화 내용과 메타의 initialMessage 는 출력·캐시에 남지 않는다', () => {
@@ -311,4 +313,83 @@ test('앱 폴더에서는 세션 메타·기록 jsonl·audit.jsonl 만 열고, �
   };
   assert.deepEqual([...touched].filter((p) => !ok(p)), []);
   assert.ok(![...touched].some((p) => p.endsWith('.meta.json')), '서브에이전트 메타도 열지 않는다');
+});
+
+// ---- 리뷰 반영: 응답 대기 유지·풀림 규칙과 audit 읽기 ----
+// 다른 앱 폴더(app2)를 써서 위 세션 수·장부 합계와 섞이지 않게 한다.
+const app2 = join(base, 'app2', 'Claude');
+const lams2 = join(app2, 'local-agent-mode-sessions', 'x', 'y');
+mkdirSync(lams2, { recursive: true });
+const sid2 = (n) => `22222222-0000-4000-8000-${String(n).padStart(12, '0')}`;
+const collect2 = (o = {}) => {
+  coworkTest.age(COWORK_TTL_MS);
+  return byId(collectCowork({ showEnded: true, budget: budget(), roots: [app2], ...o }));
+};
+
+test('응답 없는 요청: 3분 전이면 2분이 지나도 waiting, 61분 전이면 ended', () => {
+  const t0 = Date.now();
+  const at3 = t0 - 3 * 60_000;
+  const at61 = t0 - 61 * 60_000;
+  makeSession('w3', { into: lams2, sid: sid2(1), last: at3, mtime: at3, rows: convo(at3, 'w3', 10, 'Bash'), audit: [req('Bash', at3)] });
+  makeSession('w61', { into: lams2, sid: sid2(2), last: at61, mtime: at61, rows: convo(at61, 'w61', 10, 'Bash'), audit: [req('Bash', at61)] });
+  const m = collect2();
+  assert.equal(m.get(sid2(1)).status, 'waiting');
+  assert.equal(m.get(sid2(1)).live, true);
+  assert.equal(m.get(sid2(1)).waitingFor, 'approve Bash');
+  assert.equal(m.get(sid2(2)).status, 'ended');
+  assert.ok(COWORK_WAIT_MAX_MS === 60 * 60_000);
+  // 기본 보기(--all 아님)에도 대기 세션은 보인다.
+  coworkTest.age(COWORK_TTL_MS);
+  assert.ok(collectCowork({ showEnded: false, budget: budget(), roots: [app2] }).some((x) => x.id === sid2(1)));
+});
+
+test('요청 뒤 result 나 system init 줄이 오면 그 요청은 끝난 것이다', () => {
+  const L = (...xs) => xs.map((x) => JSON.stringify(x));
+  const t0 = Date.now();
+  assert.equal(auditWait(L(req('Bash', t0), { type: 'result', subtype: 'success', total_cost_usd: 1, _audit_hmac: HMAC })), null, '요청 → result');
+  assert.equal(auditWait(L(req('Bash', t0), { type: 'system', subtype: 'init', _audit_hmac: HMAC })), null, '요청 → init');
+  assert.equal(auditWait(L({ type: 'result', subtype: 'success' }, req('Bash', t0))).tool, 'Bash', 'result 뒤의 새 요청');
+  // 실제 세션: 요청 뒤 result 가 있으면 2분 안이어도 대기가 아니다.
+  makeSession('wres', { into: lams2, sid: sid2(3), last: t0 - 10_000, rows: convo(t0 - 10_000, 'wres', 10, 'Bash'), audit: [req('Bash', t0 - 20_000), { type: 'result', subtype: 'success', _audit_timestamp: iso(t0 - 15_000) }] });
+  const s = collect2().get(sid2(3));
+  assert.equal(s.live, true);
+  assert.notEqual(s.status, 'waiting');
+});
+
+test('기록에 열린 tool_use 가 없으면(기다릴 도구 호출이 없으면) 대기가 아니다', () => {
+  const t0 = Date.now();
+  makeSession('wnotool', { into: lams2, sid: sid2(4), last: t0 - 10_000, rows: convo(t0 - 10_000, 'wnt', 10), audit: [req('Bash', t0 - 15_000)] });
+  makeSession('warch', { into: lams2, sid: sid2(5), last: t0 - 10_000, archived: true, rows: convo(t0 - 10_000, 'war', 10, 'Bash'), audit: [req('Bash', t0 - 15_000)] });
+  const m = collect2();
+  assert.equal(m.get(sid2(4)).live, true, '2분 안이라 실행 중');
+  assert.notEqual(m.get(sid2(4)).status, 'waiting');
+  assert.equal(m.get(sid2(5)).status, 'ended', '보관한 세션은 요청이 남아 있어도 대기가 아니다');
+});
+
+test('256KB 가 넘는 요청 한 줄도 대기로 잡고, 그 내용은 출력·캐시에 남기지 않는다', () => {
+  const t0 = Date.now();
+  const big = { ...req('Write', t0 - 5_000), tool_input: { file_path: '/x', content: 'SECRET-BIG-304 ' + 'x'.repeat(300_000) } };
+  makeSession('wbig', { into: lams2, sid: sid2(6), last: t0 - 5_000, rows: convo(t0 - 5_000, 'wbig', 10, 'Write'), audit: [noise(t0 - 9_000), res('permission_response', t0 - 8_000), big] });
+  const s = collect2().get(sid2(6));
+  assert.equal(s.status, 'waiting');
+  assert.equal(s.waitingFor, 'approve Write');
+  assert.ok(Math.abs(s.waitSince - (t0 - 5_000)) < 1000);
+  const out = JSON.stringify(toJson({ sessions: [s] }, null, { showRequests: true }));
+  flushCache();
+  assert.ok(!out.includes('SECRET-BIG-304'));
+  assert.ok(!JSON.stringify(coworkTest.keys()).includes('SECRET-BIG-304'));
+  // 줄을 풀지 않는 긴 줄 처리도 같은 답을 낸다 (64KB 넘는 줄).
+  assert.equal(auditWait([JSON.stringify(big)]).tool, 'Write');
+  assert.equal(auditWait([JSON.stringify(big), JSON.stringify({ ...res('permission_response', t0), pad: 'y'.repeat(70_000) })]), null);
+});
+
+test('사라진 세션의 메타·기록 목록·audit 캐시는 다음 목록에서 지운다', () => {
+  const dir = join(lams2, 'local_w3');
+  const has = () => Object.values(coworkTest.keys()).flat().some((k) => k.startsWith(dir));
+  collect2();
+  assert.ok(has(), '읽은 동안은 캐시에 있다');
+  rmSync(dir, { recursive: true, force: true });
+  rmSync(dir + '.json', { force: true });
+  collect2();
+  assert.ok(!has(), '지운 세션의 캐시가 남지 않는다');
 });

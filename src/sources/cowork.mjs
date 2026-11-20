@@ -44,6 +44,13 @@ const ENDED_WINDOW_MS = 24 * 3600 * 1000;
 const DAYS = 7;
 // audit.jsonl 끝에서 읽는 양. 권한 대기 중에는 새 줄이 거의 붙지 않으므로 마지막 요청은 이 안에 있다.
 const AUDIT_TAIL = 256 * 1024;
+// 꼬리의 첫 줄이 잘렸으면 줄 시작까지 앞으로 더 읽는 상한 (요청 한 줄이 아주 길 때, tool_input 이 큰 Write 등).
+const AUDIT_MAX = 4 * 1024 * 1024;
+// 응답 없는 권한 요청을 응답 대기로 두는 최대 시간 (요청 시각 기준). 2분 실행 중 기준과 상관없이 이 동안은 대기다.
+// 실제 기록에서 요청→응답이 2분을 넘는 경우가 드물지 않았다 (10분 넘게도). 이보다 오래되면 버려진 요청으로 보고 종료로 둔다.
+export const COWORK_WAIT_MAX_MS = 60 * 60_000;
+// 앱 폴더 목록을 다시 찾는 간격 (실행 중에 앱을 설치하거나 지워도 반영되게).
+const ROOTS_TTL_MS = 60_000;
 // 대기 대상(도구 이름)의 최대 길이.
 const TOOL_MAX = 60;
 
@@ -91,9 +98,12 @@ export function findCoworkRoots({ env = process.env, home = homedir(), app, plat
   return out;
 }
 
-// 처음 쓸 때 정한다 (bin/aitop.mjs 가 설정 파일 값을 setDataDirs 로 넘긴 뒤).
+// 처음 쓸 때 정한다 (bin/aitop.mjs 가 설정 파일 값을 setDataDirs 로 넘긴 뒤). ROOTS_TTL_MS 마다 다시 찾는다.
 let rootsCache = null;
-export const coworkRoots = () => (rootsCache ??= findCoworkRoots({ app: coworkSetting() }));
+export const coworkRoots = (now = Date.now()) => {
+  if (!rootsCache || now < rootsCache.at || now - rootsCache.at >= ROOTS_TTL_MS) rootsCache = { at: now, list: findCoworkRoots({ app: coworkSetting() }) };
+  return rootsCache.list;
+};
 
 // ---- 세션 목록과 메타 ----
 
@@ -203,25 +213,55 @@ function transcriptsOf(dir, meta, metaMtime) {
 const REQUEST = 'permission_request';
 const SETTLED = new Set(['permission_response', 'permission_denied', 'permission_auto_approved']);
 
-// audit.jsonl 의 줄들에서 응답 대기를 고른다. 마지막 permission_request 가 마지막 응답(permission_response·
-// permission_denied·permission_auto_approved)보다 뒤에 있으면 { tool, since }, 아니면 null.
-// 요청과 응답을 잇는 id 가 없어 순서만 본다. 줄마다 type·subtype·tool_name·_audit_timestamp 만 꺼내고
-// tool_input·_audit_hmac 등 나머지는 담지 않는다. 권한 줄이 아닌 줄(대화 내용 등)은 JSON 으로 풀지도 않는다.
-export function auditWait(lines) {
-  let wait = null;
-  for (const line of lines) {
-    if (!line.includes('permission_')) continue;
+// 줄에서 쓰는 표지. 요청 뒤에 이것들이 오면 그 요청은 끝난 것이다:
+// 응답(permission_response·permission_denied·permission_auto_approved), 턴 끝(type result), 새 세션 시작(system init).
+const SUBTYPE_RE = /"subtype"\s*:\s*"(permission_request|permission_response|permission_denied|permission_auto_approved|init)"/;
+const RESULT_RE = /"type"\s*:\s*"result"/;
+const TOOL_RE = /"tool_name"\s*:\s*"((?:[^"\\]|\\.){1,200})"/;
+const TS_RE = /"_audit_timestamp"\s*:\s*(?:"([^"\\]{1,40})"|(\d{10,16}))/;
+// 이보다 짧은 줄은 JSON 으로 풀어 맨 위 type·subtype 을 확인한다. 긴 줄은 풀지 않고 위 표지만 문자열에서 찾는다
+// (안의 문자열 값에 든 따옴표는 \" 로 이스케이프돼 있어 표지와 섞이지 않는다).
+const PARSE_MAX = 64 * 1024;
+
+// 한 줄 → { kind: 'request', tool, at } | { kind: 'end' } | null. tool_input·_audit_hmac 등은 꺼내지 않는다.
+function auditLine(line) {
+  const sub = SUBTYPE_RE.exec(line)?.[1];
+  const result = !sub && RESULT_RE.test(line);
+  if (!sub && !result) return null;
+  if (line.length <= PARSE_MAX) {
     let x;
     try {
       x = JSON.parse(line);
     } catch {
-      continue;
+      return null;
     }
-    if (x?.type !== 'system') continue;
-    if (x.subtype === REQUEST) {
-      const tool = typeof x.tool_name === 'string' ? sessionName(x.tool_name)?.slice(0, TOOL_MAX) : null;
-      wait = { tool: tool || 'tool', since: num(x._audit_timestamp) };
-    } else if (SETTLED.has(x.subtype)) wait = null;
+    if (x?.type === 'result') return { kind: 'end' };
+    if (x?.type !== 'system') return null;
+    if (x.subtype === REQUEST) return { kind: 'request', tool: typeof x.tool_name === 'string' ? x.tool_name : null, at: num(x._audit_timestamp) };
+    return SETTLED.has(x.subtype) || x.subtype === 'init' ? { kind: 'end' } : null;
+  }
+  if (sub !== REQUEST) return { kind: 'end' };
+  let tool = null;
+  const m = TOOL_RE.exec(line);
+  if (m) {
+    try {
+      tool = JSON.parse(`"${m[1]}"`);
+    } catch {}
+  }
+  const ts = TS_RE.exec(line);
+  return { kind: 'request', tool, at: ts ? num(ts[1] ?? Number(ts[2])) : null };
+}
+
+// audit.jsonl 의 줄들에서 응답 대기를 고른다. 마지막 permission_request 뒤에 끝 표지(auditLine)가 없으면 { tool, since }, 아니면 null.
+// 요청과 응답을 잇는 id 가 없어 순서만 본다. 줄마다 표지·tool_name·_audit_timestamp 만 꺼내고
+// tool_input·_audit_hmac·대화 내용은 담지 않는다. 표지가 없는 줄은 JSON 으로 풀지도 않는다.
+export function auditWait(lines) {
+  let wait = null;
+  for (const line of lines) {
+    const x = auditLine(line);
+    if (!x) continue;
+    if (x.kind === 'end') wait = null;
+    else wait = { tool: (x.tool && sessionName(x.tool)?.slice(0, TOOL_MAX)) || 'tool', since: x.at };
   }
   return wait;
 }
@@ -242,12 +282,26 @@ function readAudit(path) {
   let fd;
   try {
     fd = openSync(path, 'r');
-    const len = Math.min(st.size, AUDIT_TAIL);
-    const buf = Buffer.alloc(len);
-    const n = readSync(fd, buf, 0, len, st.size - len);
-    const lines = buf.toString('utf8', 0, n).split('\n');
-    // 중간에서 시작했으면 첫 줄은 잘린 줄이다.
-    if (st.size > len) lines.shift();
+    // 끝 AUDIT_TAIL 을 읽고, 파일 중간에서 시작했으면 첫 줄이 잘렸을 수 있으므로 앞 줄의 끝(\n)이 나올 때까지
+    // 앞으로 더 읽는다 (모두 AUDIT_MAX 까지). 그러면 아주 긴 요청 한 줄도 통째로 들어온다.
+    const read = (from, len) => {
+      const b = Buffer.alloc(len);
+      readSync(fd, b, 0, len, from);
+      return b;
+    };
+    let start = Math.max(0, st.size - AUDIT_TAIL);
+    let buf = read(start, st.size - start);
+    let bounded = start === 0;
+    while (!bounded && st.size - start < AUDIT_MAX) {
+      const step = Math.min(start, AUDIT_TAIL, AUDIT_MAX - (st.size - start));
+      const more = read(start - step, step);
+      start -= step;
+      buf = Buffer.concat([more, buf]);
+      bounded = start === 0 || more.includes(10);
+    }
+    const lines = buf.toString('utf8').split('\n');
+    // 앞 줄의 꼬리 조각은 버린다. 상한에 걸려 줄 시작을 못 찾았으면 잘린 줄이어도 남겨 표지만 찾는다 (auditLine 의 긴 줄 처리).
+    if (start > 0 && bounded) lines.shift();
     wait = auditWait(lines);
   } catch (e) {
     debugIo('cowork', 'audit read failed', e, path);
@@ -262,17 +316,20 @@ function readAudit(path) {
 // ---- 앱 폴더 훑기 (COWORK_TTL_MS 마다 한 번) ----
 
 // 앱 폴더 하나의 세션 목록. days 일 안에 활동한 세션만 기록 목록을 읽는다 (그보다 오래된 세션은 메타만).
-// 실행 중일 수 있는 세션(활동이 COWORK_LIVE_MS + COWORK_TTL_MS 안)만 audit.jsonl 을 본다.
+// 실행 중이거나 응답을 기다리고 있을 수 있는 세션(보관하지 않았고 활동이 COWORK_WAIT_MAX_MS + COWORK_TTL_MS 안)만 audit.jsonl 을 본다.
+// audit 는 수정 시각·크기가 그대로면 다시 읽지 않으므로(readAudit) 대기 중인 세션도 stat 한 번이다.
 function scanRoot(root, days, now) {
   const base = join(root, SESSIONS_DIR);
   const out = [];
   let ok = true;
+  let top = [];
   try {
-    readdirSync(base);
-  } catch {
+    top = readdirSync(base, { withFileTypes: true });
+  } catch (e) {
     ok = false;
+    if (e.code !== 'ENOENT') debugIo('cowork', 'sessions read failed', e, base);
   }
-  for (const a of ls(base, 'sessions read failed')) {
+  for (const a of top) {
     if (!dirEnt(a, join(base, a.name))) continue;
     for (const b of ls(join(base, a.name), 'sessions read failed')) {
       if (!dirEnt(b, join(base, a.name, b.name))) continue;
@@ -290,8 +347,8 @@ function scanRoot(root, days, now) {
         const list = recent ? transcriptsOf(dir, meta, got.mtime) : { files: [], main: null };
         const newest = Math.max(0, ...list.files.map((x) => x.mtime));
         const activity = Math.max(meta.lastActivityAt ?? 0, newest);
-        const maybeLive = !meta.isArchived && now - activity <= COWORK_LIVE_MS + COWORK_TTL_MS;
-        out.push({ localId: m[1], root, dir, meta, metaMtime: got.mtime, files: list.files, main: list.main, wait: maybeLive ? readAudit(join(dir, 'audit.jsonl')) : null });
+        const maybe = !meta.isArchived && now - activity <= COWORK_WAIT_MAX_MS + COWORK_TTL_MS;
+        out.push({ localId: m[1], root, dir, meta, metaMtime: got.mtime, files: list.files, main: list.main, wait: maybe ? readAudit(join(dir, 'audit.jsonl')) : null, audited: maybe });
       }
     }
   }
@@ -308,10 +365,15 @@ export function coworkSnapshot({ roots = coworkRoots(), days = DAYS, now = Date.
   const per = roots.map((r) => ({ root: r, ...scanRoot(r, days, now) }));
   const snap = { at: now, roots: per, sessions: per.flatMap((r) => r.sessions) };
   snaps.set(key, snap);
-  // 사라진 세션의 캐시는 지운다.
+  // 이번 목록에 없는 세션(지워진 세션, 이제 읽지 않는 앱 폴더)의 캐시는 지운다. 기간이 다른 목록(리포트)은 세션이 같으므로 7일 목록 때만 한다.
   if (days === DAYS) {
-    const metaKeep = new Set(snap.sessions.map((s) => join(s.dir + '.json')));
-    for (const p of metas.keys()) if (!metaKeep.has(p) && roots.some((r) => p.startsWith(r))) metas.delete(p);
+    const dirs = new Set(snap.sessions.map((s) => s.dir));
+    const dirOf = (p, tail) => p.slice(0, -tail.length);
+    for (const p of metas.keys()) if (!dirs.has(dirOf(p, '.json'))) metas.delete(p);
+    for (const d of listings.keys()) if (!dirs.has(d)) listings.delete(d);
+    // audit 는 이번에 보지 않은 것(대기 기간이 지났거나 보관한 세션)도 지운다.
+    const audited = new Set(snap.sessions.filter((s) => s.audited).map((s) => join(s.dir, 'audit.jsonl')));
+    for (const p of audits.keys()) if (!audited.has(p)) audits.delete(p);
   }
   return snap;
 }
@@ -372,15 +434,27 @@ function statusOf(live, wait, t, mtime, now) {
   return now - mtime < 5000 ? 'busy' : 'idle';
 }
 
+// 응답 대기로 볼 audit 요청 (기록 확인 전). 보관한 세션은 대기가 아니고, 요청이 COWORK_WAIT_MAX_MS 보다 오래되면 버려진 것으로 본다.
+function waitOf(s, now) {
+  const w = s.wait;
+  if (!w || s.meta.isArchived) return null;
+  return w.since != null && now - w.since > COWORK_WAIT_MAX_MS ? null : w;
+}
+
 // 세션 하나의 행. 끝난 세션(want 가 false)은 기록 본문을 읽지 않고 lazy 로 둔다.
-function row(s, { budget, now, want, live }) {
+// timeLive: 2분 기준으로 실행 중인지. 응답 대기(waitOf)가 있으면 2분과 상관없이 실행 중(대기)이다.
+function row(s, { budget, now, want, timeLive }) {
   const m = s.meta;
-  const fresh = live;
+  let wait = waitOf(s, now);
+  const fresh = timeLive || Boolean(wait);
   const t = s.main && want ? tracker(trackers, s.main.path, budget, fresh || s.main.mtime !== trackers.get(s.main.path)?.mtimeMs) : null;
   const track = (p, b) => tracker(subTrackers, p, b, fresh || s.files.find((f) => f.path === p)?.mtime !== subTrackers.get(p)?.mtimeMs);
   const { members, sub } = t ? readMembers(s.main.path, t, budget, { track, meta: false }) : { members: [], sub: emptySub() };
   const mtime = Math.max(m.lastActivityAt ?? 0, t?.mtimeMs ?? 0, ...s.files.map((f) => f.mtime));
-  const wait = live ? s.wait : null;
+  // 대화 기록에 열린 tool_use 가 없으면 허락을 기다릴 도구 호출이 없으므로 대기를 지운다 (audit 에 응답 줄이 빠진 경우).
+  // 기록을 아직 다 읽지 못한 처음 상태(t 없음, 또는 읽는 중)는 열린 호출을 모르므로 audit 만으로 판단한다.
+  if (wait && t && t.loading == null && t.pending.size === 0) wait = null;
+  const live = timeLive || Boolean(wait);
   const waitingFor = wait ? `approve ${wait.tool}` : null;
   const status = statusOf(live, wait, t, mtime, now);
   const phase = withRunningMembers(phaseOf(status, { waitingFor }, t), status, members);
@@ -431,9 +505,11 @@ export function collectCowork({ showEnded, budget, selectedId, roots = coworkRoo
       const activity = Math.max(s.meta.lastActivityAt ?? 0, newest);
       return { s, activity, live: !s.meta.isArchived && now - activity <= COWORK_LIVE_MS };
     })
-    .sort((a, b) => Number(b.live) - Number(a.live));
+    .sort((a, b) => Number(b.live || Boolean(waitOf(b.s, now))) - Number(a.live || Boolean(waitOf(a.s, now))));
   const keep = new Set();
-  for (const { s, activity, live } of list) {
+  for (const { s, activity, live: timeLive } of list) {
+    // 응답 대기일 수 있는 세션도 실행 중 후보다 (기록의 열린 호출은 row 가 확인한다).
+    const live = timeLive || Boolean(waitOf(s, now));
     if (!live && !(showEnded && now - activity < ENDED_WINDOW_MS)) continue;
     const id = s.meta.cliSessionId ?? s.meta.sessionId ?? s.localId;
     const path = s.main?.path;
@@ -448,13 +524,15 @@ export function collectCowork({ showEnded, budget, selectedId, roots = coworkRoo
         out.push(c.row);
         continue;
       }
-      const r = row(s, { budget, now, want, live });
+      const r = row(s, { budget, now, want, timeLive });
       if (!r.loading) endedRows.set(s.dir, { sig, row: r });
       out.push(r);
       continue;
     }
     endedRows.delete(s.dir);
-    out.push(row(s, { budget, now, want, live }));
+    const r = row(s, { budget, now, want, timeLive });
+    // 대기 후보였지만 기록에 열린 호출이 없어 대기를 지웠고 2분 기준으로도 끝났으면, 종료 세션으로 --all 에서만 보인다.
+    if (r.live || (showEnded && now - activity < ENDED_WINDOW_MS)) out.push(r);
   }
   for (const d of endedRows.keys()) if (!keep.has(d)) endedRows.delete(d);
   for (const map of [trackers, subTrackers]) for (const p of map.keys()) if (!seen.has(p)) map.delete(p);
@@ -466,11 +544,16 @@ export const _test = {
   age(ms) {
     for (const c of snaps.values()) c.at -= ms;
   },
+  // 캐시에 남은 열쇠 (정리 확인용).
+  keys() {
+    return { metas: [...metas.keys()], listings: [...listings.keys()], audits: [...audits.keys()] };
+  },
   reset() {
     snaps.clear();
     metas.clear();
     listings.clear();
     audits.clear();
+    cacheChecked.clear();
     endedRows.clear();
     trackers.clear();
     subTrackers.clear();
