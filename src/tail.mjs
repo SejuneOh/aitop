@@ -85,20 +85,28 @@ export class JsonlTail {
           this.restLength += n;
           continue;
         }
+        // data 첫 바이트의 파일 위치. 줄마다 (위치, 바이트 길이)를 함께 넘긴다 (아티팩트 원본 위치 기억, #307).
+        const base = this.offset - n - this.restLength;
         const data = this.restLength ? Buffer.concat([...this.rest, chunk.subarray(0, end)]) : chunk.subarray(0, end);
         this.rest = end + 1 < n ? [Buffer.from(chunk.subarray(end + 1))] : [];
         this.restLength = n - end - 1;
-        for (const line of data.toString('utf8').split('\n')) {
-          if (!line) continue;
-          let x;
-          try {
-            x = JSON.parse(line);
-          } catch (e) {
-            debug('jsonl', 'line parse failed', e, this.path);
-            continue;
+        for (let s = 0; s <= data.length; ) {
+          let e = data.indexOf(NL, s);
+          if (e < 0) e = data.length;
+          if (e > s) {
+            let x;
+            try {
+              x = JSON.parse(data.toString('utf8', s, e));
+            } catch (err) {
+              debug('jsonl', 'line parse failed', err, this.path);
+              x = null;
+            }
+            if (x) {
+              onLine(x, base + s, e - s);
+              count++;
+            }
           }
-          onLine(x);
-          count++;
+          s = e + 1;
         }
       }
     } finally {

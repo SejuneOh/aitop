@@ -6,9 +6,37 @@ import { claudeCost } from '../pricing.mjs';
 import { addActivity, emptyTokens, pushEvent, describeTool, toolDetail, isNoisePrompt, parseTs, sessionName } from './common.mjs';
 import { debugIo } from '../log.mjs';
 import { addChange } from './files.mjs';
-import { ARTIFACT_CALLS_MAX, addArtifact, isPublish, pickArtifact } from './artifacts.mjs';
+import { ARTIFACT_CALLS_MAX, addArtifact, isPublish, pathKey, pickArtifact } from './artifacts.mjs';
 
 const MAX_TURNS = 50;
+
+// 아티팩트 원본 위치 (#307): 기록을 읽는 김에 메모리에만 기억한다. 캐시 파일·--json 에는 넣지 않는다 (#305 원칙).
+// 경로마다 마지막 Write 결과 줄의 위치(바이트 오프셋·길이)와 시각, 그 경로를 마지막으로 고친(Edit·Artifact edits) 시각만 들고 본문은 들지 않는다.
+let SRC_PATHS_MAX = 1024;
+// 테스트용: 상한을 바꾼다. 이전 값을 돌려준다.
+export function _setSrcLimit(n) {
+  const prev = SRC_PATHS_MAX;
+  SRC_PATHS_MAX = n;
+  return prev;
+}
+// 기록 경로 → 그 기록을 읽는 tracker. 아티팩트 원본을 열 때 위치를 묻는다 (artifact-source.mjs). 끝난 tracker 는 GC 가 가져간다.
+const live = new Map();
+export function liveTracker(path) {
+  const t = live.get(path)?.deref();
+  if (!t && live.has(path)) live.delete(path);
+  return t ?? null;
+}
+
+// 크기 상한이 있는 Map 에 넣는다 (오래된 것부터 버린다). 실제로 버렸으면 t.srcLost 를 켠다.
+// 그 뒤로는 "기억에 없음" 이 "기록에 없음" 이 아니므로 artifact-source.mjs quickSource 가 훑기로 넘긴다.
+function capSet(t, map, k, v) {
+  map.delete(k);
+  map.set(k, v);
+  if (map.size > SRC_PATHS_MAX) {
+    map.delete(map.keys().next().value);
+    t.srcLost = true;
+  }
+}
 
 const RECENT_IDS = 64;
 const LOADING_MIN_BYTES = 4 * 1024 * 1024;
@@ -182,6 +210,7 @@ export class ClaudeTracker {
     this.tail = new JsonlTail(path);
     this.tail.onReset = () => this.reset();
     this.reset();
+    live.set(path, new WeakRef(this));
     this.title = null;
     // 사용자가 /rename 으로 붙인 이름. 기록의 마지막 custom-title 이 이긴다.
     this.customTitle = null;
@@ -192,6 +221,7 @@ export class ClaudeTracker {
     const c = loadCache(path);
     if (c) {
       this.tail.offset = c.offset;
+      this.srcFrom = c.offset;
       Object.assign(this, { tokens: c.tokens, cost: c.cost, costNoCache: c.costNoCache, costUnknown: c.costUnknown, context: c.context, model: c.model, title: c.title, customTitle: c.customTitle ?? null, branch: c.branch, events: c.events, lastTool: c.lastTool, lastKind: c.lastKind, files: c.files ?? [], turns: c.turns ?? [], turnCount: c.turnCount ?? 0, firstAt: c.firstAt ?? null, activity: c.activity ?? {}, stopReason: c.stopReason ?? null, cacheAt: c.cacheAt ?? null, cacheTtl: c.cacheTtl ?? null, inputAt: c.inputAt ?? null, inputFor: c.inputFor ?? null, artifacts: c.artifacts ?? [] });
       this.artCalls = new Map(c.artCalls ?? []);
       this.recent = new Map(c.recent);
@@ -259,6 +289,16 @@ export class ClaudeTracker {
     this.artifacts = [];
     // 결과를 기다리는 게시 호출: tool_use id → edits 로 고쳤는지.
     this.artCalls = new Map();
+    // 원본 위치 (메모리만, #307). artPaths: 아티팩트 id → { path, at }, writes: 경로 → { at, offset, length }, edited: 경로 → 마지막으로 고친 시각.
+    // srcFrom: 이 tracker 가 처음부터 읽기 시작한 위치. 0 이 아니면(캐시에서 이어 읽음) 그 앞 줄은 모르므로 열 때 기록을 훑는다.
+    this.artPaths = new Map();
+    this.writes = new Map();
+    this.edited = new Map();
+    this.srcFrom = 0;
+    // 상한 때문에 기억에서 버린 항목이 있는지 (capSet).
+    this.srcLost = false;
+    // 게시 호출의 file_path (결과에 path 가 없을 때 쓴다): tool_use id → 경로.
+    this.artFiles = new Map();
   }
 
   // 프롬프트 캐시가 만료되는 시각(ms). 캐시를 쓴 응답이 없으면 null.
@@ -281,7 +321,7 @@ export class ClaudeTracker {
   }
 
   update(budget) {
-    const n = this.tail.read((x) => this.apply(x), budget);
+    const n = this.tail.read((x, offset, length) => this.apply(x, offset, length), budget);
     if (n) markDirty(this.path, () => this.snapshot());
     return n;
   }
@@ -341,7 +381,8 @@ export class ClaudeTracker {
     if (this.recent.size > RECENT_IDS) this.recent.delete(this.recent.keys().next().value);
   }
 
-  apply(x) {
+  apply(x, offset, length) {
+    this.noteSource(x, offset, length);
     if (x.type === 'ai-title' && x.aiTitle) this.title = x.aiTitle;
     if (x.type === 'custom-title') this.customTitle = sessionName(x.customTitle);
     if (x.gitBranch) this.branch = x.gitBranch;
@@ -394,6 +435,45 @@ export class ClaudeTracker {
         this.lastKind = 'prompt';
         this.pending.clear();
       } else if (Array.isArray(c) && c.some((p) => p.type === 'tool_result')) this.lastKind = 'result';
+    }
+  }
+
+  // 원본 위치 기억 (#307). 줄의 위치를 모르면(offset 없음) 아무것도 하지 않는다.
+  noteSource(x, offset, length) {
+    if (!Number.isFinite(offset)) return;
+    const at = parseTs(x.timestamp);
+    if (x.type === 'assistant') {
+      for (const c of Array.isArray(x.message?.content) ? x.message.content : []) {
+        if (c?.type !== 'tool_use' || c.name !== 'Artifact' || !isPublish(c.input)) continue;
+        const fp = typeof c.input?.file_path === 'string' ? c.input.file_path : null;
+        if (fp) capSet(this, this.artFiles, c.id, fp);
+        if (fp && Array.isArray(c.input.edits) && c.input.edits.length) capSet(this, this.edited, pathKey(fp), at);
+      }
+      return;
+    }
+    if (x.type !== 'user' || !x.toolUseResult || typeof x.toolUseResult !== 'object') return;
+    const r = x.toolUseResult;
+    const results = Array.isArray(x.message?.content) ? x.message.content.filter((p) => p?.type === 'tool_result') : [];
+    // 결과를 받은 게시 호출의 file_path 는 더 들고 있지 않는다 (오류여도). 게시가 많아도 상한에 걸리지 않게.
+    const files = new Map();
+    for (const p of results)
+      if (this.artFiles.has(p.tool_use_id)) {
+        files.set(p.tool_use_id, this.artFiles.get(p.tool_use_id));
+        this.artFiles.delete(p.tool_use_id);
+      }
+    if (results.some((p) => p.is_error)) return;
+    // writes·edited 의 키는 pathKey (Windows 는 구분자·대소문자를 맞춘다).
+    if (typeof r.filePath === 'string') {
+      if (typeof r.content === 'string' && (r.type === 'create' || r.type === 'update')) capSet(this, this.writes, pathKey(r.filePath), { at, offset, length });
+      else if (Array.isArray(r.structuredPatch)) capSet(this, this.edited, pathKey(r.filePath), at);
+    }
+    for (const p of results) {
+      if (!files.has(p.tool_use_id) && !this.artCalls.has(p.tool_use_id)) continue;
+      const a = pickArtifact(r, at);
+      const path = typeof r.path === 'string' ? r.path : files.get(p.tool_use_id);
+      // pre: 게시 때 이 기록이 아는 그 경로의 마지막 Write. 게시 뒤에 다시 써도 게시본에 가까운 본문을 고를 수 있게 한다.
+      const pre = path ? this.writes.get(pathKey(path)) : null;
+      if (a && path) capSet(this, this.artPaths, a.id, { path, at, ...(pre ? { pre } : {}) });
     }
   }
 

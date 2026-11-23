@@ -97,7 +97,7 @@ function loadingPhase(t) {
 
 // 서브에이전트 전체(끝난 것 포함)의 토큰·비용 합계. 메인 세션 합계에 더해 화면에 보인다.
 export function emptySub() {
-  return { count: 0, tokens: emptyTokens(), cost: 0, costNoCache: 0, costUnknown: false, loading: false, files: [], activity: [], artifacts: [] };
+  return { count: 0, tokens: emptyTokens(), cost: 0, costNoCache: 0, costUnknown: false, loading: false, files: [], activity: [], artifacts: [], logs: [] };
 }
 
 // 메인 tracker 와 서브에이전트 합계를 화면에 보일 세션 숫자로 합친다. 기록을 아직 읽지 않았으면(t 없음) 비용은 null.
@@ -120,6 +120,8 @@ export function sessionTotals(t, sub) {
     activity: mergeActivity([t?.activity, ...sub.activity]),
     // Artifact 도구로 게시한 것: 메인과 서브에이전트를 아티팩트별로 묶는다 (artifacts.mjs).
     artifacts: mergeArtifacts([t?.artifacts, ...sub.artifacts]),
+    // 기록 파일 경로 (메인과 서브에이전트). 아티팩트 원본을 볼 때만 다시 읽는다 (artifact-source.mjs, #307). --json 에는 내지 않는다.
+    logs: t?.path ? [t.path, ...sub.logs] : [...sub.logs],
   };
 }
 
@@ -146,6 +148,7 @@ export function readMembers(transcript, parent, budget, { track = (p, b) => trac
     sub.activity.push(t.activity);
     // 서브에이전트가 게시한 아티팩트도 부모 세션 목록에 합친다 (#305).
     sub.artifacts.push(t.artifacts ?? []);
+    sub.logs.push(join(dir, `agent-${id}.jsonl`));
     if (t.files.length) sub.files.push({ agent: meta.agentType ?? 'agent', files: t.files, startedAt: t.firstAt ?? undefined });
     const age = Date.now() - t.mtimeMs;
     const awaited = Boolean(meta.toolUseId && parent?.pending.has(meta.toolUseId));
@@ -782,6 +785,7 @@ function absorb(root, c) {
   root.loading ||= Boolean(c.loading);
   root.activity = mergeActivity([root.activity, c.activity]);
   if (c.artifacts?.length) root.artifacts = mergeArtifacts([root.artifacts, c.artifacts]);
+  if (c.logs?.length) root.logs = [...(root.logs ?? []), ...c.logs];
 }
 
 // 팀원 행 모양 (readMembers 와 같은 칸). sdk: true 면 화면이 이름 앞에 -p 를 붙인다.
