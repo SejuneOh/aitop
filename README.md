@@ -89,10 +89,11 @@
 - **Waiting alerts**: blocked sessions jump to the top, with optional bell, desktop notification or hook command.
 - **Tokens and cost** per session and for today / last 7 days, estimated at public API list prices. This is not your bill.
 - **Changed files and diffs** per session and per prompt.
+- **Artifacts** a Claude or Cowork session (or its subagents) published with the Artifact tool, with clickable links.
 - **Read-only**: no network, no ports, no dependencies. It only reads the session logs each CLI already writes.
 
 <details>
-<summary>Details: stopped sessions, cache countdown, tool run time, context gauge, tool line</summary>
+<summary>Details: stopped sessions, cache countdown, tool run time, context gauge, artifacts, tool line</summary>
 
 **Stopped by an error**
 
@@ -117,6 +118,12 @@
 **Context gauge**
 
 - `~` marks 60% and up, `!` 85% and up, so the levels show without color. Under `NO_COLOR` the bar is `███░░`, and a gauge that reads 0% has no filled cell.
+
+**Artifacts**
+
+- The detail panel shows `── Artifacts N ──` when a session published any: `title · v1→v3 · 14:02 · claude.ai/…`, plus `edited in place` for an `edits` publish `org` for an org-shared link and `public` for a public one (nothing for `owner`). The version range comes from the publish sequence number; without one it is left out. When space is short, the latest few and `+N`.
+- Only `https://claude.ai/` addresses become OSC 8 links. Under `NO_COLOR`, in piped output and in terminals not known to support links they are plain text; `FORCE_HYPERLINK=1` or `0` overrides. Only the title, address, publish sequence number, time, audience and whether `edits` was used are read (no file paths or edit contents).
+- `--json` has `artifacts` per session (`title`, `url`, `versionFrom`, `versionTo`, `updatedAt`, `audience`, `viaEdits`); `url` is `null` unless it is a `https://claude.ai/` address.
 
 **Tool line and empty screen**
 
@@ -554,6 +561,7 @@ Continue a session elsewhere, for example when you cannot jump to its tab, as in
 - `cacheExpiresAt`, `toolStartedAt`: [Features](#features).
 - `stalled`, `startedAt`, `lastActivityAt`, `entrypoint`, `auto`, `parentId`: [Subagents](#subagents).
 - `resumeCmd`: [Resume a session elsewhere](#resume-a-session-elsewhere).
+- `artifacts`: [Features](#features).
 - Report output (`month`, `current`, `status`, `paths`, `unpriced`, `waitedMs`): [Daily and monthly reports](#daily-and-monthly-reports), [Session report](#session-report).
 
 </details>

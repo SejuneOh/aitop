@@ -3,6 +3,7 @@ import { toolsJson } from './doctor.mjs';
 import { phaseText } from './i18n.mjs';
 import { resumeCmd } from './resume.mjs';
 import { memberStalled } from './sources/common.mjs';
+import { artifactLink } from './sources/artifacts.mjs';
 
 // aitop --json 출력. 다른 스크립트나 AI 가 읽기 쉬운 모양으로 세션 목록과 사용량 합계를 담는다.
 // 텍스트는 수집 단계에서 이미 비밀값 가림이 적용돼 있다.
@@ -73,6 +74,9 @@ export function toJson(data, version = null, opts = {}) {
       context: { used: s.context?.used ?? 0, window: s.context?.window ?? null },
       // 변경 내용(diff)은 넣지 않고 파일별 통계만 넣는다. 줄 수는 편집마다 더한 누적값이다 (git diff 아님).
       files: (s.files ?? []).map((f) => ({ path: f.path, created: Boolean(f.created), edits: f.edits, writtenLines: f.add, deletedLines: f.del, updatedAt: iso(f.at), agents: f.agents ?? [] })),
+      // Artifact 도구로 게시한 것 (Claude·Cowork, 서브에이전트 포함, 마지막 게시가 최근인 것부터). url 은 https://claude.ai/ 주소만 두고 나머지는 null, audience 는 기록 값 그대로('owner'·'org' 등).
+      // versionFrom·versionTo 는 이 세션에서 본 게시 버전 범위, viaEdits 는 마지막 게시가 edits 로 바로 고친 것인지다.
+      artifacts: (s.artifacts ?? []).map((a) => ({ title: a.title ?? null, url: artifactLink(a.url), versionFrom: a.from ?? null, versionTo: a.to ?? null, updatedAt: iso(a.at), audience: a.audience ?? null, viaEdits: Boolean(a.edits) })),
       // startedAt·lastActivityAt 은 세션의 startedAt·updatedAt 과 같은 ISO 시각이다 (모르면 null).
       // stalled 는 화면의 '멈춘 듯' 과 같은 짐작(common.mjs memberStalled)을 data.at 기준으로 본 값이다.
       members: (s.members ?? []).map((m) => ({ ...(m.sdk ? { id: m.id, entrypoint: m.entrypoint ?? null, parentId: m.parentId ?? s.id } : {}), name: m.name, task: m.task ?? null, model: m.model ?? null, status: m.status, phase: koPhase(m.phase), phaseKind: m.phase?.kind ?? null, tokens: m.tokens ?? 0, cost: money(m.cost), startedAt: iso(m.startedAt), lastActivityAt: iso(m.lastActivityAt), stalled: memberStalled(m, data.at ?? Date.now(), s.status) })),

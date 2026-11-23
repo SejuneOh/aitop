@@ -126,6 +126,32 @@ export function style({ fg, bg, bold, dim, italic } = {}) {
 
 export const RESET = NO_COLOR ? '' : '\x1b[0m';
 
+// OSC 8 클릭 링크 (#305). 색을 끈 화면(NO_COLOR, 파이프·파일 출력은 bin 이 NO_COLOR 를 켠다)과 터미널이 아닌 출력에서는 늘 평문이다.
+// 그 밖에는 FORCE_HYPERLINK(1/0, supports-hyperlinks 관례)가 있으면 따르고, 없으면 OSC 8 을 그린다고 알려진 터미널만 켠다.
+// tmux 는 3.4 부터 링크를 넘기고 그 전 판은 모르는 OSC 를 삼키므로 켠다. GNU screen 과 리눅스 콘솔은 끈다.
+export function hyperlinks(env = process.env, tty = Boolean(process.stdout?.isTTY)) {
+  if (env.NO_COLOR || !tty) return false;
+  const force = env.FORCE_HYPERLINK;
+  if (force != null && force !== '') return !['0', 'false'].includes(force);
+  const term = env.TERM ?? '';
+  if (term === 'dumb' || term === 'linux' || env.STY) return false;
+  if (env.TMUX || env.WT_SESSION || env.KITTY_WINDOW_ID || env.WEZTERM_PANE || env.KONSOLE_VERSION || env.DOMTERM) return true;
+  if (Number(env.VTE_VERSION) >= 5000) return true;
+  if (/^(iTerm\.app|WezTerm|vscode|ghostty|Hyper|Tabby|rio|WarpTerminal)$/.test(env.TERM_PROGRAM ?? '')) return true;
+  return /kitty|alacritty|foot|ghostty|wezterm/.test(term);
+}
+
+let LINKS = hyperlinks();
+export const linksOn = () => LINKS;
+// 테스트용: 링크 그리기를 켜고 끈다. 이전 값을 돌려준다.
+export function _setLinks(on) {
+  const prev = LINKS;
+  LINKS = Boolean(on);
+  return prev;
+}
+// 글자 t 를 url 로 가는 링크로 감싼다. 폭 계산은 감싸기 전의 t 로 한다 (draw.mjs line).
+export const osc8 = (url, t) => `\x1b]8;;${url}\x1b\\${t}\x1b]8;;\x1b\\`;
+
 // 하루 예산 경고. 주의(예상이 예산의 80% 이상)는 대기 색과 헷갈리지 않게 팀원 색을, 초과 예상은 경고 색을 쓴다.
 export const BUDGET_TOKEN = { caution: 'team', warn: 'alert' };
 export const BUDGET_COLOR = { caution: PALETTE[BUDGET_TOKEN.caution], warn: PALETTE[BUDGET_TOKEN.warn] };
