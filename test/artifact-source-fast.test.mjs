@@ -187,3 +187,73 @@ test('상한을 넘겨 고친 기록(edited)이 밀려나면 고친 적 없음�
   assert.equal(doc.kind, 'record');
   assert.equal(doc.changed, true);
 });
+
+// ── 게시 시각을 보는 '게시본과 다를 수 있음' (#307 리뷰) ──
+// 빠른 경로(기억한 위치)와 훑기 결과가 같은지 함께 본다. 훑기는 tracker 가 모르는 복사본 기록으로 돌린다.
+const wr = (id, path, content, m) => [call(id, 'Write', { file_path: path, content }, m), result(id, { type: 'update', filePath: path, content, structuredPatch: [] }, m)];
+const ed = (id, path, m) => [call(id, 'Edit', { file_path: path }, m), result(id, { filePath: path, structuredPatch: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ['-a', '+b'] }] }, m)];
+const pub = (id, path, m) => [call(id, 'Artifact', { file_path: path }, m), result(id, { url: 'https://claude.ai/artifact/fast307', title: '빠른 보고서', artifact_id: 'art-fast', path, seq: 1 }, m)];
+
+function both(sid, list) {
+  const log = fx.transcript(sid, list);
+  readAll(log);
+  const copy = join(dirname(log), `${sid}-scan.jsonl`);
+  copyFileSync(log, copy);
+  return { quick: quickSource({ logs: [log] }, ART), scan: loadArtifactSource({ logs: [copy] }, ART), all: loadArtifactSource({ logs: [log] }, ART) };
+}
+const pick = (d) => d && { kind: d.kind, text: d.kind === 'record' ? d.text : undefined, changed: d.changed };
+
+test('기록 본문: Write(A) → 게시 → Write(B) 면 게시 전 본문 A 와 게시본과 다를 수 있음 (빠른 경로·훑기 같음)', () => {
+  const { quick, scan } = both('pub-1', [...wr('w1', HTML, 'A-본문', 1), ...pub('p1', HTML, 2), ...wr('w2', HTML, 'B-본문', 3)]);
+  assert.deepEqual(pick(scan), { kind: 'record', text: 'A-본문', changed: true });
+  assert.deepEqual(pick(quick), pick(scan));
+});
+
+test('기록 본문: Write(A) → 게시 → Edit 이면 다를 수 있음, 게시 뒤 아무것도 없으면 같음', () => {
+  const e = both('pub-2', [...wr('w1', HTML, 'A-본문', 1), ...pub('p1', HTML, 2), ...ed('e1', HTML, 3)]);
+  assert.deepEqual(pick(e.scan), { kind: 'record', text: 'A-본문', changed: true });
+  assert.deepEqual(pick(e.quick), pick(e.scan));
+  const n = both('pub-3', [...wr('w1', HTML, 'A-본문', 1), ...pub('p1', HTML, 2)]);
+  assert.deepEqual(pick(n.scan), { kind: 'record', text: 'A-본문', changed: false });
+  assert.deepEqual(pick(n.quick), pick(n.scan));
+});
+
+test('기록 본문: 게시 전 Write 가 없고 게시 뒤 Write 만 있으면 그 본문을 쓰되 다를 수 있음', () => {
+  const { quick, scan, all } = both('pub-4', [...pub('p1', HTML, 1), ...wr('w1', HTML, 'B-본문', 2)]);
+  assert.deepEqual(pick(scan), { kind: 'record', text: 'B-본문', changed: true });
+  // 빠른 경로는 게시 전 Write 를 모르므로 훑기로 넘긴다. 최종 결과는 같다.
+  assert.equal(quick, null);
+  assert.deepEqual(pick(all), pick(scan));
+});
+
+test('로컬 파일: 마지막 게시 뒤 같은 경로의 Write·Edit 가 있으면 다를 수 있음, 없으면 같음', () => {
+  const LOCAL = join(dirname(fx.home), 'local-report.html');
+  writeFileSync(LOCAL, '<p>로컬</p>');
+  const cases = [
+    ['loc-1', [...wr('w1', LOCAL, 'A', 1), ...pub('p1', LOCAL, 2), ...wr('w2', LOCAL, 'B', 3)], true],
+    ['loc-2', [...wr('w1', LOCAL, 'A', 1), ...pub('p1', LOCAL, 2), ...ed('e1', LOCAL, 3)], true],
+    ['loc-3', [...wr('w1', LOCAL, 'A', 1), ...ed('e1', LOCAL, 2), ...pub('p1', LOCAL, 3)], false],
+  ];
+  for (const [sid, list, changed] of cases) {
+    const { quick, scan } = both(sid, list);
+    assert.deepEqual(pick(scan), { kind: 'local', text: undefined, changed }, sid);
+    assert.deepEqual(pick(quick), pick(scan), sid);
+  }
+});
+
+test('게시 결과를 받으면 게시 호출의 file_path 기억을 지운다 (게시가 많아도 상한에 걸리지 않는다)', () => {
+  const list = Array.from({ length: 1100 }, (_, i) => pub(`pp${i}`, HTML, 1)).flat();
+  const log = fx.transcript('many-pub', list);
+  const t = readAll(log);
+  assert.equal(t.artFiles.size, 0);
+  assert.equal(t.srcLost, false);
+});
+
+test('경로 키: Windows 는 구분자와 대소문자를 맞추고, 다른 OS 는 그대로', async () => {
+  const { pathKey } = await import('../src/sources/artifacts.mjs');
+  assert.equal(pathKey('C:/Users/Dev/Report.HTML', 'win32'), pathKey('c:\\users\\dev\\report.html', 'win32'));
+  assert.equal(pathKey('C:\\a\\.\\b\\x.html', 'win32'), pathKey('c:\\a\\b\\X.html', 'win32'));
+  assert.notEqual(pathKey('/tmp/A.html', 'linux'), pathKey('/tmp/a.html', 'linux'));
+  assert.equal(pathKey('/tmp/a.html', 'darwin'), '/tmp/a.html');
+  assert.equal(pathKey(null, 'win32'), null);
+});

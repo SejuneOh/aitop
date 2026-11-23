@@ -6,7 +6,7 @@ import { claudeCost } from '../pricing.mjs';
 import { addActivity, emptyTokens, pushEvent, describeTool, toolDetail, isNoisePrompt, parseTs, sessionName } from './common.mjs';
 import { debugIo } from '../log.mjs';
 import { addChange } from './files.mjs';
-import { ARTIFACT_CALLS_MAX, addArtifact, isPublish, pickArtifact } from './artifacts.mjs';
+import { ARTIFACT_CALLS_MAX, addArtifact, isPublish, pathKey, pickArtifact } from './artifacts.mjs';
 
 const MAX_TURNS = 50;
 
@@ -447,23 +447,33 @@ export class ClaudeTracker {
         if (c?.type !== 'tool_use' || c.name !== 'Artifact' || !isPublish(c.input)) continue;
         const fp = typeof c.input?.file_path === 'string' ? c.input.file_path : null;
         if (fp) capSet(this, this.artFiles, c.id, fp);
-        if (fp && Array.isArray(c.input.edits) && c.input.edits.length) capSet(this, this.edited, fp, at);
+        if (fp && Array.isArray(c.input.edits) && c.input.edits.length) capSet(this, this.edited, pathKey(fp), at);
       }
       return;
     }
     if (x.type !== 'user' || !x.toolUseResult || typeof x.toolUseResult !== 'object') return;
     const r = x.toolUseResult;
     const results = Array.isArray(x.message?.content) ? x.message.content.filter((p) => p?.type === 'tool_result') : [];
+    // 결과를 받은 게시 호출의 file_path 는 더 들고 있지 않는다 (오류여도). 게시가 많아도 상한에 걸리지 않게.
+    const files = new Map();
+    for (const p of results)
+      if (this.artFiles.has(p.tool_use_id)) {
+        files.set(p.tool_use_id, this.artFiles.get(p.tool_use_id));
+        this.artFiles.delete(p.tool_use_id);
+      }
     if (results.some((p) => p.is_error)) return;
+    // writes·edited 의 키는 pathKey (Windows 는 구분자·대소문자를 맞춘다).
     if (typeof r.filePath === 'string') {
-      if (typeof r.content === 'string' && (r.type === 'create' || r.type === 'update')) capSet(this, this.writes, r.filePath, { at, offset, length });
-      else if (Array.isArray(r.structuredPatch)) capSet(this, this.edited, r.filePath, at);
+      if (typeof r.content === 'string' && (r.type === 'create' || r.type === 'update')) capSet(this, this.writes, pathKey(r.filePath), { at, offset, length });
+      else if (Array.isArray(r.structuredPatch)) capSet(this, this.edited, pathKey(r.filePath), at);
     }
     for (const p of results) {
-      if (!this.artFiles.has(p.tool_use_id) && !this.artCalls.has(p.tool_use_id)) continue;
+      if (!files.has(p.tool_use_id) && !this.artCalls.has(p.tool_use_id)) continue;
       const a = pickArtifact(r, at);
-      const path = typeof r.path === 'string' ? r.path : this.artFiles.get(p.tool_use_id);
-      if (a && path) capSet(this, this.artPaths, a.id, { path, at });
+      const path = typeof r.path === 'string' ? r.path : files.get(p.tool_use_id);
+      // pre: 게시 때 이 기록이 아는 그 경로의 마지막 Write. 게시 뒤에 다시 써도 게시본에 가까운 본문을 고를 수 있게 한다.
+      const pre = path ? this.writes.get(pathKey(path)) : null;
+      if (a && path) capSet(this, this.artPaths, a.id, { path, at, ...(pre ? { pre } : {}) });
     }
   }
 

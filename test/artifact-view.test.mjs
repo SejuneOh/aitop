@@ -47,10 +47,10 @@ test('출처 순서: 로컬 파일이 있으면 그것을 읽는다', () => {
   assert.equal(d.changed, false);
 });
 
-test('출처 순서: 로컬 파일이 지워졌으면 같은 세션 기록의 마지막 Write 본문 (서브에이전트 기록 포함)', () => {
+test('출처 순서: 로컬 파일이 지워졌으면 같은 세션 기록에서 게시 전 마지막 Write 본문 (서브에이전트 기록 포함)', () => {
   const html = join(dir, 'gone.html');
   const main = logFile('b.jsonl', [...write('w1', html, '<p>첫 본문</p>', 1), ...publish('p1', html, 1, 3)]);
-  const sub = logFile('b-sub.jsonl', [...write('w2', html, '<p>마지막 본문</p>', 5, 'update')]);
+  const sub = logFile('b-sub.jsonl', [...write('w2', html, '<p>마지막 본문</p>', 2, 'update')]);
   const d = loadArtifactSource({ logs: [main, sub] }, ART);
   assert.equal(d.kind, 'record');
   assert.match(d.text, /마지막 본문/);
@@ -286,4 +286,16 @@ test('도움말·키 줄에 새 화면과 키가 있다', () => {
   assert.match(keysLine('artifact'), /Home\/End 처음·끝/);
   assert.match(keysLine('artifact', 'en'), /Home\/End top\/bottom/);
   assert.ok(segsWidth([{ t: keysLine('artifact') }]) > 0);
+});
+
+test('html → 글: 닫히지 않은 <b 가 많은 2MB 입력도 길이에 비례해 끝난다 (따옴표 안의 > 는 태그 끝이 아니다)', () => {
+  for (const html of ['x<b '.repeat(500_000), '<b "'.repeat(500_000) + '>', '<!x'.repeat(600_000), '<title>'.repeat(280_000), 'a<'.repeat(1_000_000)]) {
+    const started = performance.now();
+    htmlToBlocks(html);
+    const ms = performance.now() - started;
+    assert.ok(ms < 1000, `${html.slice(0, 4)}… ${html.length}자 ${ms.toFixed(0)}ms`);
+  }
+  const text = renderBlocks(htmlToBlocks('<p title="a>b">글</p><p>x <b 열린 태그 <i "끝').blocks, 40).map((l) => l.map((x) => x.t).join('')).join('\n');
+  assert.match(text, /^글$/m);
+  assert.match(text, /x <b 열린 태그/);
 });

@@ -6,12 +6,13 @@
 import { closeSync, constants, fstatSync, lstatSync, openSync, readSync } from 'node:fs';
 import { StringDecoder } from 'node:string_decoder';
 import { isAbsolute } from 'node:path';
-import { isPublish, pickArtifact } from './artifacts.mjs';
+import { isPublish, pathKey, pickArtifact } from './artifacts.mjs';
 import { parseTs } from './common.mjs';
 import { liveTracker } from './claude-tracker.mjs';
 
-// 원본으로 읽는 최대 바이트. 넘으면 앞부분만 보이고 cut 을 켠다.
-export const SOURCE_MAX = 2 * 1024 * 1024;
+// 원본으로 읽는 최대 바이트 (artifacts.mjs). 넘으면 앞부분만 보이고 cut 을 켠다.
+export { SOURCE_MAX } from './artifacts.mjs';
+import { SOURCE_MAX } from './artifacts.mjs';
 
 const PATH_MAX = 4096;
 const okPath = (p) => typeof p === 'string' && p.length <= PATH_MAX && isAbsolute(p) && !/[\x00-\x1f\x7f]/.test(p);
@@ -98,7 +99,7 @@ const inJson = (s) => JSON.stringify(s).slice(1, -1);
 const toolUses = (x) => (x?.type === 'assistant' && Array.isArray(x.message?.content) ? x.message.content.filter((c) => c?.type === 'tool_use') : []);
 const toolResults = (x) => (x?.type === 'user' && Array.isArray(x.message?.content) ? x.message.content.filter((c) => c?.type === 'tool_result') : []);
 
-// 기록들에서 이 아티팩트(a.id)를 마지막으로 게시한 결과의 경로. 결과에 path 가 없으면 게시 호출의 file_path.
+// 기록들에서 이 아티팩트(a.id)를 마지막으로 게시한 결과의 경로와 시각 { path, at }. 결과에 path 가 없으면 게시 호출의 file_path.
 function* findPathSteps(logs, a) {
   const calls = new Map();
   let best = null;
@@ -121,33 +122,35 @@ function* findPathSteps(logs, a) {
       },
     );
   }
-  return best?.path ?? null;
+  return best;
 }
 
-// 기록들에서 path 로 마지막에 Write 한 본문과, 그 뒤에 같은 경로를 고친 일(Edit·Artifact edits)이 있었는지.
-// 본문은 지금까지 본 마지막 것 하나만 들고 있는다.
-function* findWriteSteps(logs, path, max = SOURCE_MAX) {
-  let write = null;
-  const edits = [];
+// 기록들에서 path 를 쓰고 고친 일. 게시 시각(pubAt) 이전(같거나 이전)의 마지막 Write 본문(pre),
+// 게시 뒤 첫 Write 본문(post), 그리고 Write·Edit·Artifact edits 가 있었던 시각들(mods)을 모은다. 본문은 둘까지만 든다.
+function* findWritesSteps(logs, path, pubAt, max = SOURCE_MAX) {
+  let pre = null;
+  let post = null;
+  const mods = [];
+  const key = pathKey(path);
   const esc = inJson(path);
+  // Windows 는 구분자·대소문자가 다르게 적힌 줄도 봐야 하므로 넓게 거른다.
+  const want = process.platform === 'win32' ? (l) => l.includes('"filePath"') || l.includes('"file_path"') : (l) => l.includes(esc) || l.includes(path);
   for (const log of logs ?? []) {
-    yield* eachRecord(
-      log,
-      (l) => l.includes(esc) || l.includes(path),
-      (x) => {
-        const at = parseTs(x.timestamp);
-        for (const c of toolUses(x)) if (c.name === 'Artifact' && isPublish(c.input) && c.input?.file_path === path && Array.isArray(c.input.edits) && c.input.edits.length) edits.push(at);
-        const r = x.toolUseResult;
-        if (x.type !== 'user' || !r || typeof r !== 'object' || r.filePath !== path) return;
-        if (toolResults(x).some((p) => p.is_error)) return;
-        if (typeof r.content === 'string' && (r.type === 'create' || r.type === 'update')) {
-          if (!write || at >= write.at) write = { at, ...cap(r.content, max) };
-        } else if (Array.isArray(r.structuredPatch)) edits.push(at);
-      },
-    );
+    yield* eachRecord(log, want, (x) => {
+      const at = parseTs(x.timestamp);
+      for (const c of toolUses(x)) if (c.name === 'Artifact' && isPublish(c.input) && pathKey(c.input?.file_path) === key && Array.isArray(c.input.edits) && c.input.edits.length) mods.push(at);
+      const r = x.toolUseResult;
+      if (x.type !== 'user' || !r || typeof r !== 'object' || pathKey(r.filePath) !== key) return;
+      if (toolResults(x).some((p) => p.is_error)) return;
+      if (typeof r.content === 'string' && (r.type === 'create' || r.type === 'update')) {
+        mods.push(at);
+        if (at <= pubAt) {
+          if (!pre || at >= pre.at) pre = { at, ...cap(r.content, max) };
+        } else if (!post || at < post.at) post = { at, ...cap(r.content, max) };
+      } else if (Array.isArray(r.structuredPatch)) mods.push(at);
+    });
   }
-  if (!write) return null;
-  return { text: write.text, cut: write.cut, changed: edits.some((at) => at > write.at) };
+  return { pre, post, mods };
 }
 
 const cap = (text, max) => (text.length > max ? { text: text.slice(0, max), cut: true } : { text, cut: false });
@@ -161,19 +164,21 @@ function run(gen) {
   }
 }
 
-export const findPath = (logs, a) => run(findPathSteps(logs, a));
-export const findWrite = (logs, path, max) => run(findWriteSteps(logs, path, max));
+export const findPath = (logs, a) => run(findPathSteps(logs, a))?.path ?? null;
 
-// 기록을 훑어 찾기 (기억한 위치가 없을 때).
+// 게시본과 다를 수 있는지 (#307 리뷰):
+// - 로컬 파일: 마지막 게시 뒤에 같은 경로의 Write·Edit·Artifact edits 가 있었으면.
+// - 기록 본문: 게시 이전 마지막 Write 를 쓰고, 그 뒤에 고친 일이 있었으면. 게시 이전 Write 가 없어 게시 뒤 첫 Write 를 쓰면 늘.
 function* scanSteps(s, a) {
   const logs = s?.logs ?? [];
-  const path = yield* findPathSteps(logs, a);
-  if (!path) return none(null);
-  const local = readLocal(path);
-  if (local) return { kind: 'local', path, text: local.text, cut: local.cut, changed: false };
-  const w = yield* findWriteSteps(logs, path);
-  if (w) return { kind: 'record', path, text: w.text, cut: w.cut, changed: w.changed };
-  return none(path);
+  const hit = yield* findPathSteps(logs, a);
+  if (!hit) return none(null);
+  const local = readLocal(hit.path);
+  const { pre, post, mods } = yield* findWritesSteps(logs, hit.path, hit.at);
+  if (local) return { kind: 'local', path: hit.path, text: local.text, cut: local.cut, changed: mods.some((at) => at > hit.at) };
+  const w = pre ?? post;
+  if (!w) return none(hit.path);
+  return { kind: 'record', path: hit.path, text: w.text, cut: w.cut, changed: w === post || mods.some((at) => at > w.at) };
 }
 
 // 기억한 위치의 Write 결과 줄 하나만 읽는다. 그 자리에 같은 경로의 Write 결과가 없으면(기록이 다시 쓰임) null.
@@ -193,7 +198,7 @@ export function readWriteAt(log, offset, length, path, max = SOURCE_MAX) {
     if (got < length) return null;
     const x = JSON.parse(buf.toString('utf8'));
     const r = x?.toolUseResult;
-    if (x?.type !== 'user' || r?.filePath !== path || typeof r.content !== 'string' || (r.type !== 'create' && r.type !== 'update')) return null;
+    if (x?.type !== 'user' || pathKey(r?.filePath) !== pathKey(path) || typeof r.content !== 'string' || (r.type !== 'create' && r.type !== 'update')) return null;
     return cap(r.content, max);
   } catch {
     return null;
@@ -205,9 +210,9 @@ export function readWriteAt(log, offset, length, path, max = SOURCE_MAX) {
   }
 }
 
-// 기록을 읽는 tracker 가 기억한 위치로 찾는다 (claude-tracker.mjs noteSource). 훑지 않는다.
+// 기록을 읽는 tracker 가 기억한 위치로 찾는다 (claude-tracker.mjs noteSource). 훑지 않는다. 결과는 훑기(scanSteps)와 같은 규칙이다.
 // 모르면 null: tracker 가 없거나, 캐시에서 이어 읽어 앞부분을 모르거나 상한 때문에 기억을 버린(srcLost) 상태에서 찾지 못했거나,
-// 기억한 줄이 바뀌었을 때. srcLost 면 '고친 적 없음(changed false)' 도 믿을 수 없어 훑기로 넘긴다.
+// 기억한 줄이 바뀌었거나, 게시 이전 마지막 Write 를 확실히 모를 때. srcLost 면 '고친 적 없음(changed false)' 도 믿을 수 없어 훑기로 넘긴다.
 export function quickSource(s, a, find = liveTracker) {
   const ts = (s?.logs ?? []).map((p) => find(p));
   if (!ts.length || ts.some((t) => !t)) return null;
@@ -215,25 +220,32 @@ export function quickSource(s, a, find = liveTracker) {
   const lost = ts.some((t) => t.srcLost);
   const complete = !lost && ts.every((t) => t.srcFrom === 0);
   let hit = null;
+  let owner = null;
   for (const t of ts) {
     const p = t.artPaths?.get(a?.id);
-    if (p && okPath(p.path) && (!hit || p.at >= hit.at)) hit = p;
+    if (p && okPath(p.path) && (!hit || p.at >= hit.at)) [hit, owner] = [p, t];
   }
   if (!hit) return complete ? none(null) : null;
+  const key = pathKey(hit.path);
+  // 경로를 마지막으로 쓰거나 고친 시각 (기록마다 마지막 Write 와 마지막 Edit·edits).
+  const lastMod = Math.max(-Infinity, ...ts.flatMap((t) => [t.edited?.get(key) ?? -Infinity, t.writes?.get(key)?.at ?? -Infinity]));
+  const done = (doc) => (doc.changed || !lost ? doc : null);
   const local = readLocal(hit.path);
-  if (local) return { kind: 'local', path: hit.path, text: local.text, cut: local.cut, changed: false };
+  if (local) return done({ kind: 'local', path: hit.path, text: local.text, cut: local.cut, changed: lastMod > hit.at });
+  // 게시 이전 마지막 Write: 기록마다 마지막 Write 가 게시 이전이면 그것, 게시한 기록은 게시 때 붙여 둔 것(pre).
+  // 게시 뒤 Write 만 아는 기록이 있으면 그 앞 Write 를 모르므로 훑는다.
   let w = null;
   for (const t of ts) {
-    const x = t.writes?.get(hit.path);
+    const last = t.writes?.get(key);
+    let x = last && last.at <= hit.at ? last : null;
+    if (!x && t === owner && hit.pre && hit.pre.at <= hit.at) x = hit.pre;
+    else if (!x && last) return null;
     if (x && (!w || x.at >= w.at)) w = { ...x, log: t.path };
   }
   if (!w) return complete ? none(hit.path) : null;
   const body = readWriteAt(w.log, w.offset, w.length, hit.path);
   if (!body) return null;
-  const lastEdit = Math.max(-Infinity, ...ts.map((t) => t.edited?.get(hit.path) ?? -Infinity));
-  const changed = lastEdit > w.at;
-  if (!changed && lost) return null;
-  return { kind: 'record', path: hit.path, text: body.text, cut: body.cut, changed };
+  return done({ kind: 'record', path: hit.path, text: body.text, cut: body.cut, changed: lastMod > w.at });
 }
 
 // 원본 찾기 (기다리는 판). s.logs: 세션 기록 경로 (메인과 서브에이전트, claude.mjs sessionTotals).

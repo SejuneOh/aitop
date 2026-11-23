@@ -3,7 +3,7 @@
 // 모든 글은 stripControl·mask 를 지나고, 링크는 #305 처럼 https://claude.ai/ 주소만 OSC 8 로 감싼다(draw.mjs line).
 // 그 밖의 https 주소는 글 뒤에 흐린 글자로 붙이고, https 가 아닌 주소는 버린다.
 import { mask, pad, stripControl, truncate, truncateLeft, width } from '../text.mjs';
-import { artifactLink } from '../sources/artifacts.mjs';
+import { SOURCE_MAX, artifactLink } from '../sources/artifacts.mjs';
 import { PALETTE } from './theme.mjs';
 import { box, segsWidth, tilde } from './draw.mjs';
 import { glyphs } from './glyphs.mjs';
@@ -61,13 +61,68 @@ function attr(attrs, name) {
 const BLOCK = new Set(['p', 'div', 'section', 'article', 'header', 'footer', 'main', 'nav', 'aside', 'figure', 'figcaption', 'dl', 'dt', 'dd', 'details', 'summary', 'form', 'fieldset', 'legend', 'address', 'center', 'body', 'html', 'caption']);
 const DROP = ['script', 'style', 'template', 'noscript', 'svg', 'math', 'head', 'object', 'iframe', 'canvas'];
 
+// html 을 조각으로 나눈다: 태그면 [close, name, attrs], 글이면 [, , , text].
+// 태그는 '<이름' 뒤로 따옴표 밖의 첫 '>' 까지다. 닫히지 않으면(따옴표가 안 닫히거나 '>' 가 없으면) 그 '<' 는 글자다.
+// 정규식으로 하면 닫히지 않은 '<b' 마다 문서 끝까지 훑어 크기의 제곱이 걸린다. 여기서는 글자마다 '다음 위치' 를 기억해(next)
+// 같은 구간을 다시 찾지 않으므로 길이에 비례한다.
+export function* tokens(src) {
+  const n = src.length;
+  const memo = new Map();
+  // ch 가 j 이후 처음 나오는 위치 (없으면 n). [q, r] 안의 j 는 앞서 찾은 r 이 답이다.
+  const next = (ch, j) => {
+    const m = memo.get(ch);
+    if (m && m.q <= j && j <= m.r) return m.r;
+    let r = src.indexOf(ch, j);
+    if (r < 0) r = n;
+    memo.set(ch, { q: j, r });
+    return r;
+  };
+  const NAME = /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)/y;
+  let i = 0;
+  // 글 조각의 시작. 태그가 못 된 '<' 는 앞뒤 글과 한 조각으로 묶는다.
+  let from = 0;
+  while (i < n) {
+    const lt = next('<', i);
+    if (lt >= n) break;
+    NAME.lastIndex = lt;
+    const m = NAME.exec(src);
+    let end = -1;
+    if (m) {
+      for (let j = NAME.lastIndex; ; ) {
+        const gt = next('>', j);
+        const q = Math.min(next('"', j), next("'", j));
+        if (gt < q) {
+          end = gt;
+          break;
+        }
+        if (q >= n) break;
+        const shut = next(src[q], q + 1);
+        if (shut >= n) break;
+        j = shut + 1;
+      }
+    }
+    if (end < 0) {
+      i = lt + 1;
+      continue;
+    }
+    if (lt > from) yield [undefined, undefined, undefined, src.slice(from, lt)];
+    yield [m[1], m[2], src.slice(lt + m[0].length, end)];
+    i = from = end + 1;
+  }
+  if (n > from) yield [undefined, undefined, undefined, src.slice(from)];
+}
+
 export function htmlToBlocks(html) {
   let src = String(html ?? '');
   let title = null;
-  const tm = /<title\b[^>]*>([\s\S]*?)<\/title\s*>/i.exec(src);
-  if (tm) title = clean(decodeEntities(tm[1])).replace(/\s+/g, ' ').trim() || null;
+  // 제목: 첫 <title> 과 그 뒤 첫 </title> 사이. 정규식 대신 indexOf 로 찾아 닫힘이 없는 <title 이 많아도 길이에 비례한다.
+  const lower = src.toLowerCase();
+  const ts = lower.search(/<title\b/);
+  const tgt = ts < 0 ? -1 : src.indexOf('>', ts);
+  const tend = tgt < 0 ? -1 : lower.indexOf('</title', tgt);
+  if (tend >= 0) title = clean(decodeEntities(src.slice(tgt + 1, tend))).replace(/\s+/g, ' ').trim() || null;
   // 주석·CDATA 와 실행·숨김 내용을 통째로 버린다. 닫는 태그가 없으면 끝까지 버린다.
-  src = src.replace(/<!--[\s\S]*?(?:-->|$)/g, '').replace(/<!\[CDATA\[[\s\S]*?(?:\]\]>|$)/g, '').replace(/<![^>]*>/g, '');
+  src = src.replace(/<!--[\s\S]*?(?:-->|$)/g, '').replace(/<!\[CDATA\[[\s\S]*?(?:\]\]>|$)/g, '').replace(/<![^>]*(?:>|$)/g, '');
   for (const tag of DROP) src = src.replace(new RegExp(`<${tag}\\b[^>]*?\\/>|<${tag}\\b[\\s\\S]*?(?:<\\/${tag}\\s*>|$)`, 'gi'), '');
 
   const blocks = [];
@@ -107,12 +162,9 @@ export function htmlToBlocks(html) {
     if (kind === 'h') kind = 'p';
   };
 
-  const TOKEN = /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)((?:[^>"']|"[^"]*"|'[^']*')*)>|([^<]+)|(<)/g;
-  let m;
-  while ((m = TOKEN.exec(src))) {
-    const [, close, rawName, attrs = '', text, lt] = m;
-    if (text != null || lt != null) {
-      const s = decodeEntities(text ?? lt);
+  for (const [close, rawName, attrs = '', text] of tokens(src)) {
+    if (text != null) {
+      const s = decodeEntities(text);
       if (pre) pre.text += s;
       else push(s.replace(/\s+/g, ' '));
       if (link) linkText += s;
@@ -364,12 +416,17 @@ const runSeg = (r) => ({
 function chunks(s, w) {
   const out = [];
   let cur = '';
+  let cw = 0;
+  // 폭은 글자마다 더해 센다 (긴 낱말에서 줄 전체를 다시 재지 않게).
   for (const ch of s) {
-    if (cur && width(cur + ch) > w) {
+    const k = width(ch);
+    if (cur && cw + k > w) {
       out.push(cur);
       cur = '';
+      cw = 0;
     }
     cur += ch;
+    cw += k;
   }
   if (cur || !out.length) out.push(cur);
   return out;
@@ -518,7 +575,7 @@ export function headLines(doc, a, w, pos) {
   const title = a?.title || doc.parsed?.title || '-';
   const ver = a?.to != null ? `v${a.to}` : null;
   const src = { t: tr(SOURCE_KEY[doc.kind] ?? 'art.srcNone'), fg: doc.kind === 'none' ? PALETTE.alert : doc.kind === 'record' ? PALETTE.waiting : PALETTE.busy, bold: true };
-  const warns = [doc.changed && { t: `! ${tr('art.mayDiffer')}`, fg: PALETTE.waiting, bold: true }, doc.cut && { t: tr('art.cut', { n: fmtBytes(2 * 1024 * 1024) }), fg: PALETTE.waiting }].filter(Boolean);
+  const warns = [doc.changed && { t: `! ${tr('art.mayDiffer')}`, fg: PALETTE.waiting, bold: true }, doc.cut && { t: tr('art.cut', { n: fmtBytes(SOURCE_MAX) }), fg: PALETTE.waiting }].filter(Boolean);
   const tail = (k) => [...(k < 2 && ver ? [sep, { t: ver, fg: PALETTE.muted }] : []), sep, src, ...(k < 1 ? warns.flatMap((x) => [sep, x]) : [])];
   const meta = pos ? [{ t: `  ${pos}`, fg: PALETTE.info }] : [];
   let k = 0;
