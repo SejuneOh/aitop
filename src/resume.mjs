@@ -41,9 +41,52 @@ function resumeArgs(s) {
   return null;
 }
 
+// PowerShell 작은따옴표 (Windows 에서 원격 세션 명령을 붙여 넣는 로컬 셸). 안전한 글자만이면 그대로, 아니면 '...' 로 감싸고 ' 는 '' 로.
+// - 로 시작하는 값(-- 포함)과 @ 가 든 값도 감싼다 (PowerShell 이 매개변수 끝 표시나 splatting 으로 읽지 않게).
+export function psQuote(v) {
+  return /^[A-Za-z0-9_./:\\][A-Za-z0-9_./:\\-]*$/.test(v) ? v : `'${v.replace(/'/g, "''")}'`;
+}
+
+// PowerShell 이 작은따옴표 안에서도 따옴표로 읽는 유니코드 따옴표(‘ ’ ‚ ‛ 등), Windows PowerShell 5.1 이 네이티브 명령에 넘길 때 깨뜨리는 ",
+// 그리고 붙여 넣을 때 위험한 글자(제어 문자·줄바꿈·NUL·백틱·$, 폭 0·방향 바꿈 글자). 이런 값이 있으면 Windows 에서는 명령을 만들지 않는다.
+const PS_UNSAFE = /[\x00-\x1f\x7f-\x9f`$"\u2018-\u201f\u2028\u2029\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/;
+
+// 원격 세션(#308)의 이어 열기: 원격이 준 resumeCmd 는 믿지 않고, 원래 id·도구·폴더로 여기서 다시 만든다.
+// ssh: ssh -t <host> 'cd <폴더> && claude --resume <id>' (원격 셸이 받는 한 줄을 통째로 따옴표로 감싼다).
+// WSL: wsl.exe -d <배포판> --cd <폴더> -- claude --resume <id>. 기본이 아닌 기록 폴더 변수는 원격에서 알 수 없어 붙이지 않는다.
+// 로컬이 Windows 면 붙여 넣는 셸을 PowerShell 로 보고 로컬 쪽 인자를 PowerShell 따옴표로 감싼다.
+// ssh 의 원격 쪽 한 줄은 원격 POSIX 셸이 읽으므로 POSIX 따옴표로 만든 뒤 그 줄 전체를 PowerShell 따옴표로 한 번 더 감싼다.
+function remoteResumeCmd(s, platform) {
+  const win = platform === 'win32';
+  // Windows 에서는 위험한 글자를 지워서 넘기지 않고 아예 만들지 않는다.
+  if (win && [s.host, s.cwd, s.remoteId].some((v) => v != null && PS_UNSAFE.test(String(v)))) return null;
+  const host = stripControls(s.host);
+  const local = { ...s, host: null, id: s.remoteId, home: null };
+  const wsl = /^wsl:(.+)$/i.exec(host);
+  let words;
+  if (wsl) {
+    const args = resumeArgs(local);
+    if (!args) return null;
+    const cwd = stripControls(s.cwd);
+    words = ['wsl.exe', '-d', wsl[1], ...(cwd ? ['--cd', cwd] : []), '--', ...args];
+  } else {
+    const inner = resumeCmd(local);
+    if (!inner || !host) return null;
+    words = ['ssh', '-t', host, inner];
+  }
+  if (win && words.some((w) => PS_UNSAFE.test(w))) return null;
+  // Windows PowerShell 5.1 은 공백이 든 인자를 "…" 로 감싸 넘기는데, 값이 \ 로 끝나면 받는 쪽이 \" 를 " 로 읽어 뒤 인자를 먹는다.
+  // 그런 값(공백·탭이 있고 \ 로 끝남)이 있으면 만들지 않는다.
+  if (win && words.some((w) => /[ \t]/.test(w) && w.endsWith('\\'))) return null;
+  // 맨 앞 실행 파일 이름은 따옴표 없이 둔다 (PowerShell 은 따옴표로 시작하면 명령이 아니라 글로 읽는다).
+  return [words[0], ...words.slice(1).map(win ? psQuote : shellQuote)].join(' ');
+}
+
 // 세션을 이어 여는 한 줄 명령. 작업 폴더를 알면 cd 를 앞에 붙인다. 만들 수 없으면 null.
-export function resumeCmd(s) {
+// platform 은 원격 세션(#308)의 로컬 셸 따옴표를 고를 때만 쓴다 (테스트에서 바꿔 끼운다). 로컬 세션은 늘 POSIX 따옴표다.
+export function resumeCmd(s, { platform = process.platform } = {}) {
   if (!s) return null;
+  if (s.host) return remoteResumeCmd(s, platform);
   const args = resumeArgs(s);
   if (!args) return null;
   // 기본 폴더가 아닌 설정 폴더(#212)의 세션은 그 폴더를 변수로 집어 줘야 도구가 기록을 찾는다.

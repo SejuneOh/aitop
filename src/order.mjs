@@ -53,7 +53,18 @@ const GROUP_KEY = { project: projectOf, tool: (s) => s.tool ?? '?' };
 // groups 는 묶을 때만 있다: { name, count, cost, unknown, waiting, pinned, sessions }. 묶음은 그 안의 첫 세션이 정렬에서 앞선 순으로 놓인다.
 // pins: 고정한 세션 id (고정한 순서). 화면에 없는 id 는 건너뛴다.
 // ready: false 면 준비 완료 전이다 (compare 참고). 응답 대기 세션은 그동안에도 맨 위로 올린다.
-export function arrange(sessions, { sort = 'default', group = 'none', costMode = 'api', pins = [], ready = true } = {}) {
+// --remote(#308)로 받은 원격 세션(host 가 있는 세션)은 로컬 세션 아래에 호스트별 구획으로 둔다. 구획 안의 정렬·묶기·대기 우선은 위 규칙 그대로다.
+// 그때 hosts 는 [{ host, sessions, groups }] (원격 순서는 remotes 에 준 이름 순서, 없으면 처음 나온 순서), sessions·groups 는 로컬 몫과 구획을 차례로 이은 것이다.
+// 원격 세션이 없으면 hosts 는 null 이고 결과는 예전과 같다.
+export function arrange(sessions, opts = {}) {
+  if (!sessions.some((s) => s.host)) return { ...arrangeOne(sessions, opts), hosts: null };
+  const local = arrangeOne(sessions.filter((s) => !s.host), opts);
+  const names = [...new Set([...(opts.remotes ?? []).map((r) => r.name), ...sessions.filter((s) => s.host).map((s) => s.host)])];
+  const hosts = names.map((host) => ({ host, ...arrangeOne(sessions.filter((s) => s.host === host), opts) }));
+  return { sessions: [...local.sessions, ...hosts.flatMap((h) => h.sessions)], groups: local.groups, hosts };
+}
+
+function arrangeOne(sessions, { sort = 'default', group = 'none', costMode = 'api', pins = [], ready = true } = {}) {
   const cmp = compare(sort, costMode, ready);
   const rank = new Map((pins ?? []).map((id, i) => [id, i]));
   const waiting = sessions.filter(callsYou).sort(cmp);

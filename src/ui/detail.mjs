@@ -60,6 +60,8 @@ export function fileRow(f, cwd, w, selected) {
 // 같은 파일을 여러 번 고치면 줄 번호 기준이 매번 달라져 하나의 diff 로 합칠 수 없다.
 export function diffBody(f, w) {
   if (f.hidden) return [[INDENT, { t: tr('detail.hidden'), fg: PALETTE.info, italic: true }]];
+  // 원격 세션(#308)은 파일 통계만 받고 변경 내용은 가져오지 않는다.
+  if (f.remote) return [[INDENT, { t: tr('detail.remoteDiff'), fg: PALETTE.info, italic: true }]];
   if (!f.hunks.length) return [[INDENT, { t: tr(f.deleted ? 'detail.deleted' : 'detail.noHunks'), fg: PALETTE.info, italic: true }]];
   const nums = w >= 50;
   const textW = w - 1 - (nums ? 5 : 0);
@@ -529,7 +531,8 @@ export function resumeSummary(s, w) {
 export function detail(s, W, H, frame, view) {
   const tc = PALETTE.tools[s.tool];
   // 제목: 세션 이름은 진하게, 도구·모델은 도구 색으로.
-  const title = [{ t: s.name ?? s.tool, fg: PALETTE.text, bold: true }, { t: `  ${s.tool}${s.model ? ' · ' + s.model : ''}`, fg: tc }];
+  // 원격 세션(#308)은 제목 끝에 '@ 호스트' 를 붙인다.
+  const title = [{ t: s.name ?? s.tool, fg: PALETTE.text, bold: true }, { t: `  ${s.tool}${s.model ? ' · ' + s.model : ''}`, fg: tc }, ...(s.host ? [{ t: `  @ ${s.host}`, fg: PALETTE.muted }] : [])];
   if (W < NARROW_W) {
     const inner = W - 4;
     // 셋째 줄(이어 열기)은 오른쪽 칸이 넉넉할(ROOMY 줄 이상 남을) 때만 둔다. 낮은 화면의 구획 배치는 그대로다.
@@ -550,6 +553,7 @@ export function detail(s, W, H, frame, view) {
   const cache = cacheState(s);
   if (cache) L.push([{ t: '  ' }, { t: cache.expired ? tr('detail.cacheExpired', { ttl: cache.ttl }) : tr('detail.cacheLeft', { t: cache.left, ttl: cache.ttl }), fg: cache.expired ? PALETTE.info : cache.fg, bold: cache.bold }]);
   section(tr('detail.session'));
+  if (s.host) kv(tr('detail.host'), s.host);
   kv(tr('detail.folder'), tilde(s.cwd));
   if (s.branch) kv(tr('detail.branch'), s.branch);
   kv(tr('detail.model'), s.model ?? '-');

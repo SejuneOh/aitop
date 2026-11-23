@@ -127,6 +127,11 @@ function stepArtifact(view, delta) {
 function openArtifact(view, act) {
   const a = pickedArtifact(view);
   if (!a) return;
+  // 원격 세션(#308)의 원본은 원격 기록에 있어 열지 않는다. 목록에 남고 키 줄에 안내만 띄운다.
+  if (selectedSession(view)?.host) {
+    act?.notice?.('foot.remoteNoSource');
+    return;
+  }
   view.focus = 'artifact';
   view.artScroll = 0;
   if (act?.loadArtifact) {

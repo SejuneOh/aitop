@@ -4,7 +4,7 @@ import { BRAND } from './brand.mjs';
 import { PALETTE } from './ui/theme.mjs';
 import { glyphMoves, line, setNow } from './ui/draw.mjs';
 import { glyphs } from './ui/glyphs.mjs';
-import { TABLE_BOX_H, columns, emptyLines, filterSessions, groupRow, header, memberRow, sessionRow, tableBox, tableHeader, toolStrip, topCost } from './ui/table.mjs';
+import { TABLE_BOX_H, columns, emptyLines, filterSessions, groupRow, header, memberRow, remoteRow, sessionRow, tableBox, tableHeader, toolStrip, topCost } from './ui/table.mjs';
 import { detail } from './ui/detail.mjs';
 import { artifactScreen } from './ui/artifact-view.mjs';
 import { detailOpen, footer, help } from './ui/chrome.mjs';
@@ -65,7 +65,9 @@ export function render(view, W, H) {
     return lines;
   }
   const { errors } = view.data;
-  const { sessions, groups } = arrange(filterSessions(view.data.sessions, view.filter), view);
+  // 원격(#308) 상태 목록. 원격을 켜지 않았으면 비어 있고 화면은 예전과 같다.
+  const remotes = view.data.remotes ?? [];
+  const { sessions, groups, hosts } = arrange(filterSessions(view.data.sessions, view.filter), { ...view, remotes });
   const boxed = H >= TABLE_BOX_H && W >= 60;
   const TW = boxed ? W - 4 : W;
   const c = columns(TW);
@@ -93,12 +95,23 @@ export function render(view, W, H) {
     rows.push({ s });
     s.members.forEach((m, i) => rows.push({ s, m, last: i === s.members.length - 1 }));
   };
-  if (groups) {
-    for (const g of groups) {
-      rows.push({ g });
-      g.sessions.forEach(pushSession);
-    }
-  } else sessions.forEach(pushSession);
+  const pushPart = (part) => {
+    if (part.groups) {
+      for (const g of part.groups) {
+        rows.push({ g });
+        g.sessions.forEach(pushSession);
+      }
+    } else part.sessions.forEach(pushSession);
+  };
+  // 로컬 세션이 맨 위, 그 아래 원격마다 구분 줄 하나와 그 원격의 세션 (구획 안의 정렬·묶기는 arrange 가 정한다).
+  pushPart({ groups, sessions: hosts ? sessions.filter((s) => !s.host) : sessions });
+  const parts = new Map((hosts ?? []).map((h) => [h.host, h]));
+  const names = [...new Set([...remotes.map((r) => r.name), ...parts.keys()])];
+  for (const name of names) {
+    const part = parts.get(name) ?? { sessions: [], groups: null };
+    rows.push({ remote: remotes.find((r) => r.name === name) ?? { name, ok: true, at: null }, n: part.sessions.length });
+    pushPart(part);
+  }
   const sel = sessions.find((s) => s.id === view.selectedId) ?? sessions[0];
   const open = detailOpen(view, H);
   const wantDetail = open && Boolean(sel);
@@ -118,13 +131,13 @@ export function render(view, W, H) {
   const lastOfSel = selRow + (sel?.members.length ?? 0);
   let start = Math.min(Math.max(0, lastOfSel - shown + 1), Math.max(0, rows.length - shown), selRow);
   // 고른 세션이 묶음의 첫 행이고 자리가 남으면 그 묶음 머리도 보이게 한 줄 올린다.
-  if (start === selRow && rows[start - 1]?.g && lastOfSel - start + 2 <= shown) start--;
+  if (start === selRow && (rows[start - 1]?.g || rows[start - 1]?.remote) && lastOfSel - start + 2 <= shown) start--;
   const isSession = (r) => r.s && !r.m;
   const visible = rows.slice(start, start + shown);
   // 준비 완료 전에는 값이 커지는 대로 ▲ 가 옮겨 다니므로 붙이지 않는다.
   const hot = view.ready === false ? null : topCost(visible.filter(isSession).map((r) => r.s), view.costMode);
   if (!sessions.length) table.push(...(view.filter ? [line([{ t: `   ${t('ui.noMatch', { q: view.filter })}`, fg: PALETTE.muted, italic: true }], TW)] : emptyLines(view, TW)));
-  for (const r of visible) table.push(r.g ? groupRow(r.g, TW) : r.m ? memberRow(r.m, r.last, c, TW, view.frame, r.s.model, view.costMode, r.s.status) : sessionRow(r.s, c, TW, r.s === sel, view.frame, hot, view.costMode, Boolean(view.pins?.includes(r.s.id))));
+  for (const r of visible) table.push(r.remote ? remoteRow(r.remote, r.n, TW) : r.g ? groupRow(r.g, TW) : r.m ? memberRow(r.m, r.last, c, TW, view.frame, r.s.model, view.costMode, r.s.status) : sessionRow(r.s, c, TW, r.s === sel, view.frame, hot, view.costMode, Boolean(view.pins?.includes(r.s.id))));
   if (clipped) {
     const onScreen = new Set(visible.filter(isSession).map((r) => r.s));
     const hidden = sessions.filter((s) => !onScreen.has(s));

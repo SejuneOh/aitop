@@ -357,5 +357,7 @@ export function doctorText(result, version, now = Date.now(), lang = getLang()) 
     const on = result.log.on;
     out.push('', tr('doctor.debug', { mark: on ? '✓' : '○', state: pad(logWord, stateW), path: tilde(result.log.path), tail: on ? '' : tr('doctor.debugTail', null, o) }, o));
   }
+  // --remote(#308)로 정한 원격 목록. 점검은 접속하지 않는다 (네트워크를 쓰지 않음).
+  if (result.remotes?.length) out.push('', tr('doctor.remotes', { mark: '○', list: result.remotes.join(', ') }, o));
   return stripControl(out.join('\n'));
 }
