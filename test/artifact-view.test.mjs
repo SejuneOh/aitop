@@ -7,7 +7,7 @@ import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadArtifactSource, readLocal, SOURCE_MAX } from '../src/sources/artifact-source.mjs';
-import { htmlToBlocks, mdToBlocks, renderBlocks, artifactScreen, fmtBytes } from '../src/ui/artifact-view.mjs';
+import { htmlToBlocks, mdToBlocks, renderBlocks, artifactScreen, fmtBytes, tokens } from '../src/ui/artifact-view.mjs';
 import { onKey, fixFocus, KEY } from '../src/keys.mjs';
 import { render } from '../src/ui.mjs';
 import { helpContext, keysLine } from '../src/help.mjs';
@@ -289,7 +289,10 @@ test('도움말·키 줄에 새 화면과 키가 있다', () => {
 });
 
 test('html → 글: 닫히지 않은 <b 가 많은 2MB 입력도 길이에 비례해 끝난다 (따옴표 안의 > 는 태그 끝이 아니다)', () => {
-  for (const html of ['x<b '.repeat(500_000), '<b "'.repeat(500_000) + '>', '<!x'.repeat(600_000), '<title>'.repeat(280_000), 'a<'.repeat(1_000_000)]) {
+  // 닫힌 따옴표 쌍이 많은 것, 따옴표가 섞인 것, 닫히지 않은 따옴표, 열린 태그. 각각 끝에 '>' 가 없는 것과 끝에만 있는 것.
+  const MB2 = (p) => p.repeat(Math.ceil(2_000_000 / p.length));
+  const pats = ['<a "x" ', `<a '" `, '<a "', 'x<b '].flatMap((p) => [MB2(p), MB2(p) + '>']);
+  for (const html of [...pats, '<!x'.repeat(600_000), '<title>'.repeat(280_000), 'a<'.repeat(1_000_000)]) {
     const started = performance.now();
     htmlToBlocks(html);
     const ms = performance.now() - started;
@@ -298,4 +301,30 @@ test('html → 글: 닫히지 않은 <b 가 많은 2MB 입력도 길이에 비�
   const text = renderBlocks(htmlToBlocks('<p title="a>b">글</p><p>x <b 열린 태그 <i "끝').blocks, 40).map((l) => l.map((x) => x.t).join('')).join('\n');
   assert.match(text, /^글$/m);
   assert.match(text, /x <b 열린 태그/);
+});
+
+test('html → 글: 실패한 따옴표 걸음을 기억해도 태그를 나누는 결과는 예전 정규식과 같다 (무작위 짧은 입력)', () => {
+  const OLD = /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)((?:[^>"']|"[^"]*"|'[^']*')*)>|([^<]+)|(<)/g;
+  // 예전 정규식으로 나눈 조각. 이어진 글 조각은 하나로 묶는다 (tokens 와 같은 모양).
+  const old = (s) => {
+    const out = [];
+    for (const m of s.matchAll(OLD)) {
+      const text = m[4] ?? m[5];
+      if (text != null && out.length && out.at(-1)[3] != null) out.at(-1)[3] += text;
+      else out.push(text != null ? [undefined, undefined, undefined, text] : [m[1], m[2], m[3]]);
+    }
+    return out;
+  };
+  const parts = ['<a', '<b ', ' ', '"', "'", '>', 'x', '<', '</a'];
+  let seed = 307;
+  const rnd = (k) => ((seed = (seed * 1103515245 + 12345) % 2147483648), seed % k);
+  for (let k = 0; k < 3000; k++) {
+    const s = Array.from({ length: 1 + rnd(24) }, () => parts[rnd(parts.length)]).join('');
+    assert.deepEqual([...tokens(s)], old(s), JSON.stringify(s));
+  }
+});
+
+test('html → 글: 소문자로 바꾸면 길이가 바뀌는 글자(İ) 뒤에서도 제목 위치가 맞다', () => {
+  assert.equal(htmlToBlocks(`${'İ'.repeat(40)}<html><head><TITLE>제목 307</TITLE ></head><p>본문</p>`).title, '제목 307');
+  assert.equal(htmlToBlocks('<title>닫힘 없음').title, null);
 });

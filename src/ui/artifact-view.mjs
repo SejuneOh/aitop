@@ -63,44 +63,66 @@ const DROP = ['script', 'style', 'template', 'noscript', 'svg', 'math', 'head', 
 
 // html 을 조각으로 나눈다: 태그면 [close, name, attrs], 글이면 [, , , text].
 // 태그는 '<이름' 뒤로 따옴표 밖의 첫 '>' 까지다. 닫히지 않으면(따옴표가 안 닫히거나 '>' 가 없으면) 그 '<' 는 글자다.
-// 정규식으로 하면 닫히지 않은 '<b' 마다 문서 끝까지 훑어 크기의 제곱이 걸린다. 여기서는 글자마다 '다음 위치' 를 기억해(next)
-// 같은 구간을 다시 찾지 않으므로 길이에 비례한다.
+// 정규식으로 하면 닫히지 않은 '<b' 마다 문서 끝까지 훑어 크기의 제곱이 걸린다. 여기서는 길이에 비례하게 한다.
+// 1) '<' '>' 와 따옴표의 위치를 처음에 한 번 모아 두고 '다음 위치' 를 이분 탐색으로 찾는다.
+// 2) 따옴표를 건너뛰며 '>' 를 찾는 걸음은 여는 따옴표가 같으면 그 뒤가 늘 같다. 그래서 따옴표마다 '여기서 열면 태그가 어디서
+//    닫히는지(없으면 -1)' 를 뒤에서부터 한 번 채워 두고(shutAt), 걸음은 첫 여는 따옴표에서 그 표를 읽고 끝난다.
 export function* tokens(src) {
   const n = src.length;
-  const memo = new Map();
-  // ch 가 j 이후 처음 나오는 위치 (없으면 n). [q, r] 안의 j 는 앞서 찾은 r 이 답이다.
-  const next = (ch, j) => {
-    const m = memo.get(ch);
-    if (m && m.q <= j && j <= m.r) return m.r;
-    let r = src.indexOf(ch, j);
-    if (r < 0) r = n;
-    memo.set(ch, { q: j, r });
-    return r;
+  const where = (re) => {
+    const out = [];
+    for (const m of src.matchAll(re)) out.push(m.index);
+    return out;
   };
+  const lts = where(/</g);
+  const gts = where(/>/g);
+  const quotes = where(/["']/g);
+  // a 에서 j 이상인 첫 칸의 번호.
+  const seek = (a, j) => {
+    let lo = 0;
+    let hi = a.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (a[mid] < j) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  };
+  const after = (a, j) => {
+    const k = seek(a, j);
+    return k < a.length ? a[k] : n;
+  };
+  // 따옴표 밖 j 에서 출발해 태그가 닫히는 '>' 위치, 없으면 -1. k 는 j 이후 첫 따옴표의 번호.
+  const close = (j, k) => {
+    const gt = after(gts, j);
+    const q = k < quotes.length ? quotes[k] : n;
+    if (gt < q) return gt;
+    return q >= n ? -1 : shutAt[k];
+  };
+  // shutAt[k]: quotes[k] 를 여는 따옴표로 쓰면 태그가 닫히는 위치 (-1 은 닫히지 않음). 뒤에서부터 채운다.
+  const shutAt = new Int32Array(quotes.length);
+  // 같은 글자의 다음 따옴표 번호 (닫는 따옴표).
+  const nextSame = new Int32Array(quotes.length);
+  const lastOf = { '"': quotes.length, "'": quotes.length };
+  for (let k = quotes.length - 1; k >= 0; k--) {
+    const ch = src[quotes[k]];
+    nextSame[k] = lastOf[ch];
+    lastOf[ch] = k;
+  }
+  for (let k = quotes.length - 1; k >= 0; k--) {
+    const s = nextSame[k];
+    shutAt[k] = s >= quotes.length ? -1 : close(quotes[s] + 1, s + 1);
+  }
   const NAME = /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)/y;
   let i = 0;
   // 글 조각의 시작. 태그가 못 된 '<' 는 앞뒤 글과 한 조각으로 묶는다.
   let from = 0;
   while (i < n) {
-    const lt = next('<', i);
+    const lt = after(lts, i);
     if (lt >= n) break;
     NAME.lastIndex = lt;
     const m = NAME.exec(src);
-    let end = -1;
-    if (m) {
-      for (let j = NAME.lastIndex; ; ) {
-        const gt = next('>', j);
-        const q = Math.min(next('"', j), next("'", j));
-        if (gt < q) {
-          end = gt;
-          break;
-        }
-        if (q >= n) break;
-        const shut = next(src[q], q + 1);
-        if (shut >= n) break;
-        j = shut + 1;
-      }
-    }
+    const end = m ? close(NAME.lastIndex, seek(quotes, NAME.lastIndex)) : -1;
     if (end < 0) {
       i = lt + 1;
       continue;
@@ -115,12 +137,14 @@ export function* tokens(src) {
 export function htmlToBlocks(html) {
   let src = String(html ?? '');
   let title = null;
-  // 제목: 첫 <title> 과 그 뒤 첫 </title> 사이. 정규식 대신 indexOf 로 찾아 닫힘이 없는 <title 이 많아도 길이에 비례한다.
-  const lower = src.toLowerCase();
-  const ts = lower.search(/<title\b/);
-  const tgt = ts < 0 ? -1 : src.indexOf('>', ts);
-  const tend = tgt < 0 ? -1 : lower.indexOf('</title', tgt);
-  if (tend >= 0) title = clean(decodeEntities(src.slice(tgt + 1, tend))).replace(/\s+/g, ' ').trim() || null;
+  // 제목: 첫 <title 의 '>' 와 그 뒤 첫 </title> 사이. 원문에서 대소문자를 무시하고 찾아 위치가 어긋나지 않게 한다
+  // (toLowerCase 는 'İ' 처럼 길이가 바뀌는 글자가 있다). 정규식은 앞으로만 한 번 훑으므로 닫힘이 없는 <title 이 많아도 길이에 비례한다.
+  const open = /<title\b/i.exec(src);
+  const tgt = open ? src.indexOf('>', open.index) : -1;
+  const shut = /<\/title\s*>/gi;
+  shut.lastIndex = tgt + 1;
+  const tend = tgt < 0 ? null : shut.exec(src);
+  if (tend) title = clean(decodeEntities(src.slice(tgt + 1, tend.index))).replace(/\s+/g, ' ').trim() || null;
   // 주석·CDATA 와 실행·숨김 내용을 통째로 버린다. 닫는 태그가 없으면 끝까지 버린다.
   src = src.replace(/<!--[\s\S]*?(?:-->|$)/g, '').replace(/<!\[CDATA\[[\s\S]*?(?:\]\]>|$)/g, '').replace(/<![^>]*(?:>|$)/g, '');
   for (const tag of DROP) src = src.replace(new RegExp(`<${tag}\\b[^>]*?\\/>|<${tag}\\b[\\s\\S]*?(?:<\\/${tag}\\s*>|$)`, 'gi'), '');
