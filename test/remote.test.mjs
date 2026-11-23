@@ -10,13 +10,14 @@ import { join } from 'node:path';
 process.env.XDG_CACHE_HOME = mkdtempSync(join(tmpdir(), 'aitop-remote-cache-'));
 
 const { parseRemote, remoteOption, readConfigFile, resolveConfig, REMOTE_MAX } = await import('../src/config.mjs');
-const { classify, cleanSession, cleanSessions, createRemotePoller, phaseFrom, remoteCommand, remoteTargets, runRemote, MAX_SESSIONS, MAX_FILES, MAX_MEMBERS } = await import('../src/remote.mjs');
-const { resumeCmd } = await import('../src/resume.mjs');
+const { classify, cleanSession, cleanSessions, createRemotePoller, mergeRemote, phaseFrom, remoteCommand, remoteTargets, runRemote, MAX_SESSIONS, MAX_FILES, MAX_MEMBERS } = await import('../src/remote.mjs');
+const { resumeCmd, psQuote } = await import('../src/resume.mjs');
 const { toJson, SCHEMA } = await import('../src/json.mjs');
 const { arrange } = await import('../src/order.mjs');
 const { render } = await import('../src/ui.mjs');
 const { onKey } = await import('../src/keys.mjs');
 const { waitingEnv } = await import('../src/notify.mjs');
+const { createWaitWatch, takeNewlyWaiting, createEventWatch, takeEvents } = await import('../src/attention.mjs');
 const { phaseText } = await import('../src/i18n.mjs');
 const { width } = await import('../src/text.mjs');
 
@@ -174,7 +175,7 @@ function shellWords(cmd) {
 }
 
 test('y: 원격 ssh 세션은 ssh -t <host> 로 감싼 이어 열기 명령을 로컬에서 다시 만든다 (따옴표 들어간 폴더)', { skip: process.platform === 'win32' && 'POSIX 셸로 확인' }, () => {
-  const cmd = resumeCmd(remoteClaude('me@vm2'));
+  const cmd = resumeCmd(remoteClaude('me@vm2'), { platform: 'linux' });
   assert.doesNotMatch(cmd, /rm -rf/);
   const words = shellWords(cmd);
   assert.deepEqual(words.slice(0, 3), ['ssh', '-t', 'me@vm2']);
@@ -185,7 +186,7 @@ test('y: 원격 ssh 세션은 ssh -t <host> 로 감싼 이어 열기 명령을 �
 });
 
 test('y: WSL 세션은 wsl.exe -d <배포판> --cd <폴더> -- <명령>', () => {
-  const cmd = resumeCmd(remoteClaude('wsl:Ubuntu-22.04', '/home/me/repo'));
+  const cmd = resumeCmd(remoteClaude('wsl:Ubuntu-22.04', '/home/me/repo'), { platform: 'linux' });
   assert.equal(cmd, `wsl.exe -d Ubuntu-22.04 --cd /home/me/repo -- claude --resume ${ID}`);
   // 폴더를 모르면 Claude 는 이어 열 수 없다 (로컬 규칙 그대로).
   assert.equal(resumeCmd(cleanSession(raw({ id: ID, cwd: null }), 'dev')), null);
@@ -337,4 +338,168 @@ test('아티팩트 원본(Enter)은 원격 세션에서 막고 안내한다', ()
   assert.equal(v.focus, 'artifacts', '원본 화면으로 가지 않는다');
   assert.equal(loaded, 0);
   assert.deepEqual(notices, ['foot.remoteNoSource']);
+});
+
+// ── 리뷰 반영: Windows(PowerShell) 이어 열기 ───────────────
+
+// PowerShell 명령 줄을 이 모양만 받는 좁은 규칙으로 나눈다: 따옴표 없는 단어는 [A-Za-z0-9_./:\-] 만, 나머지는 '...' ('' 는 ' 하나).
+// 다른 글자가 따옴표 밖에 있으면(; & | $ ` 등) 던진다. 그러면 따옴표 밖에서 해석될 글자가 없다는 것을 단언할 수 있다.
+function psWords(line) {
+  const out = [];
+  let i = 0;
+  while (i < line.length) {
+    if (line[i] === ' ') {
+      i++;
+      continue;
+    }
+    if (line[i] === "'") {
+      let v = '';
+      i++;
+      for (;;) {
+        if (i >= line.length) throw new Error(`닫히지 않은 따옴표: ${line}`);
+        if (line[i] === "'" && line[i + 1] === "'") (v += "'"), (i += 2);
+        else if (line[i] === "'") break;
+        else v += line[i++];
+      }
+      i++;
+      if (i < line.length && line[i] !== ' ') throw new Error(`따옴표 뒤에 붙은 글자: ${line}`);
+      out.push(v);
+      continue;
+    }
+    const m = /^[A-Za-z0-9_./:\\-]+/.exec(line.slice(i));
+    if (!m || (i + m[0].length < line.length && line[i + m[0].length] !== ' ')) throw new Error(`따옴표 밖의 글자: ${line.slice(i)}`);
+    out.push(m[0]);
+    i += m[0].length;
+  }
+  return out;
+}
+
+const winSession = (host, cwd) => ({ tool: 'claude', id: `${host}:${ID}`, remoteId: ID, host, cwd, status: 'idle', members: [] });
+const win = (s) => resumeCmd(s, { platform: 'win32' });
+
+test('win32: ssh 명령은 PowerShell 따옴표로 감싸 원격 한 줄이 한 인자로 묶인다 (; 와 \' 가 든 폴더)', () => {
+  for (const cwd of ['/tmp/a;calc', "/tmp/a'b", '/srv/space folder', '/tmp/a&b|c>d']) {
+    const cmd = win(winSession('me@vm2', cwd));
+    const words = psWords(cmd);
+    assert.deepEqual(words.slice(0, 3), ['ssh', '-t', 'me@vm2'], cmd);
+    assert.equal(words.length, 4, cmd);
+    // 그 한 줄은 원격 POSIX 셸용으로 예전과 같은 모양이다.
+    assert.equal(words[3], resumeCmd({ ...winSession(null, cwd), host: null, id: ID }), cmd);
+  }
+  assert.equal(win(winSession('me@vm2', '/tmp/a;calc')), `ssh '-t' 'me@vm2' 'cd ''/tmp/a;calc'' && claude --resume ${ID}'`);
+});
+
+test('win32: wsl.exe 명령도 PowerShell 따옴표, -- 는 감싸 PowerShell 이 먹지 않게', () => {
+  const cmd = win(winSession('wsl:Ubuntu-22.04', '/tmp/a;calc'));
+  assert.equal(cmd, `wsl.exe '-d' Ubuntu-22.04 '--cd' '/tmp/a;calc' '--' claude '--resume' ${ID}`);
+  assert.deepEqual(psWords(cmd), ['wsl.exe', '-d', 'Ubuntu-22.04', '--cd', '/tmp/a;calc', '--', 'claude', '--resume', ID]);
+  assert.deepEqual(psWords(win(winSession('wsl:Ubuntu', "/tmp/it's dir"))).slice(4, 5), ["/tmp/it's dir"]);
+});
+
+test('win32: $·백틱·유니코드 따옴표·제어 문자·" 가 든 폴더는 명령을 만들지 않는다 (복사 안 함)', () => {
+  for (const cwd of ['/tmp/$(x)', '/tmp/$env:PATH', '/tmp/a`b', '/tmp/a\u2018b', '/tmp/a\u2019;calc', '/tmp/a\u201ab', '/tmp/a\u201bb', '/tmp/a\nb', '/tmp/a\0b', '/tmp/a\x1b[31m', '/tmp/a"b', '/tmp/a\u202eb']) {
+    assert.equal(win(winSession('dev', cwd)), null, JSON.stringify(cwd));
+    assert.equal(win(winSession('wsl:Ubuntu', cwd)), null, JSON.stringify(cwd));
+  }
+  assert.equal(psQuote('plain/path'), 'plain/path');
+  assert.equal(psQuote("a'b"), "'a''b'");
+});
+
+test('posix: 원격 이어 열기 명령은 예전과 같다', () => {
+  assert.equal(resumeCmd(winSession('dev', "/tmp/a'b"), { platform: 'linux' }), `ssh -t dev 'cd '\\''/tmp/a'\\''\\'\\'''\\''b'\\'' && claude --resume ${ID}'`);
+  assert.equal(resumeCmd(winSession('dev', '/tmp/$(x)'), { platform: 'darwin' }), `ssh -t dev 'cd '\\''/tmp/$(x)'\\'' && claude --resume ${ID}'`);
+});
+
+// ── 리뷰 반영: 알림 기준선, 잠깐 끊김 ──────────────────────
+
+// 결과를 손으로 정하는 가짜 실행기. next[name] 에 다음 결과를 넣고 pollAll 한다.
+function scripted() {
+  const next = {};
+  const run = (r) => Promise.resolve(next[r.name] ?? { name: r.name, kind: r.kind, ok: false, error: 'unreachable', sessions: [] });
+  const okWith = (name, sessions) => ({ name, kind: 'ssh', ok: true, error: null, version: '0.41.0', schema: 1, at: Date.now(), sessions });
+  return { next, run, okWith };
+}
+const waitingRemote = (host, id) => ({ ...cleanSession(raw({ id, live: true, status: 'waiting', phase: '응답 대기 · Bash', phaseKind: 'waiting' }), host) });
+const idleRemote = (host, id) => ({ ...cleanSession(raw({ id, live: true, status: 'idle' }), host) });
+
+// bin 의 갱신과 같은 순서: 로컬 세션 + mergeRemote, 그다음 takeNewlyWaiting.
+function refreshOnce(poller, watch, local = []) {
+  const data = mergeRemote({ sessions: [...local] }, poller, watch);
+  return takeNewlyWaiting(watch, data.sessions).map((s) => s.id);
+}
+
+test('알림: 원격이 처음 붙을 때 이미 응답 대기인 세션은 알리지 않는다 (첫 갱신 뒤에 붙어도)', async () => {
+  const { next, run, okWith } = scripted();
+  const p = createRemotePoller(remoteTargets(['dev']), { run });
+  const watch = createWaitWatch();
+  assert.deepEqual(refreshOnce(p, watch), [], '첫 갱신(원격 없음)');
+  next.dev = okWith('dev', [waitingRemote('dev', 'w1'), waitingRemote('dev', 'w2')]);
+  await p.pollAll();
+  assert.deepEqual(refreshOnce(p, watch), [], '처음 붙을 때 알림 0');
+  // 그 뒤 진짜로 새로 대기가 된 세션은 알린다.
+  next.dev = okWith('dev', [waitingRemote('dev', 'w1'), waitingRemote('dev', 'w2'), waitingRemote('dev', 'w3')]);
+  await p.pollAll();
+  assert.deepEqual(refreshOnce(p, watch), ['dev:w3'], '새 대기는 알림 1');
+});
+
+test('잠깐 끊겨도 직전 세션을 남기고, 복구 때 알리지 않는다. 진짜 새 대기만 알린다', async () => {
+  const { next, run, okWith } = scripted();
+  const p = createRemotePoller(remoteTargets(['dev']), { run });
+  const watch = createWaitWatch();
+  refreshOnce(p, watch);
+  next.dev = okWith('dev', [waitingRemote('dev', 'w1'), idleRemote('dev', 'i1')]);
+  await p.pollAll();
+  refreshOnce(p, watch);
+  next.dev = { name: 'dev', kind: 'ssh', ok: false, error: 'timeout', sessions: [] };
+  await p.pollAll();
+  const snap = p.snapshot();
+  assert.deepEqual(snap.sessions.map((s) => s.id), ['dev:w1', 'dev:i1'], '직전 세션을 남긴다');
+  assert.equal(snap.statuses[0].ok, false);
+  assert.equal(snap.statuses[0].error, 'timeout');
+  assert.ok(snap.statuses[0].at > 0, '마지막 성공 시각');
+  assert.deepEqual(refreshOnce(p, watch), []);
+  // 복구: 같은 대기 세션은 알리지 않고, 끊긴 동안 대기가 된 i1 은 새 대기로 알린다.
+  next.dev = okWith('dev', [waitingRemote('dev', 'w1'), waitingRemote('dev', 'i1')]);
+  await p.pollAll();
+  assert.deepEqual(refreshOnce(p, watch), ['dev:i1']);
+});
+
+test('오래 끊기면(3번 연속 또는 60초) 비우고, 다시 붙을 때도 알리지 않는다', async () => {
+  const { next, run, okWith } = scripted();
+  let clock = 1_000_000;
+  const p = createRemotePoller(remoteTargets(['dev', 'vm']), { run, now: () => clock });
+  const watch = createWaitWatch();
+  refreshOnce(p, watch);
+  next.dev = { ...okWith('dev', [waitingRemote('dev', 'w1')]), at: clock };
+  next.vm = { ...okWith('vm', [waitingRemote('vm', 'v1')]), at: clock };
+  await p.pollAll();
+  assert.deepEqual(refreshOnce(p, watch), []);
+  next.dev = next.vm = undefined;
+  // dev 는 3번 연속 실패.
+  for (let i = 0; i < 2; i++) await p.pollAll();
+  assert.equal(p.snapshot().sessions.length, 2, '2번까지는 남긴다');
+  await p.pollAll();
+  assert.equal(p.snapshot().sessions.length, 0, '3번째 실패에 비운다');
+  refreshOnce(p, watch);
+  next.dev = { ...okWith('dev', [waitingRemote('dev', 'w1')]), at: clock };
+  next.vm = { ...okWith('vm', [waitingRemote('vm', 'v1')]), at: clock };
+  await p.pollAll();
+  assert.deepEqual(refreshOnce(p, watch), [], '비운 뒤 다시 붙을 때 알림 0');
+  // 시간 기준: 한 번 실패라도 마지막 성공에서 60초가 지났으면 비운다.
+  next.dev = undefined;
+  clock += 61_000;
+  await p.pollAll();
+  assert.deepEqual(p.snapshot().sessions.map((s) => s.host), ['vm']);
+});
+
+test('끝남·context 알림(eventWatch)은 처음 붙는 원격 세션을 알리지 않는다', () => {
+  const watch = createEventWatch();
+  const s = { ...idleRemote('dev', 'c1'), context: { used: 195_000, window: 200_000 } };
+  assert.deepEqual(takeEvents(watch, [s]), [], '처음 볼 때 이미 높은 context 는 알리지 않는다');
+  assert.deepEqual(takeEvents(watch, [s]), []);
+});
+
+test('WSL 배포판은 대소문자를 가리지 않고 한 번만, ssh 호스트는 그대로', () => {
+  assert.deepEqual(remoteOption(['--remote=wsl:Ubuntu,wsl:ubuntu,Dev,dev']).value, ['wsl:Ubuntu', 'Dev', 'dev']);
+  assert.deepEqual(remoteTargets(['wsl:Ubuntu', 'WSL:UBUNTU', 'dev']).map((r) => r.name), ['wsl:Ubuntu', 'dev']);
 });

@@ -60,6 +60,8 @@ export function parseRemote(v) {
   if (w) return WSL_DISTRO.test(w[1]) ? { name: `wsl:${w[1]}`, kind: 'wsl', target: w[1] } : null;
   return SSH_HOST.test(v) ? { name: v, kind: 'ssh', target: v } : null;
 }
+// 같은 원격인지 가르는 열쇠. WSL 배포판 이름은 대소문자를 가리지 않으므로(wsl.exe -d) 작은 글자로 맞춘다. ssh 호스트는 그대로.
+export const remoteKey = (r) => (r.kind === 'wsl' ? r.name.toLowerCase() : r.name);
 const remoteList = (v) => Array.isArray(v) && v.length > 0 && v.length <= REMOTE_MAX && v.every((x) => parseRemote(x) != null);
 
 // argv 에서 --remote <목록>, --remote=<목록>, --no-remote 를 꺼낸다. 목록은 쉼표로 잇는다. 뒤에 준 쪽을 따른다.
@@ -86,8 +88,12 @@ export function remoteOption(argv) {
     if (!list.length) error ??= t('opt.remoteMissing');
     else if (bad != null) error ??= t('opt.remoteBad', { value: JSON.stringify(stripControl(bad).slice(0, 80)) });
     else if (list.length > REMOTE_MAX) error ??= t('opt.remoteMany', { n: REMOTE_MAX });
-    // 같은 이름을 두 번 주면 한 번만 부른다.
-    else value = [...new Set(list.map((x) => parseRemote(x).name))];
+    // 같은 이름을 두 번 주면 한 번만 부른다 (WSL 배포판은 대소문자 무시, 처음 적은 표기).
+    else {
+      const seen = new Map();
+      for (const r of list.map(parseRemote)) if (!seen.has(remoteKey(r))) seen.set(remoteKey(r), r.name);
+      value = [...seen.values()];
+    }
   }
   return { value, rest, error };
 }

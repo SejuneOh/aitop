@@ -564,6 +564,12 @@ See sessions on machines you manage (a VM, a dev server, another WSL distro) on 
 **Errors on the remote line**
 
 - auth failed, unreachable, no aitop on remote (exit 127), remote aitop too old (no `--no-remote` or no `schema` in its JSON), remote aitop newer (larger `schema`), timed out, bad response (broken JSON or over 8MB). Remote error output is not shown.
+- A short connection drop keeps the remote's last sessions (the line shows the error and how old they are) and clears them after 3 failures in a row or 60 seconds. When a remote first connects, or comes back after being cleared, sessions already waiting are not alerted.
+
+**"no aitop on remote" although it is installed**
+
+- `ssh host aitop` runs a non-login shell, so an aitop installed with nvm, fnm or a user npm prefix may not be on its `PATH`.
+- Fix on the remote: put the `PATH` line (for example `export NVM_DIR=...` and `. "$NVM_DIR/nvm.sh"`) at the top of `~/.bashrc`, before the "If not running interactively, return" line, or link it once: `sudo ln -s "$(command -v aitop)" /usr/local/bin/aitop` (run it in a shell where `aitop` works; for nvm, link `node` the same way).
 
 **Not fetched**
 

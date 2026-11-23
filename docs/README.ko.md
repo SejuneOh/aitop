@@ -884,6 +884,12 @@ Claude Desktop 의 에이전트 모드(Cowork) 세션도 표에 보인다. TOOL 
 **구분 줄의 오류**
 
 - 인증 실패, 접속 실패, 원격에 aitop 없음 (exit 127), 원격 aitop 이 옛 버전 (`--no-remote` 를 모르거나 JSON 에 `schema` 가 없음), 원격 aitop 이 더 새 버전 (`schema` 가 큼), 시간 초과, 잘못된 응답 (깨진 JSON·8MB 초과). 원격의 오류 출력은 화면에 내지 않는다.
+- 잠깐 끊기면 그 원격의 직전 세션을 남긴다 (구분 줄에 오류와 몇 초 전 정보인지 보인다). 3번 연달아 실패하거나 60초가 지나면 비운다. 원격이 처음 붙거나 비운 뒤 다시 붙을 때 이미 응답 대기인 세션은 알리지 않는다.
+
+**설치했는데 "원격에 aitop 없음" 이 나올 때**
+
+- `ssh 호스트 aitop` 은 로그인 셸이 아니라서, nvm·fnm·사용자 npm prefix 로 깐 aitop 이 `PATH` 에 없을 수 있다.
+- 원격에서 고친다: `PATH` 를 잡는 줄(예: `export NVM_DIR=...` 와 `. "$NVM_DIR/nvm.sh"`)을 `~/.bashrc` 맨 앞, "If not running interactively, return" 줄보다 위에 두거나, `aitop` 이 되는 셸에서 한 번 링크를 건다: `sudo ln -s "$(command -v aitop)" /usr/local/bin/aitop` (nvm 이면 `node` 도 같은 방식으로).
 
 **가져오지 않는 것**
 

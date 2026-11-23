@@ -9,7 +9,7 @@ import { mask, stripControl } from './text.mjs';
 import { artifactLink } from './sources/artifacts.mjs';
 import { SCHEMA } from './json.mjs';
 import { bySession } from './collect.mjs';
-import { parseRemote } from './config.mjs';
+import { parseRemote, remoteKey } from './config.mjs';
 
 // 한 번 호출의 시간 상한, 출력 상한, 다시 부르는 간격. AITOP_REMOTE_TIMEOUT_MS 는 테스트에서 시간 초과를 짧게 흉내 낼 때 쓴다.
 export const TIMEOUT_MS = 20_000;
@@ -262,26 +262,48 @@ export function runRemote(r, { timeoutMs = TIMEOUT_MS, exec = execFile, now = Da
   });
 }
 
-// 이름 목록(설정 값)을 대상 목록으로. 잘못된 이름은 빼고, 같은 이름은 한 번만.
+// 이름 목록(설정 값)을 대상 목록으로. 잘못된 이름은 빼고, 같은 이름은 한 번만 (WSL 배포판은 대소문자를 가리지 않고 처음 적은 표기를 남긴다).
 export function remoteTargets(names = []) {
   const out = new Map();
   for (const n of names ?? []) {
     const r = parseRemote(n);
-    if (r && !out.has(r.name)) out.set(r.name, r);
+    if (r && !out.has(remoteKey(r))) out.set(remoteKey(r), r);
   }
   return [...out.values()];
 }
 
+// 잠깐 실패해도 직전 세션을 남겨 둔다 (선택·포커스가 풀리지 않고, 돌아올 때 알림이 한꺼번에 울리지 않게).
+// 이만큼 연달아 실패하거나 마지막 성공에서 이만큼 지나면 그때 비운다.
+export const KEEP_FAILS = 3;
+export const KEEP_MS = 60_000;
+
 // 모든 원격을 병렬로 부르고, 원격마다 마지막 결과를 들고 있는 폴러.
 // 실시간 화면: start() 가 바로 한 번, 그 뒤 intervalMs 마다 부른다. 앞 호출이 아직 돌고 있는 원격은 그 차례를 건너뛴다.
 // --once·--json: pollAll() 이 모든 원격이 끝날 때까지 기다린다. stop() 은 타이머를 멈추고 돌고 있는 자식을 죽인다.
-// 실패한 뒤에도 마지막으로 성공했을 때의 세션은 지우고(낡은 상태를 보이지 않게) 시각 at 은 남긴다.
-export function createRemotePoller(targets, { intervalMs = INTERVAL_MS, timeoutMs = Number(process.env.AITOP_REMOTE_TIMEOUT_MS) > 0 ? Number(process.env.AITOP_REMOTE_TIMEOUT_MS) : TIMEOUT_MS, run = runRemote, onUpdate = () => {} } = {}) {
-  const state = new Map(targets.map((r) => [r.name, { name: r.name, kind: r.kind, ok: false, error: null, pending: true, version: null, schema: null, at: null, sessions: [] }]));
+// 실패하면 상태(ok·error)는 바로 실패로 바꾸되, 세션은 KEEP_FAILS 번 또는 KEEP_MS 동안 직전 것을 남긴다 (시각 at 은 마지막 성공).
+// 세션이 비어 있던 원격(처음이거나 오래 실패해 비운 뒤)에 결과가 붙으면 그 세션 id 를 takeAttached() 로 한 번 넘긴다.
+// bin 은 그 세션을 알림의 기준선으로만 쓰고 알리지 않는다 (이미 응답 대기인 원격 세션이 새 대기로 잡히지 않게).
+export function createRemotePoller(targets, { intervalMs = INTERVAL_MS, timeoutMs = Number(process.env.AITOP_REMOTE_TIMEOUT_MS) > 0 ? Number(process.env.AITOP_REMOTE_TIMEOUT_MS) : TIMEOUT_MS, run = runRemote, onUpdate = () => {}, now = Date.now, keepFails = KEEP_FAILS, keepMs = KEEP_MS } = {}) {
+  const state = new Map(targets.map((r) => [r.name, { name: r.name, kind: r.kind, ok: false, error: null, pending: true, version: null, schema: null, at: null, sessions: [], fails: 0, attached: false }]));
   const inflight = new Map();
   const children = new Set();
+  let fresh = [];
   let timer = null;
   let stopped = false;
+
+  const apply = (name, res) => {
+    const prev = state.get(name);
+    if (res.ok) {
+      // 비어 있던 원격에 붙는 첫 결과: 기준선으로 넘긴다.
+      if (!prev.attached) fresh.push(...res.sessions.map((s) => s.id));
+      state.set(name, { ...res, pending: false, fails: 0, attached: true });
+      return;
+    }
+    const fails = prev.fails + 1;
+    const stale = fails >= keepFails || (prev.at != null && now() - prev.at >= keepMs);
+    const keep = prev.attached && !stale;
+    state.set(name, { ...res, pending: false, at: prev.at, fails, attached: keep, sessions: keep ? prev.sessions : [], version: res.version ?? prev.version });
+  };
 
   const pollOne = (r) => {
     if (inflight.has(r.name)) return inflight.get(r.name);
@@ -296,8 +318,7 @@ export function createRemotePoller(targets, { intervalMs = INTERVAL_MS, timeoutM
       children.delete(mine);
       inflight.delete(r.name);
       if (stopped) return;
-      const prev = state.get(r.name);
-      state.set(r.name, { ...res, pending: false, at: res.ok ? res.at : prev.at });
+      apply(r.name, res);
       onUpdate();
     });
     inflight.set(r.name, p);
@@ -322,6 +343,12 @@ export function createRemotePoller(targets, { intervalMs = INTERVAL_MS, timeoutM
       }
       children.clear();
     },
+    // 새로 붙은 원격의 세션 id (부를 때마다 비운다).
+    takeAttached() {
+      const out = fresh;
+      fresh = [];
+      return out;
+    },
     // 화면·--json 이 쓰는 지금 결과. statuses 는 원격 순서대로, sessions 는 원격 순서대로 이어 붙인다.
     snapshot() {
       const statuses = targets.map((r) => {
@@ -331,4 +358,15 @@ export function createRemotePoller(targets, { intervalMs = INTERVAL_MS, timeoutM
       return { statuses, sessions: targets.flatMap((r) => state.get(r.name).sessions) };
     },
   };
+}
+
+// bin 의 갱신(refresh)이 부른다: 폴러의 지금 결과를 data 에 붙이고, 새로 붙은 원격의 세션 id 를 응답 대기 감시(attention.mjs createWaitWatch)의
+// seen 에 넣는다. 그러면 원격이 처음 붙거나 오래 끊겼다 다시 붙을 때 이미 응답 대기인 세션을 새 대기로 알리지 않는다.
+// 끝남·context 알림(createEventWatch)은 처음 보는 세션을 기준선으로 잡으므로(done 은 작업 중을 본 뒤에만, context 는 first) 따로 할 일이 없다.
+export function mergeRemote(data, poller, waitWatch) {
+  const snap = poller.snapshot();
+  data.sessions.push(...snap.sessions);
+  data.remotes = snap.statuses;
+  for (const id of poller.takeAttached()) waitWatch?.seen.add(id);
+  return data;
 }

@@ -546,7 +546,9 @@ export function remoteAgo(at, now = NOW) {
 export function remoteRow(r, n, W) {
   const h = glyphs().rule;
   const down = !r.ok && !r.pending;
-  const state = !r.ok && r.pending ? t('remote.pending') : down ? t('remote.down', { why: t(`remote.err.${r.error ?? 'unreachable'}`) }) : `${t('remote.count', { n })}${r.at ? ` · ${remoteAgo(r.at)}` : ''}`;
+  // 잠깐 끊겨 직전 세션을 남겨 둔 동안(n > 0)은 실패 뒤에 그 세션을 받은 시각을 붙인다.
+  const ago = r.at ? ` · ${remoteAgo(r.at)}` : '';
+  const state = !r.ok && r.pending ? t('remote.pending') : down ? `${t('remote.down', { why: t(`remote.err.${r.error ?? 'unreachable'}`) })}${n ? ago : ''}` : `${t('remote.count', { n })}${ago}`;
   const tail = ` · ${state} `;
   const room = Math.max(1, W - 3 - width(tail) - 2);
   const name = truncate(r.name, room);

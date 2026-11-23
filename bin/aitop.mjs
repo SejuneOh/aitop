@@ -299,9 +299,11 @@ const { osc52, resumeCmd } = await import('../src/resume.mjs');
 // --remote (#308): 원격을 켰을 때만 remote.mjs 를 불러온다 (--report·--line 은 위에서 이미 끝났다).
 // 폴러가 뒤에서 원격마다 aitop --json 을 부르고, refresh 가 그 마지막 결과를 로컬 세션 뒤에 붙인다.
 let poller = null;
+let mergeRemote = null;
 if (opt.remotes?.length) {
-  const { createRemotePoller, remoteTargets } = await import('../src/remote.mjs');
-  poller = createRemotePoller(remoteTargets(opt.remotes));
+  const remote = await import('../src/remote.mjs');
+  poller = remote.createRemotePoller(remote.remoteTargets(opt.remotes));
+  mergeRemote = remote.mergeRemote;
 }
 
 // 요청 전체 보기는 기본으로 꺼 둔다. 켜지 않으면 상세 패널에도 --json 에도 나가지 않는다.
@@ -342,11 +344,8 @@ const eventWatch = notifier && eventKinds.length ? createEventWatch({ doneMs: op
 // 알림(벨·--notify·--on-waiting)은 화면에 올리지 않은 갱신에서도 그대로 돈다. 돌려주는 값은 화면 데이터를 바꿨는지.
 function refresh({ throttle = false } = {}) {
   const data = collect({ showEnded: view.showEnded, selectedId: view.selectedId, budgetBytes: once ? Infinity : TICK_BUDGET, budgetMs: once ? Infinity : TICK_MS });
-  if (poller) {
-    const snap = poller.snapshot();
-    data.sessions.push(...snap.sessions);
-    data.remotes = snap.statuses;
-  }
+  // 원격 결과를 붙인다. 새로 붙은 원격의 세션은 응답 대기 알림의 기준선으로만 넣는다 (remote.mjs mergeRemote).
+  if (poller) mergeRemote(data, poller, waitWatch);
   // 준비 완료를 먼저 정해, 처음 고르는 세션도 이번 갱신의 정렬을 따르게 한다.
   if (!once) latchReady(loading, data.sessionsMore);
   if (!data.sessions.some((s) => s.id === view.selectedId)) {
