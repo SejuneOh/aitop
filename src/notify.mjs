@@ -224,11 +224,14 @@ export function waitingEnv(s) {
     AITOP_SESSION_ID: String(s.id ?? ''),
     AITOP_CWD: String(s.cwd ?? ''),
     AITOP_WAITING_FOR: waitingLabel(s),
+    // --remote 로 본 원격 세션이면 그 호스트 이름 (#308). 로컬 세션은 빈 값.
+    AITOP_HOST: String(s.host ?? ''),
   };
 }
 
 // 알림 본문의 세션 이름: 사용자가 붙인 이름(/rename, thread_name)이 있으면 그것, 없으면 예전처럼 프로젝트.
-const whoOf = (s) => s.customName || s.project || s.id || '';
+// 원격 세션(#308)은 앞에 호스트를 붙인다 (dev · aitop).
+const whoOf = (s) => (s.host ? `${s.host} · ` : '') + (s.customName || s.project || s.id || '');
 
 // 알림 제목·본문은 화면 언어를 따른다 (AITOP_WAITING_FOR 와 달리 사람이 읽는 글이라).
 // kind 가 done·context 면 그 종류의 문구를 쓴다. context 본문에는 사용률(%)을 붙인다.

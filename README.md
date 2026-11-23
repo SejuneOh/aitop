@@ -22,7 +22,7 @@
   - `y` copies a resume command, and `--report sessions` prints yesterday's sessions with cost for your standup.
 - **No hooks, nothing sent.**
   - Claude Code, Codex CLI and Antigravity CLI side by side, from [several history folders](#several-claude-or-codex-profiles) (`~/.claude`, `~/.claude-work`, ...).
-  - aitop only reads the logs they already write. It changes no settings and needs no network, ports or dependencies.
+  - aitop only reads the logs they already write. It changes no settings and needs no network, ports or dependencies. The one exception is the opt-in [`--remote`](#remote-hosts-and-wsl-distros), which runs your own `ssh` or `wsl.exe`.
 
 **Contents**
 
@@ -30,7 +30,7 @@
 - [Features](#features)
 - [Subagents](#subagents) · [Daily and monthly reports](#daily-and-monthly-reports) · [Session report](#session-report) · [Call tree](#call-tree)
 - [Notifications](#notifications) · [tmux status line](#tmux-status-line) · [Several Claude or Codex profiles](#several-claude-or-codex-profiles)
-- [Resume a session elsewhere](#resume-a-session-elsewhere) · [JSON output](#json-output) · [Language](#language)
+- [Resume a session elsewhere](#resume-a-session-elsewhere) · [Remote hosts and WSL distros](#remote-hosts-and-wsl-distros) · [JSON output](#json-output) · [Language](#language)
 - [How it differs from similar tools](#how-it-differs-from-similar-tools) · [Install](#install) · [License](#license)
 
 ## Quick start
@@ -90,7 +90,7 @@
 - **Tokens and cost** per session and for today / last 7 days, estimated at public API list prices. This is not your bill.
 - **Changed files and diffs** per session and per prompt.
 - **Artifacts** a Claude or Cowork session (or its subagents) published with the Artifact tool, with clickable links.
-- **Read-only**: no network, no ports, no dependencies. It only reads the session logs each CLI already writes.
+- **Read-only**: no network, no ports, no dependencies. It only reads the session logs each CLI already writes. Only [`--remote`](#remote-hosts-and-wsl-distros), when you turn it on, uses the network (through your `ssh`).
 
 <details>
 <summary>Details: stopped sessions, cache countdown, tool run time, context gauge, artifacts, tool line</summary>
@@ -332,7 +332,7 @@ Alerts when a session starts waiting, finishes a long turn or fills its context.
 
 - The hook keeps its name (`--on-waiting`) for all kinds.
 - It gets `AITOP_EVENT` (`waiting`, `done` or `context`) in its environment.
-- It also gets `AITOP_TOOL`, `AITOP_PROJECT`, `AITOP_SESSION_ID`, `AITOP_CWD` and `AITOP_WAITING_FOR`.
+- It also gets `AITOP_TOOL`, `AITOP_PROJECT`, `AITOP_SESSION_ID`, `AITOP_CWD` and `AITOP_WAITING_FOR`, plus `AITOP_HOST` (the [remote](#remote-hosts-and-wsl-distros) name, empty for local sessions).
 
 **Config file and switches**
 
@@ -536,6 +536,50 @@ Continue a session elsewhere, for example when you cannot jump to its tab, as in
 
 </details>
 
+## Remote hosts and WSL distros
+
+See sessions on machines you manage (a VM, a dev server, another WSL distro) on the same screen.
+
+> `aitop --remote dev,me@vm2,wsl:Ubuntu-22.04`
+>
+> config file: `"remotes": ["dev", "wsl:Ubuntu"]`
+
+- aitop must be installed on each remote. Every 10 seconds aitop runs `ssh -o BatchMode=yes -o ConnectTimeout=5 -T -- <host> aitop --json --no-remote` (WSL: `wsl.exe -d <distro> -- aitop --json --no-remote`) for all remotes in parallel, 20 seconds per call.
+- Auth and host trust are left to your ssh config and agent. aitop never asks for or stores passwords or keys, and never turns off host key checking.
+- This is the only feature that uses the network, and only when you turn it on. `--no-remote` turns off the config file list for one run.
+- The table keeps local sessions on top. Each remote follows under its own line: `── dev · 3 sessions · 10s ago ──`, or `── dev · not connected (timed out) ──`. Sorting, grouping and waiting-first work inside each block.
+- Waiting bell and desktop alerts include remote sessions. `--on-waiting` gets `AITOP_HOST`.
+- `y` copies a local command that reopens the session there: `ssh -t dev 'cd /repo && claude --resume <id>'` (WSL: `wsl.exe -d Ubuntu --cd /repo -- claude --resume <id>`).
+- `--once` and `--json` wait for all remotes before printing.
+
+<details>
+<summary>Details: names, errors, what is not fetched</summary>
+
+**Names**
+
+- An ssh host alias or `user@host` (letters, digits, `.`, `_`, `-`), or `wsl:<distro>`. Up to 16.
+- Values starting with `-`, ports (`host:22`), spaces and shell characters are refused at start (exit 2). Put a port or jump host in an `~/.ssh/config` alias.
+- There is no automatic WSL distro discovery; name the distro.
+
+**Errors on the remote line**
+
+- auth failed, unreachable, no aitop on remote (exit 127), remote aitop too old (no `--no-remote` or no `schema` in its JSON), remote aitop newer (larger `schema`), timed out, bad response (broken JSON or over 8MB). Remote error output is not shown.
+- A short connection drop keeps the remote's last sessions (the line shows the error and how old they are) and clears them after 3 failures in a row or 60 seconds. When a remote first connects, or comes back after being cleared, sessions already waiting are not alerted.
+- So after a long drop (once the sessions were cleared), a session that started waiting during the drop is not alerted either: it becomes part of the new baseline.
+
+**"no aitop on remote" although it is installed**
+
+- `ssh host aitop` runs a non-login shell, so an aitop installed with nvm, fnm or a user npm prefix may not be on its `PATH`.
+- Fix on the remote: put the `PATH` line (for example `export NVM_DIR=...` and `. "$NVM_DIR/nvm.sh"`) at the top of `~/.bashrc`, before the "If not running interactively, return" line, or link it once: `sudo ln -s "$(command -v aitop)" /usr/local/bin/aitop` (run it in a shell where `aitop` works; for nvm, link `node` the same way).
+
+**Not fetched**
+
+- Diffs (the detail panel shows file stats only), artifact sources (links still work), the remote usage totals (remote cost is not added to the header) and requests (`--show-requests`).
+- `--report` and `--line` stay local.
+- Remote output is treated as untrusted: only known fields are kept, text is stripped of control characters, masked and cut to 200 characters, and the counts are capped (500 sessions, 200 files, 50 members per remote).
+
+</details>
+
 ## JSON output
 
 > `aitop --json`
@@ -545,6 +589,8 @@ Continue a session elsewhere, for example when you cannot jump to its tab, as in
 - `--json` prints a snapshot as JSON and exits.
 - For scripts, use `phaseKind`, a stable state name: `think`, `write`, `tool`, `team`, `waiting`, `idle`, `stopped`, `done`, `ended` (or `null`).
 - `stopReason` says why a session is `stopped`: `{ "kind": "auth" }` login needed, `network` connection lost, `api` any other API error. `null` otherwise.
+- `schema` (top level) is the JSON shape version, now `1`. It goes up only when an existing field changes meaning or shape.
+- With [`--remote`](#remote-hosts-and-wsl-distros): each session has `host` (`null` for local) and `remoteId` (its id on that host; `id` is `<host>:<id>`), and `remotes` lists each remote as `{ name, kind, ok, error, version, schema, at }` (`[]` when off). `usage` stays local.
 
 <details>
 <summary>Details: text fields and where other fields are described</summary>
