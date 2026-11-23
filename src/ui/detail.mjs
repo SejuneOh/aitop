@@ -1,5 +1,5 @@
 // 선택한 세션 상세 패널: 왼쪽 요약, 오른쪽 변경 파일·지시 탭·diff·최근 활동. 100칸 미만에서는 요약을 위쪽 두 줄로 접는다.
-import { ellipsis, fmtAgo, fmtTokens, pad, truncateLeft, width } from '../text.mjs';
+import { ellipsis, fmtAgo, fmtTokens, pad, truncate, truncateLeft, width } from '../text.mjs';
 import { currentTab, filesForTab, turnTabs } from '../turns.mjs';
 import { isAbsolute, relative } from 'node:path';
 import { PALETTE, PHASE_COLOR } from './theme.mjs';
@@ -8,6 +8,7 @@ import { activitySeries } from '../sources/common.mjs';
 import { glyphs } from './glyphs.mjs';
 import { STRINGS, phaseText, t as tr } from '../i18n.mjs';
 import { resumeCmd } from '../resume.mjs';
+import { artifactLink, audienceKind } from '../sources/artifacts.mjs';
 
 // 탭 이름: 이번 지시·전체 탭은 turns.mjs 가 ko 이름을 붙이므로 지금 언어로 바꾼다. 지시 탭(T5)은 그대로.
 const tabLabel = (tab, short = false) => (tab.key === 'now' ? tr('detail.tabNow', null, { short }) : tab.key === 'all' ? tr('detail.tabAll') : tab.label);
@@ -236,12 +237,64 @@ export function requestBlock(s, w, max = REQUEST_LINES) {
   return [rule([{ t: tr('detail.request'), fg: PALETTE.waiting, bold: true }], '', w), ...lines.map((l) => [INDENT, { t: l, fg: PALETTE.text }])];
 }
 
+// ── 아티팩트 N ── 구획 (#305): Artifact 도구로 게시한 것이 있을 때만. 한 줄에 제목 · v1→v3 · 시각 · 링크 · 바로 수정 · 공개(조직 공유).
+// 버전(seq)을 모르면 버전 칸을 뺀다.
+// 최근 순으로 max-1 줄까지 보이고, 넘치면 가로줄 끝에 +N 을 붙인다.
+export const ARTIFACT_LINES = 4;
+const TITLE_MIN = 12;
+
+// 링크 글: 주소 전체(https:// 뺌)가 들어가면 그대로, 아니면 claude.ai/… 뒤에 마지막 조각 끝 8자.
+function linkLabel(url, full) {
+  const bare = url.replace(/^https:\/\//, '');
+  if (full) return bare;
+  const last = bare.split(/[/?#]/).filter(Boolean).at(-1) ?? '';
+  return `claude.ai/…${last.slice(-8)}`;
+}
+
+export function artifactRow(a, w) {
+  const textW = Math.max(1, w - width(INDENT.t));
+  const sep = { t: ' · ', fg: PALETTE.info };
+  const url = artifactLink(a.url);
+  const ver = a.to == null ? null : a.from != null && a.from !== a.to ? `v${a.from}→v${a.to}` : `v${a.to}`;
+  const tags = [a.edits && { t: tr('detail.artEdits'), fg: PALETTE.muted }, audienceKind(a.audience) && { t: tr(audienceKind(a.audience) === 'org' ? 'detail.artOrg' : 'detail.artPublic'), fg: PALETTE.waiting, bold: true }].filter(Boolean);
+  const link = (full) => (url ? [sep, { t: linkLabel(url, full), fg: PALETTE.info, link: url }] : []);
+  const title = a.title || (url ? linkLabel(url, false) : '-');
+  const head = [...(ver ? [sep, { t: ver, fg: PALETTE.muted }] : [])];
+  const time = Number.isFinite(a.at) ? [sep, { t: hhmm(a.at), fg: PALETTE.info }] : [];
+  const tagSegs = tags.flatMap((x) => [sep, x]);
+  // 자리가 모자라면 주소 전체 → 표시(바로 수정·공개) → 시각 → 버전 순으로 줄이고, 짧은 링크는 끝까지 남긴다.
+  const options = [
+    [...head, ...time, ...link(true), ...tagSegs],
+    [...head, ...time, ...link(false), ...tagSegs],
+    [...head, ...time, ...link(false)],
+    [...head, ...link(false)],
+    [...link(false)],
+    [],
+  ];
+  // 주소 전체는 제목이 잘리지 않을 때만 쓴다. 나머지는 제목이 TITLE_MIN 칸(짧으면 제 길이)을 얻는 첫 모양.
+  const want = (k) => (k === 0 ? width(title) : Math.min(width(title), TITLE_MIN));
+  const rest = options.find((o, k) => textW - segsWidth(o) >= want(k)) ?? [];
+  const titleW = Math.max(1, textW - segsWidth(rest));
+  return [INDENT, { t: truncate(title, titleW), fg: PALETTE.text, bold: true }, ...rest];
+}
+
+export function artifactBlock(s, w, max = ARTIFACT_LINES + 1) {
+  const list = s.artifacts ?? [];
+  if (!list.length || max < 2) return [];
+  const shown = list.slice(0, max - 1);
+  const more = list.length - shown.length;
+  return [rule([{ t: tr('detail.artifacts', { n: list.length }), fg: PALETTE.text, bold: true }], more ? `+${more}` : '', w), ...shown.map((a) => artifactRow(a, w))];
+}
+
 // 오른쪽 칸: 고친 파일이 없으면 최근 활동만, 있으면 위쪽 절반까지 변경 파일 구획(배경 띠), 파일을 열면 diff.
 // 머리는 안쪽 줄 수에 따라: 16 이상 가로줄+탭+지시, 11~15 가로줄+탭(지시는 탭 줄 오른쪽), 10 이하 가로줄만.
 export function rightColumn(s, w, rows, view) {
   // --show-requests 를 켰고 응답 대기 중이면 요청 내용을 맨 위에 두고, 아래 구획에는 적어도 4줄을 남긴다.
   const req = view?.showRequests ? requestBlock(s, w, Math.min(REQUEST_LINES, rows - 5)) : [];
   if (req.length) return [...req, ...rightColumn({ ...s, waitDetail: null }, w, rows - req.length, view)];
+  // 아티팩트 구획은 diff 를 열지 않았을 때 그 아래에 둔다. 아래 구획(변경 파일·최근 활동)에 적어도 6줄을 남긴다.
+  const art = view?.focus === 'diff' ? [] : artifactBlock(s, w, Math.min(ARTIFACT_LINES + 1, rows - 6));
+  if (art.length) return [...art, ...rightColumn({ ...s, waitDetail: null, artifacts: [] }, w, rows - art.length, view)];
   const all = s.files ?? [];
   const focused = view?.focus === 'files';
   // 가로줄 끝에 '─' 두 칸은 남긴다 (── 3칸 + 최근 활동 이름(한국어 9칸) + 막대 + ' ─' 2칸).

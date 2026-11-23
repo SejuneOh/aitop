@@ -11,8 +11,10 @@ import { debug, debugIo } from './log.mjs';
 
 // 캐시 형식이 바뀌면 VERSION 을, 가격표가 바뀌면 PRICE_TAG 가 폴더 이름을 바꿔서 예전 캐시를 버린다.
 // 14: 장부의 하루 합계에 모델별 몫(models)을 더하고, 날짜를 10일이 아니라 30일 남긴다 (#128).
+// 15: 세션 기록 캐시에 Artifact 게시 목록(artifacts, artCalls)을 더한다 (#305). 이미 읽은 부분의 게시를 놓치지 않게 다시 읽는다.
+// 16: 15 의 첫 판(3a1eb62)이 version 을 숫자로 잘못 읽어 남긴 캐시를 버린다. 그대로 두면 업데이트 뒤에도 아티팩트 버전이 null 로 읽힌다.
 // 장부(ledger)만 형식이 바뀔 때는 VERSION 대신 장부의 kind 이름을 바꿔 장부만 다시 센다 (세션 화면 캐시는 그대로).
-const VERSION = 14;
+const VERSION = 16;
 // Windows 는 XDG_CACHE_HOME 이 없으면 %LOCALAPPDATA%\aitop\cache (paths.mjs).
 const ROOT = appDir('cache', { home: homedir() });
 export const CACHE_ROOT = ROOT;
