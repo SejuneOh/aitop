@@ -209,7 +209,10 @@ test('--json: 최상위 schema, 세션마다 host·remoteId, remotes 목록', ()
   assert.equal(j.sessions[1].host, 'dev');
   assert.equal(j.sessions[1].id, `dev:${ID}`);
   assert.equal(j.sessions[1].remoteId, ID);
-  assert.match(j.sessions[1].resumeCmd, /^ssh -t dev /);
+  // 기본은 이 OS 의 셸 따옴표다. 플랫폼을 주입하면 리눅스에서도 Windows CI 와 같은 결과를 본다.
+  assert.match(j.sessions[1].resumeCmd, process.platform === 'win32' ? /^ssh '-t' dev '/ : /^ssh -t dev '/);
+  assert.match(toJson({ sessions: [remote], at }, null, { platform: 'linux' }).sessions[0].resumeCmd, /^ssh -t dev 'cd /);
+  assert.equal(toJson({ sessions: [remote], at }, null, { platform: 'win32' }).sessions[0].resumeCmd, `ssh '-t' dev 'cd ''/srv/it''\\''''s here'' && claude --resume ${ID}'`);
   assert.deepEqual(toJson({ sessions: [], at }).remotes, []);
 });
 
@@ -502,4 +505,17 @@ test('끝남·context 알림(eventWatch)은 처음 붙는 원격 세션을 알�
 test('WSL 배포판은 대소문자를 가리지 않고 한 번만, ssh 호스트는 그대로', () => {
   assert.deepEqual(remoteOption(['--remote=wsl:Ubuntu,wsl:ubuntu,Dev,dev']).value, ['wsl:Ubuntu', 'Dev', 'dev']);
   assert.deepEqual(remoteTargets(['wsl:Ubuntu', 'WSL:UBUNTU', 'dev']).map((r) => r.name), ['wsl:Ubuntu', 'dev']);
+});
+
+test('win32: 공백·탭이 있고 \\ 로 끝나는 값은 명령을 만들지 않는다 (PowerShell 5.1 의 \\" 문제)', () => {
+  for (const cwd of ['C:\\my dir\\', '/srv/a b\\', '/srv/a\tb\\']) {
+    assert.equal(win(winSession('wsl:Ubuntu', cwd)), null, JSON.stringify(cwd));
+  }
+  // ssh 의 바깥 인자(원격 한 줄)는 이어 열기 id 로 끝나 \ 로 끝나지 않으므로 같은 규칙에 걸리지 않고, 한 인자로 묶인다.
+  assert.equal(psWords(win(winSession('dev', '/srv/a b\\'))).length, 4);
+  // 공백이 없거나 \ 로 끝나지 않으면 만든다.
+  assert.deepEqual(psWords(win(winSession('wsl:Ubuntu', '/srv/nospace\\'))).slice(3, 5), ['--cd', '/srv/nospace\\']);
+  assert.ok(win(winSession('wsl:Ubuntu', '/srv/a b\\c')));
+  // posix 는 그대로 만든다.
+  assert.ok(resumeCmd(winSession('wsl:Ubuntu', '/srv/a b\\'), { platform: 'linux' }));
 });

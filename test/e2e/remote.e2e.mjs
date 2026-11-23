@@ -56,7 +56,8 @@ test('--json --remote: 원격 세션을 host 와 함께 넣고, 원격마다 결
   assert.equal(w.remoteId, '22222222-2222-4222-8222-222222222222');
   assert.equal(w.phase, '응답 대기 · Bash');
   // 원격이 준 resumeCmd·pid·waitDetail 은 쓰지 않는다.
-  assert.match(w.resumeCmd, /^ssh -t dev '/);
+  // 로컬 셸 따옴표는 OS 를 따른다 (Windows 는 PowerShell).
+  assert.match(w.resumeCmd, process.platform === 'win32' ? /^ssh '-t' dev '/ : /^ssh -t dev '/);
   assert.doesNotMatch(w.resumeCmd, /rm -rf/);
   assert.equal(w.pid, null);
   assert.ok(!('waitDetail' in w));

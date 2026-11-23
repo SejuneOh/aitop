@@ -75,6 +75,9 @@ function remoteResumeCmd(s, platform) {
     words = ['ssh', '-t', host, inner];
   }
   if (win && words.some((w) => PS_UNSAFE.test(w))) return null;
+  // Windows PowerShell 5.1 은 공백이 든 인자를 "…" 로 감싸 넘기는데, 값이 \ 로 끝나면 받는 쪽이 \" 를 " 로 읽어 뒤 인자를 먹는다.
+  // 그런 값(공백·탭이 있고 \ 로 끝남)이 있으면 만들지 않는다.
+  if (win && words.some((w) => /[ \t]/.test(w) && w.endsWith('\\'))) return null;
   // 맨 앞 실행 파일 이름은 따옴표 없이 둔다 (PowerShell 은 따옴표로 시작하면 명령이 아니라 글로 읽는다).
   return [words[0], ...words.slice(1).map(win ? psQuote : shellQuote)].join(' ');
 }
