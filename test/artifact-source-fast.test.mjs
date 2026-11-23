@@ -11,6 +11,7 @@ const fx = makeClaudeHome();
 const { ClaudeTracker } = await import('../src/sources/claude-tracker.mjs');
 const { createBudget } = await import('../src/tail.mjs');
 const { loadArtifactSource, quickSource, openArtifactSource } = await import('../src/sources/artifact-source.mjs');
+const { pathKey } = await import('../src/sources/artifacts.mjs');
 const { onKey, KEY } = await import('../src/keys.mjs');
 const { CACHE_DIR, flushCache } = await import('../src/cache.mjs');
 
@@ -65,7 +66,8 @@ test('위치를 기억하면 열 때 기록을 다시 훑지 않고 그 줄만 �
   const { log, t } = tracked('fast-1');
   assert.ok(fs.statSync(log).size > 20 * 1000 * 1000, '20MB 넘는 가짜 기록');
   assert.ok(t.artPaths.has('art-fast'));
-  assert.equal(t.writes.get(HTML).length > 0, true);
+  // tracker 맵의 키는 pathKey (Windows 는 소문자·구분자를 맞춘다).
+  assert.equal(t.writes.get(pathKey(HTML)).length > 0, true);
   const started = performance.now();
   const { value: doc, bytes } = countReads(() => loadArtifactSource({ logs: [log] }, ART));
   const ms = performance.now() - started;
@@ -181,7 +183,7 @@ test('상한을 넘겨 고친 기록(edited)이 밀려나면 고친 적 없음�
   const log = fx.transcript('fast-lost-e', [...writeHtml, ...editHtml, ...others('edit', 1100, 4), ...publishRows]);
   const t = readAll(log);
   assert.equal(t.srcLost, true);
-  assert.equal(t.edited.has(HTML), false, 'HTML 의 고친 시각은 밀려났다');
+  assert.equal(t.edited.has(pathKey(HTML)), false, 'HTML 의 고친 시각은 밀려났다');
   assert.equal(quickSource({ logs: [log] }, ART), null);
   const doc = loadArtifactSource({ logs: [log] }, ART);
   assert.equal(doc.kind, 'record');
@@ -250,10 +252,11 @@ test('게시 결과를 받으면 게시 호출의 file_path 기억을 지운다 
 });
 
 test('경로 키: Windows 는 구분자와 대소문자를 맞추고, 다른 OS 는 그대로', async () => {
-  const { pathKey } = await import('../src/sources/artifacts.mjs');
   assert.equal(pathKey('C:/Users/Dev/Report.HTML', 'win32'), pathKey('c:\\users\\dev\\report.html', 'win32'));
   assert.equal(pathKey('C:\\a\\.\\b\\x.html', 'win32'), pathKey('c:\\a\\b\\X.html', 'win32'));
   assert.notEqual(pathKey('/tmp/A.html', 'linux'), pathKey('/tmp/a.html', 'linux'));
   assert.equal(pathKey('/tmp/a.html', 'darwin'), '/tmp/a.html');
   assert.equal(pathKey(null, 'win32'), null);
+  // 리눅스에서도 win32 동작을 본다.
+  assert.equal(pathKey('C:\\A\\b.html', 'win32'), pathKey('c:/a/B.html', 'win32'));
 });
