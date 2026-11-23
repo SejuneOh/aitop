@@ -532,6 +532,8 @@ const act = {
   move,
   next: () => goTo(nextAttention(attention, visible(), view.selectedId)),
   keepVisible: keepSelectionVisible,
+  // 아티팩트 원본을 뒤에서 찾은 뒤 다시 그린다 (#307).
+  redraw: () => draw(),
 };
 
 stdin.on('data', (key) => {

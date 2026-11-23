@@ -2,7 +2,17 @@
 // 게시(publish, action 이 없으면 publish) 호출과 짝이 되는 결과 줄의 toolUseResult 에서 몇 값만 꺼낸다.
 // 입력의 file_path·edits 내용·prompt 와 결과의 나머지 값(path 등)은 담지 않는다.
 import { createHash } from 'node:crypto';
+import { win32 } from 'node:path';
 import { mask, stripControl } from '../text.mjs';
+
+// 경로를 비교하는 키. Windows 는 구분자(/ 와 역슬래시)와 대소문자를 맞추고, 다른 OS 는 그대로 (#307).
+// 아티팩트 원본으로 읽는 최대 바이트 (artifact-source.mjs, 화면의 잘림 표시).
+export const SOURCE_MAX = 2 * 1024 * 1024;
+
+export function pathKey(p, platform = process.platform) {
+  if (typeof p !== 'string') return null;
+  return platform === 'win32' ? win32.normalize(p).toLowerCase() : p;
+}
 
 // 세션마다 남기는 아티팩트 수 (마지막 게시가 최근인 것부터).
 export const ARTIFACT_MAX = 20;

@@ -265,7 +265,7 @@ test('파이프로 받는 --once 는 링크 없이 평문으로 아티팩트를 
     r.stdout = r.stdout.replace(/\x1b\[[0-9;]*m/g, '');
     assert.match(r.stdout, /아티팩트 5/);
     assert.match(r.stdout, /제목 art-A · v1→v4/);
-    assert.match(r.stdout, /── 아티팩트 5 ─+ \+1 ─/, '120열 60줄이면 4개와 +1');
+    assert.match(r.stdout, /── 아티팩트 5 ─+ \+1 · v ─/, '120열 60줄이면 4개와 +1, 목록으로 들어가는 키 v');
     assert.doesNotMatch(r.stdout, /\x1b\]8;/);
   }
 });
