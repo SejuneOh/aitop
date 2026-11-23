@@ -148,3 +148,42 @@ test('훑는 동안 다른 곳으로 가면 그만두고 화면을 바꾸지 않
   await new Promise((r) => setTimeout(r, 50));
   assert.equal(finished, false);
 });
+
+// 상한(1024)을 넘는 다른 경로 기록으로 앞쪽 기억을 밀어낸다.
+const others = (kind, n, m) =>
+  Array.from({ length: n }, (_, i) => {
+    const p = join(dirname(fx.home), 'many', `f${i}.txt`);
+    return kind === 'write'
+      ? [call(`ow${i}`, 'Write', { file_path: p, content: 'x' }, m), result(`ow${i}`, { type: 'create', filePath: p, content: 'x', structuredPatch: [] }, m)]
+      : [call(`oe${i}`, 'Edit', { file_path: p }, m), result(`oe${i}`, { filePath: p, structuredPatch: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ['-a', '+b'] }] }, m)];
+  }).flat();
+const publishRows = [call('p1', 'Artifact', { file_path: HTML }, 40), result('p1', { url: 'https://claude.ai/artifact/fast307', title: '빠른 보고서', artifact_id: 'art-fast', path: HTML, seq: 1 }, 41)];
+const writeHtml = [call('w1', 'Write', { file_path: HTML, content: BODY }, 1), result('w1', { type: 'create', filePath: HTML, content: BODY, structuredPatch: [] }, 2)];
+
+function readAll(log) {
+  const t = new ClaudeTracker(log);
+  while (t.update(createBudget())) {}
+  return t;
+}
+
+test('상한을 넘겨 Write 기억이 밀려나면 원본 없음으로 답하지 않고 훑기로 넘긴다', () => {
+  const log = fx.transcript('fast-lost-w', [...writeHtml, ...others('write', 1100, 3), ...publishRows]);
+  const t = readAll(log);
+  assert.equal(t.srcLost, true);
+  assert.equal(quickSource({ logs: [log] }, ART), null);
+  const doc = loadArtifactSource({ logs: [log] }, ART);
+  assert.equal(doc.kind, 'record');
+  assert.equal(doc.text, BODY);
+});
+
+test('상한을 넘겨 고친 기록(edited)이 밀려나면 고친 적 없음을 믿지 않고 훑어서 경고를 찾는다', () => {
+  const editHtml = [call('e1', 'Edit', { file_path: HTML }, 3), result('e1', { filePath: HTML, structuredPatch: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ['-a', '+b'] }] }, 3)];
+  const log = fx.transcript('fast-lost-e', [...writeHtml, ...editHtml, ...others('edit', 1100, 4), ...publishRows]);
+  const t = readAll(log);
+  assert.equal(t.srcLost, true);
+  assert.equal(t.edited.has(HTML), false, 'HTML 의 고친 시각은 밀려났다');
+  assert.equal(quickSource({ logs: [log] }, ART), null);
+  const doc = loadArtifactSource({ logs: [log] }, ART);
+  assert.equal(doc.kind, 'record');
+  assert.equal(doc.changed, true);
+});

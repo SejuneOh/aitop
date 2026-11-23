@@ -12,7 +12,13 @@ const MAX_TURNS = 50;
 
 // 아티팩트 원본 위치 (#307): 기록을 읽는 김에 메모리에만 기억한다. 캐시 파일·--json 에는 넣지 않는다 (#305 원칙).
 // 경로마다 마지막 Write 결과 줄의 위치(바이트 오프셋·길이)와 시각, 그 경로를 마지막으로 고친(Edit·Artifact edits) 시각만 들고 본문은 들지 않는다.
-const SRC_PATHS_MAX = 256;
+let SRC_PATHS_MAX = 1024;
+// 테스트용: 상한을 바꾼다. 이전 값을 돌려준다.
+export function _setSrcLimit(n) {
+  const prev = SRC_PATHS_MAX;
+  SRC_PATHS_MAX = n;
+  return prev;
+}
 // 기록 경로 → 그 기록을 읽는 tracker. 아티팩트 원본을 열 때 위치를 묻는다 (artifact-source.mjs). 끝난 tracker 는 GC 가 가져간다.
 const live = new Map();
 export function liveTracker(path) {
@@ -21,11 +27,15 @@ export function liveTracker(path) {
   return t ?? null;
 }
 
-// 크기 상한이 있는 Map 에 넣는다 (오래된 것부터 버린다).
-function capSet(map, k, v) {
+// 크기 상한이 있는 Map 에 넣는다 (오래된 것부터 버린다). 실제로 버렸으면 t.srcLost 를 켠다.
+// 그 뒤로는 "기억에 없음" 이 "기록에 없음" 이 아니므로 artifact-source.mjs quickSource 가 훑기로 넘긴다.
+function capSet(t, map, k, v) {
   map.delete(k);
   map.set(k, v);
-  if (map.size > SRC_PATHS_MAX) map.delete(map.keys().next().value);
+  if (map.size > SRC_PATHS_MAX) {
+    map.delete(map.keys().next().value);
+    t.srcLost = true;
+  }
 }
 
 const RECENT_IDS = 64;
@@ -285,6 +295,8 @@ export class ClaudeTracker {
     this.writes = new Map();
     this.edited = new Map();
     this.srcFrom = 0;
+    // 상한 때문에 기억에서 버린 항목이 있는지 (capSet).
+    this.srcLost = false;
     // 게시 호출의 file_path (결과에 path 가 없을 때 쓴다): tool_use id → 경로.
     this.artFiles = new Map();
   }
@@ -434,8 +446,8 @@ export class ClaudeTracker {
       for (const c of Array.isArray(x.message?.content) ? x.message.content : []) {
         if (c?.type !== 'tool_use' || c.name !== 'Artifact' || !isPublish(c.input)) continue;
         const fp = typeof c.input?.file_path === 'string' ? c.input.file_path : null;
-        if (fp) capSet(this.artFiles, c.id, fp);
-        if (fp && Array.isArray(c.input.edits) && c.input.edits.length) capSet(this.edited, fp, at);
+        if (fp) capSet(this, this.artFiles, c.id, fp);
+        if (fp && Array.isArray(c.input.edits) && c.input.edits.length) capSet(this, this.edited, fp, at);
       }
       return;
     }
@@ -444,14 +456,14 @@ export class ClaudeTracker {
     const results = Array.isArray(x.message?.content) ? x.message.content.filter((p) => p?.type === 'tool_result') : [];
     if (results.some((p) => p.is_error)) return;
     if (typeof r.filePath === 'string') {
-      if (typeof r.content === 'string' && (r.type === 'create' || r.type === 'update')) capSet(this.writes, r.filePath, { at, offset, length });
-      else if (Array.isArray(r.structuredPatch)) capSet(this.edited, r.filePath, at);
+      if (typeof r.content === 'string' && (r.type === 'create' || r.type === 'update')) capSet(this, this.writes, r.filePath, { at, offset, length });
+      else if (Array.isArray(r.structuredPatch)) capSet(this, this.edited, r.filePath, at);
     }
     for (const p of results) {
       if (!this.artFiles.has(p.tool_use_id) && !this.artCalls.has(p.tool_use_id)) continue;
       const a = pickArtifact(r, at);
       const path = typeof r.path === 'string' ? r.path : this.artFiles.get(p.tool_use_id);
-      if (a && path) capSet(this.artPaths, a.id, { path, at });
+      if (a && path) capSet(this, this.artPaths, a.id, { path, at });
     }
   }
 

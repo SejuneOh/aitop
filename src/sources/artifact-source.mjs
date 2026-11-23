@@ -206,12 +206,14 @@ export function readWriteAt(log, offset, length, path, max = SOURCE_MAX) {
 }
 
 // 기록을 읽는 tracker 가 기억한 위치로 찾는다 (claude-tracker.mjs noteSource). 훑지 않는다.
-// 모르면 null: tracker 가 없거나, 캐시에서 이어 읽어 앞부분을 모르는데 거기서 찾지 못했거나, 기억한 줄이 바뀌었을 때.
+// 모르면 null: tracker 가 없거나, 캐시에서 이어 읽어 앞부분을 모르거나 상한 때문에 기억을 버린(srcLost) 상태에서 찾지 못했거나,
+// 기억한 줄이 바뀌었을 때. srcLost 면 '고친 적 없음(changed false)' 도 믿을 수 없어 훑기로 넘긴다.
 export function quickSource(s, a, find = liveTracker) {
   const ts = (s?.logs ?? []).map((p) => find(p));
   if (!ts.length || ts.some((t) => !t)) return null;
-  // 모든 기록을 처음부터 읽었으면 못 찾은 것도 답이다. 캐시에서 이어 읽은 기록이 있으면 앞부분에 있을 수 있다.
-  const complete = ts.every((t) => t.srcFrom === 0);
+  // 모든 기록을 처음부터 읽었고 버린 기억도 없으면 못 찾은 것도 답이다.
+  const lost = ts.some((t) => t.srcLost);
+  const complete = !lost && ts.every((t) => t.srcFrom === 0);
   let hit = null;
   for (const t of ts) {
     const p = t.artPaths?.get(a?.id);
@@ -229,7 +231,9 @@ export function quickSource(s, a, find = liveTracker) {
   const body = readWriteAt(w.log, w.offset, w.length, hit.path);
   if (!body) return null;
   const lastEdit = Math.max(-Infinity, ...ts.map((t) => t.edited?.get(hit.path) ?? -Infinity));
-  return { kind: 'record', path: hit.path, text: body.text, cut: body.cut, changed: lastEdit > w.at };
+  const changed = lastEdit > w.at;
+  if (!changed && lost) return null;
+  return { kind: 'record', path: hit.path, text: body.text, cut: body.cut, changed };
 }
 
 // 원본 찾기 (기다리는 판). s.logs: 세션 기록 경로 (메인과 서브에이전트, claude.mjs sessionTotals).
