@@ -72,7 +72,7 @@
 **Keys on the live screen**
 
 - `↑↓` select · `n` next session to check · `/` search · `s` sort · `g` group
-- `p` pin · `f` changed files · `a` waiting alerts on/off · `?` help · `q` quit
+- `p` pin · `f` changed files · `v` artifacts (Enter views the source) · `a` waiting alerts on/off · `?` help · `q` quit
 
 **Config file**
 
@@ -124,6 +124,7 @@
 - The detail panel shows `── Artifacts N ──` when a session published any: `title · v1→v3 · 14:02 · claude.ai/…`, plus `edited in place` for an `edits` publish `org` for an org-shared link and `public` for a public one (nothing for `owner`). The version range comes from the publish sequence number; without one it is left out. When space is short, the latest few and `+N`.
 - Only `https://claude.ai/` addresses become OSC 8 links. Under `NO_COLOR`, in piped output and in terminals not known to support links they are plain text; `FORCE_HYPERLINK=1` or `0` overrides. Only the title, address, publish sequence number, time, audience and whether `edits` was used are read (no file paths or edit contents).
 - `--json` has `artifacts` per session (`title`, `url`, `versionFrom`, `versionTo`, `updatedAt`, `audience`, `viaEdits`); `url` is `null` unless it is a `https://claude.ai/` address.
+- `v` moves into the list, `↑↓` picks and `Enter` shows the source full screen (`↑↓` · `space` · `PgUp/PgDn` · `Home/End` scroll, `[ ]` previous/next, `Esc` back one step). The source is looked up only then: the local file at the published path (a regular file, not a symlink, first 2MB), else the last `Write` of that path in the same session's transcripts (subagents included, marked `may differ from the published version` when an `Edit` or an `edits` publish came after it), else `no source`. HTML is never run: scripts, styles, templates and comments are dropped and headings, paragraphs, lists, tables, code and quotes are shown as text, with `data:` images as `[image 120KB]`. Markdown gets simple headings, lists and code blocks.
 
 **Tool line and empty screen**
 

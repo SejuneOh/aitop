@@ -202,6 +202,8 @@ export function footer(view, W, matched, sel) {
     const input = NO_COLOR ? [{ t: '[/]' }] : [{ t: ' / ', fg: PALETTE.chipText, bg: PALETTE.brand, bold: true }];
     return hintBar([{ segs: [...input, { t: ` ${view.filter ?? ''}`, fg: PALETTE.text, bold: true }, { t: glyphs().cursor, fg: PALETTE.brand }, { t: `  ${t('foot.count', { n: matched })}   `, fg: PALETTE.muted }], keep: true }, { k: '⏎', t: t('key.apply'), keep: true }, { k: 'Esc', t: t('foot.clear'), keep: true }], W);
   }
+  if (view.focus === 'artifact') return hintBar([...toast, { k: '↑↓', t: t('key.scroll') }, { k: 'space', t: t('key.page') }, { k: 'Home End', t: t('key.ends') }, { k: '[ ]', t: t('key.prevNextArt') }, { k: 'Esc', t: t('foot.toArtifacts'), keep: true }, ...tail], W, RO);
+  if (view.focus === 'artifacts') return hintBar([...toast, { k: '↑↓', t: t('foot.pickArtifact') }, { k: '⏎', t: t('foot.viewSource') }, { k: 'Esc', t: t('foot.toSessions'), keep: true }, ...tail], W, RO);
   if (view.focus) {
     const keys =
       view.focus === 'diff'
@@ -222,6 +224,8 @@ export function footer(view, W, matched, sel) {
     { k: 'n', t: t('foot.next') },
     ...(order ? [order] : []),
     ...(sel?.files?.length ? [{ k: 'f', t: t('foot.files') }] : []),
+    // 아티팩트 목록(v)은 상세 패널이 열려 있고 게시한 것이 있을 때만 안내한다 (#307).
+    ...(view.showDetail && sel?.artifacts?.length ? [{ k: 'v', t: t('foot.artifacts') }] : []),
     { k: 'd', t: t(view.showDetail ? 'foot.hideDetail' : 'foot.showDetail') },
     ended,
     { k: 'c', t: t('foot.costMode') },

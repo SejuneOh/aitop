@@ -251,7 +251,8 @@ function linkLabel(url, full) {
   return `claude.ai/…${last.slice(-8)}`;
 }
 
-export function artifactRow(a, w) {
+// selected: 목록에 들어가(v) 고른 줄. 들여 쓰기 자리에 ▸ 를 두고 배경을 칠해 폭은 그대로다.
+export function artifactRow(a, w, selected = false) {
   const textW = Math.max(1, w - width(INDENT.t));
   const sep = { t: ' · ', fg: PALETTE.info };
   const url = artifactLink(a.url);
@@ -275,15 +276,26 @@ export function artifactRow(a, w) {
   const want = (k) => (k === 0 ? width(title) : Math.min(width(title), TITLE_MIN));
   const rest = options.find((o, k) => textW - segsWidth(o) >= want(k)) ?? [];
   const titleW = Math.max(1, textW - segsWidth(rest));
-  return [INDENT, { t: truncate(title, titleW), fg: PALETTE.text, bold: true }, ...rest];
+  const row = [selected ? { t: '▸', fg: PALETTE.brand, bold: true } : INDENT, { t: truncate(title, titleW), fg: PALETTE.text, bold: true }, ...rest];
+  return selected ? fill(row, w, PALETTE.rowFocus) : row;
 }
 
-export function artifactBlock(s, w, max = ARTIFACT_LINES + 1) {
+// view.focus 가 'artifacts' 면 고른 줄(view.artifactId)이 보이게 창을 옮기고, 구획 왼쪽에 ▌ 막대를 세운다 (변경 파일 목록과 같은 모양).
+// 목록에 들어가 있지 않으면 가로줄 끝에 들어가는 키(v)를 알린다.
+export function artifactBlock(s, w, max = ARTIFACT_LINES + 1, view = null) {
   const list = s.artifacts ?? [];
   if (!list.length || max < 2) return [];
-  const shown = list.slice(0, max - 1);
+  const focused = view?.focus === 'artifacts';
+  const gutter = focused ? [{ t: glyphs().select, fg: PALETTE.brand }] : [];
+  const inner = w - segsWidth(gutter);
+  const slots = max - 1;
+  const sel = focused ? list.findIndex((a) => a.id === view.artifactId) : -1;
+  const start = sel >= slots ? sel - slots + 1 : 0;
+  const shown = list.slice(start, start + slots);
   const more = list.length - shown.length;
-  return [rule([{ t: tr('detail.artifacts', { n: list.length }), fg: PALETTE.text, bold: true }], more ? `+${more}` : '', w), ...shown.map((a) => artifactRow(a, w))];
+  const meta = [more ? `+${more}` : '', focused ? '' : 'v'].filter(Boolean).join(' · ');
+  const head = rule([{ t: tr('detail.artifacts', { n: list.length }), fg: focused ? PALETTE.brand : PALETTE.text, bold: true }], meta, inner, focused ? PALETTE.brand : PALETTE.line);
+  return [head, ...shown.map((a, k) => artifactRow(a, inner, start + k === sel))].map((r) => [...gutter, ...r]);
 }
 
 // 오른쪽 칸: 고친 파일이 없으면 최근 활동만, 있으면 위쪽 절반까지 변경 파일 구획(배경 띠), 파일을 열면 diff.
@@ -293,7 +305,7 @@ export function rightColumn(s, w, rows, view) {
   const req = view?.showRequests ? requestBlock(s, w, Math.min(REQUEST_LINES, rows - 5)) : [];
   if (req.length) return [...req, ...rightColumn({ ...s, waitDetail: null }, w, rows - req.length, view)];
   // 아티팩트 구획은 diff 를 열지 않았을 때 그 아래에 둔다. 아래 구획(변경 파일·최근 활동)에 적어도 6줄을 남긴다.
-  const art = view?.focus === 'diff' ? [] : artifactBlock(s, w, Math.min(ARTIFACT_LINES + 1, rows - 6));
+  const art = view?.focus === 'diff' ? [] : artifactBlock(s, w, Math.min(ARTIFACT_LINES + 1, rows - 6), view);
   if (art.length) return [...art, ...rightColumn({ ...s, waitDetail: null, artifacts: [] }, w, rows - art.length, view)];
   const all = s.files ?? [];
   const focused = view?.focus === 'files';

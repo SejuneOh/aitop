@@ -34,6 +34,7 @@ export const VIEWS = {
     keys: [
       k('detail.switch', '↑↓ j k', 'switchSession', '↑↓/jk'),
       k('detail.files', 'f Tab', 'files'),
+      k('detail.artifacts', 'v', 'artifacts'),
       k('detail.copy', 'y', 'copy'),
       k('detail.close', 'd', 'close'),
     ],
@@ -56,6 +57,26 @@ export const VIEWS = {
       k('diff.page', 'space PgDn PgUp', 'page', 'space'),
       k('diff.prevNext', '[ ]', 'prevNext', '[ ]'),
       k('diff.back', 'Esc h ← f Tab', 'back'),
+    ],
+  },
+  artifacts: {
+    name: 'artifacts',
+    title: ko('view.artifacts'),
+    keys: [
+      k('artifacts.pick', '↑↓ j k', 'pick', '↑↓/jk'),
+      k('artifacts.open', 'Enter l', 'source'),
+      k('artifacts.back', 'Esc h v', 'back'),
+    ],
+  },
+  artifact: {
+    name: 'artifact',
+    title: ko('view.artifact'),
+    keys: [
+      k('artifact.scroll', '↑↓ j k', 'scroll', '↑↓/jk'),
+      k('artifact.page', 'space PgDn PgUp', 'page', 'space'),
+      k('artifact.ends', 'Home End', 'ends', 'Home/End'),
+      k('artifact.prevNext', '[ ]', 'prevNextArt', '[ ]'),
+      k('artifact.back', 'Esc h ←', 'back'),
     ],
   },
   filtered: {
@@ -107,9 +128,9 @@ const OPTION_IDS = [
 export const options = (lang = getLang()) => OPTION_IDS.map(([o, d]) => [o.startsWith('hopt.') ? t(o, null, { lang }) : o, t(d, null, { lang })]);
 export const OPTIONS = options('ko');
 
-// 지금 보는 화면: 파일 목록·diff 에 들어가 있으면 그 화면, 아니면 세션 표. 검색어는 표에 붙는 것이라 helpSections 가 따로 본다.
+// 지금 보는 화면: 파일 목록·diff·아티팩트 목록·원본에 들어가 있으면 그 화면, 아니면 세션 표. 검색어는 표에 붙는 것이라 helpSections 가 따로 본다.
 export function helpContext(view) {
-  if (view.focus === 'diff' || view.focus === 'files') return view.focus;
+  if (['diff', 'files', 'artifacts', 'artifact'].includes(view.focus)) return view.focus;
   return 'table';
 }
 
@@ -130,7 +151,7 @@ export function viewText(v, lang = getLang()) {
 // aitop --help 끝의 키 안내. 지금 언어(bin 이 정한다)로 쓴다.
 export function keysText(lang = getLang()) {
   const title = (n) => t(`view.${n}`, null, { lang });
-  return [`${t('help.keys', null, { lang })}: ${keysLine('table', lang)} · ${keysLine('common', lang)}`, ...['detail', 'files', 'diff', 'filtered', 'search'].map((n) => `  ${title(n)}: ${keysLine(n, lang)}`)].join('\n');
+  return [`${t('help.keys', null, { lang })}: ${keysLine('table', lang)} · ${keysLine('common', lang)}`, ...['detail', 'files', 'diff', 'artifacts', 'artifact', 'filtered', 'search'].map((n) => `  ${title(n)}: ${keysLine(n, lang)}`)].join('\n');
 }
 
 // 지금 설정 값 한 줄 (예: 예산 $50 · 알림 켜짐 · 디버그 꺼짐). settings 가 없으면 null.

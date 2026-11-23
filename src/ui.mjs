@@ -6,6 +6,7 @@ import { glyphMoves, line, setNow } from './ui/draw.mjs';
 import { glyphs } from './ui/glyphs.mjs';
 import { TABLE_BOX_H, columns, emptyLines, filterSessions, groupRow, header, memberRow, sessionRow, tableBox, tableHeader, toolStrip, topCost } from './ui/table.mjs';
 import { detail } from './ui/detail.mjs';
+import { artifactScreen } from './ui/artifact-view.mjs';
 import { detailOpen, footer, help } from './ui/chrome.mjs';
 import { arrange } from './order.mjs';
 import { callsYou } from './attention.mjs';
@@ -72,6 +73,15 @@ export function render(view, W, H) {
     lines.push(header(view, W), ...help(W, Math.max(3, H - 2), view, detailOpen(view, H)));
     lines.length = H - 1;
     lines.push(footer({ ...view, showDetail: detailOpen(view, H) }, W, sessions.length));
+    return lines;
+  }
+  // 아티팩트 원본(#307)은 머리 줄과 키 줄 사이 전체를 쓴다.
+  if (view.focus === 'artifact' && view.artDoc) {
+    const s = view.data.sessions.find((x) => x.id === view.selectedId);
+    const a = s?.artifacts?.find((x) => x.id === view.artifactId) ?? null;
+    lines.push(header(view, W), ...artifactScreen(view.artDoc, a, W, Math.max(3, H - 2), view));
+    lines.length = H - 1;
+    lines.push(footer(view, W, sessions.length));
     return lines;
   }
   lines.push(header(view, W), toolStrip(view, W));
