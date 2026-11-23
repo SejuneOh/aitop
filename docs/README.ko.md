@@ -19,13 +19,13 @@ AI 코딩 에이전트를 위한 `top`. 내 PC 의 Claude Code · Codex CLI · A
   - `y` 는 이어 열기 명령을 복사하고, `--report sessions` 는 어제 세션과 비용을 스탠드업용으로 정리한다.
 - **훅 없음, 밖으로 보내는 것 없음.**
   - Claude Code · Codex CLI · Antigravity CLI 를 나란히, [여러 기록 폴더](#기록-폴더-여러-개)(`~/.claude`, `~/.claude-work` ...)에서 읽는다.
-  - 각 도구가 이미 쓰는 기록만 읽고 설정은 건드리지 않는다. 네트워크·포트·외부 라이브러리 없음.
+  - 각 도구가 이미 쓰는 기록만 읽고 설정은 건드리지 않는다. 네트워크·포트·외부 라이브러리 없음. 예외는 직접 켜는 [`--remote`](#원격-호스트와-wsl-배포판) 하나로, 내 `ssh`·`wsl.exe` 를 부른다.
 
 **목차**
 
 - [빠른 시작](#빠른-시작) · [특징](#특징) · [화면](#화면) · [키](#키)
 - [서브에이전트](#서브에이전트) · [기간 리포트](#기간-리포트) · [세션 리포트](#세션-리포트) · [호출 트리](#호출-트리)
-- [알림](#알림) · [tmux 상태줄](#tmux-상태줄) · [기록 폴더 여러 개](#기록-폴더-여러-개) · [이어 열기](#이어-열기) · [JSON 출력](#json-출력) · [언어](#언어)
+- [알림](#알림) · [tmux 상태줄](#tmux-상태줄) · [기록 폴더 여러 개](#기록-폴더-여러-개) · [이어 열기](#이어-열기) · [원격 호스트와 WSL 배포판](#원격-호스트와-wsl-배포판) · [JSON 출력](#json-출력) · [언어](#언어)
 - [옵션 전체](#옵션-전체) · [설정 파일](#설정-파일) · [디버그 로그](#디버그-로그) · [색약 팔레트](#색약-팔레트) · [로고와 탭 아이콘](#로고와-탭-아이콘) · [폭이 모호한 기호](#폭이-모호한-기호)
 - [읽는 곳](#읽는-곳) · [알려진 한계](#알려진-한계) · [비슷한 도구와 다른 점](#비슷한-도구와-다른-점) · [설치](#설치) · [릴리스](#릴리스)
 
@@ -67,7 +67,7 @@ AI 코딩 에이전트를 위한 `top`. 내 PC 의 Claude Code · Codex CLI · A
 
 ## 특징
 
-- 포트를 열지 않고, 네트워크 요청을 하지 않는다. 각 CLI 가 내 PC 에 남기는 세션 파일만 읽는다.
+- 포트를 열지 않고, 네트워크 요청을 하지 않는다. 각 CLI 가 내 PC 에 남기는 세션 파일만 읽는다. 직접 켠 [`--remote`](#원격-호스트와-wsl-배포판) 만 내 `ssh` 로 네트워크를 쓴다.
 - 세션 파일은 읽기 전용으로만 연다.
 - 디스크에 쓰는 곳은 읽은 위치·합계를 기억하는 `~/.cache/aitop` 뿐이다 (지워도 된다). `--debug` 를 켰을 때만 디버그 로그를 따로 쓴다.
 - 화면에 표시되는 텍스트 중 API 키·토큰처럼 보이는 값은 `••••` 로 가린다.
@@ -611,6 +611,7 @@ Claude Code 세션 하나를 지시 → 도구 호출 → 서브에이전트(그
 | `AITOP_SESSION_ID` | 세션 id |
 | `AITOP_CWD` | 작업 폴더 |
 | `AITOP_WAITING_FOR` | 짧은 대기 사유 (예: `Bash`, 비밀값처럼 보이는 것은 가림) |
+| `AITOP_HOST` | [원격](#원격-호스트와-wsl-배포판) 세션이면 그 이름, 로컬 세션은 빈 값 |
 
 **실행 규칙**
 
@@ -855,6 +856,43 @@ Claude Desktop 의 에이전트 모드(Cowork) 세션도 표에 보인다. TOOL 
 
 </details>
 
+## 원격 호스트와 WSL 배포판
+
+내가 관리하는 다른 머신(VM, 개발 서버, 다른 WSL 배포판)의 세션을 한 화면에서 본다.
+
+> `aitop --remote dev,me@vm2,wsl:Ubuntu-22.04`
+>
+> 설정 파일: `"remotes": ["dev", "wsl:Ubuntu"]`
+
+- 원격에도 aitop 이 설치돼 있어야 한다. 10초마다 모든 원격에 병렬로 `ssh -o BatchMode=yes -o ConnectTimeout=5 -T -- <호스트> aitop --json --no-remote` (WSL 은 `wsl.exe -d <배포판> -- aitop --json --no-remote`) 를 실행한다. 한 번에 20초 제한.
+- 인증·호스트 신뢰는 내 ssh 설정과 agent 에 맡긴다. aitop 은 비밀번호·키를 묻거나 저장하지 않고, 호스트 키 확인을 끄지 않는다.
+- 네트워크를 쓰는 유일한 기능이고, 켰을 때만 동작한다. `--no-remote` 는 설정 파일 목록도 이번 실행만 끈다.
+- 표는 로컬 세션이 맨 위, 그 아래 원격마다 구분 줄 `── dev · 3 세션 · 10초 전 ──` (실패하면 `── dev · 연결 안 됨 (시간 초과) ──`) 과 그 원격의 세션. 정렬·묶기·응답 대기 우선은 구획 안에서 그대로다.
+- 응답 대기 벨·데스크톱 알림도 원격 세션에 울린다. `--on-waiting` 에는 `AITOP_HOST` 가 들어간다.
+- `y` 는 로컬에서 그 원격 세션을 이어 여는 명령을 복사한다: `ssh -t dev 'cd /repo && claude --resume <id>'` (WSL: `wsl.exe -d Ubuntu --cd /repo -- claude --resume <id>`). 원격이 준 명령은 쓰지 않는다.
+- `--once`·`--json` 은 모든 원격을 기다린 뒤 낸다.
+
+<details>
+<summary>세부: 이름 규칙, 오류, 가져오지 않는 것</summary>
+
+**이름 규칙**
+
+- ssh 호스트 별칭이나 `user@host` (영문·숫자·`.`·`_`·`-`), 또는 `wsl:<배포판>`. 16개까지.
+- `-` 로 시작하는 값, 포트(`host:22`), 공백, 셸 메타 문자는 시작할 때 거부한다 (exit 2). 포트·점프 호스트는 `~/.ssh/config` 별칭에 둔다.
+- WSL 배포판은 자동으로 찾지 않는다. 이름을 직접 준다.
+
+**구분 줄의 오류**
+
+- 인증 실패, 접속 실패, 원격에 aitop 없음 (exit 127), 원격 aitop 이 옛 버전 (`--no-remote` 를 모르거나 JSON 에 `schema` 가 없음), 원격 aitop 이 더 새 버전 (`schema` 가 큼), 시간 초과, 잘못된 응답 (깨진 JSON·8MB 초과). 원격의 오류 출력은 화면에 내지 않는다.
+
+**가져오지 않는 것**
+
+- 변경 내용(diff, 상세 패널에는 파일 통계만), 아티팩트 원본 (링크는 된다), 원격 사용량 합계 (원격 비용은 헤더 합계에 더하지 않는다), 요청 전체 (`--show-requests`).
+- `--report`·`--line` 은 로컬만 본다.
+- 원격 출력은 믿지 않는 입력으로 다룬다: 아는 필드만 남기고, 글은 제어 문자를 지우고 비밀값을 가린 뒤 200자로 자르고, 개수는 원격마다 세션 500·파일 200·팀원 50 까지만 받는다.
+
+</details>
+
 ## JSON 출력
 
 > `aitop --json`
@@ -865,6 +903,8 @@ Claude Desktop 의 에이전트 모드(Cowork) 세션도 표에 보인다. TOOL 
 - 스크립트는 언어와 상관없는 상태 이름 `phaseKind` (`think` · `write` · `tool` · `team` · `waiting` · `idle` · `stopped` · `done` · `ended`, 모르면 `null`) 를 보면 된다. 세션·팀원 모두 있다.
 - `stopReason`: `stopped` 일 때 이유를 준다 (`{ "kind": "auth" }` 로그인 필요, `network` 연결 끊김, `api` 그 밖의 API 오류). 아니면 `null`.
 - `--doctor --json` 에는 `version` 과 같은 점검 결과 `tools` 가 들어 있다.
+- 최상위 `schema` 는 JSON 모양 버전(지금 `1`)이다. 있던 필드의 뜻이나 모양이 바뀔 때만 올린다.
+- [`--remote`](#원격-호스트와-wsl-배포판) 를 켜면 세션마다 `host` (로컬은 `null`) 와 `remoteId` (그 원격에서의 id, `id` 는 `<host>:<id>`), 최상위 `remotes` 에 원격마다 `{ name, kind, ok, error, version, schema, at }` 이 들어간다 (끄면 `[]`). `usage` 는 로컬만.
 
 <details>
 <summary>세부: 글 필드, 버전별 변경, 다른 필드 위치</summary>
@@ -945,6 +985,10 @@ Claude Desktop 의 에이전트 모드(Cowork) 세션도 표에 보인다. TOOL 
 
 - 하루 예산 (`AITOP_BUDGET_DAY`, 설정 파일 `budgetDay`). [화면](#화면) 의 하루 예산 참고.
 
+> `aitop --remote dev,wsl:Ubuntu`
+
+- SSH 원격·WSL 배포판의 세션도 함께 본다 (설정 파일 `remotes`, `--no-remote` 로 끔). [원격 호스트와 WSL 배포판](#원격-호스트와-wsl-배포판) 참고.
+
 > `aitop --debug`
 
 - 디버그 로그 (`AITOP_DEBUG=1`, 설정 파일 `debug`). [디버그 로그](#디버그-로그) 참고.
@@ -953,7 +997,7 @@ Claude Desktop 의 에이전트 모드(Cowork) 세션도 표에 보인다. TOOL 
 
 - 설정 값마다 값과 출처(flag/env/file/default), 설정 파일 위치를 보인다. `--json` 과 함께 가능.
 
-> `aitop --no-bell` · `--no-all` · `--no-show-requests` · `--no-notify` · `--no-on-waiting` · `--no-budget-day` · `--no-debug` · `--no-color-blind`
+> `aitop --no-bell` · `--no-all` · `--no-show-requests` · `--no-notify` · `--no-on-waiting` · `--no-budget-day` · `--no-debug` · `--no-color-blind` · `--no-remote`
 
 - 설정 파일에서 켠 값을 이번 실행만 끈다.
 
@@ -1002,6 +1046,7 @@ Claude Desktop 의 에이전트 모드(Cowork) 세션도 표에 보인다. TOOL 
 | `codexHomes` | 같은 모양. 기본 `["~/.codex"]` | `AITOP_CODEX_HOMES` (같은 구분자). 물려받은 `CODEX_HOME` 는 설정 파일 다음 |
 | `agyApp` | true (기본, 저절로 찾음) · false · 경로 배열 | `AITOP_AGY_APP_HOME` (`off` 또는 절대 경로, 여러 개는 Linux·macOS `:`, Windows `;`). [Antigravity 데스크톱 앱](#antigravity-데스크톱-앱) |
 | `cowork` | true (기본, 저절로 찾음) · false · 경로 배열 | `AITOP_COWORK_HOME` (`off` 또는 앱 폴더 절대 경로). [Claude Desktop Cowork](#claude-desktop-cowork) |
+| `remotes` | SSH 호스트 또는 `wsl:<배포판>` 배열, 1~16개 | `--remote <목록>` · `--remote=<목록>` · `--no-remote`. [원격 호스트와 WSL 배포판](#원격-호스트와-wsl-배포판) |
 
 <details>
 <summary>세부: <code>showRequests</code>, <code>onWaiting</code> 권한</summary>

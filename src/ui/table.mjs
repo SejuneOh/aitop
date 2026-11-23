@@ -15,7 +15,7 @@ import { callsYou, isStopped } from '../attention.mjs';
 export function filterSessions(sessions, query) {
   const q = (query ?? '').trim().toLowerCase();
   if (!q) return sessions;
-  return sessions.filter((s) => [s.name, s.project, s.cwd, s.model, s.tool].some((v) => String(v ?? '').toLowerCase().includes(q)));
+  return sessions.filter((s) => [s.name, s.project, s.cwd, s.model, s.tool, s.host].some((v) => String(v ?? '').toLowerCase().includes(q)));
 }
 
 // 표 폭이 WIDE 이상이면 COST 와 CONTEXT 막대 11칸을 그대로 두고, 폭에 따라 MODEL(104~)·PROJECT(110~) 를 더한다.
@@ -138,7 +138,7 @@ export function header(view, W) {
   const bar = u?.loading == null && u?.days7?.length ? [{ t: ' ', bg: B }, ...weekBar(u.days7, view.costMode).map((x) => ({ ...x, bg: B }))] : null;
   const week = (tok, withBar = false) => period(t('hdr.week'), u.week, tok, [], withBar && bar ? bar : []);
   // 장부를 못 읽었으면 화면에 있는 세션(모든 도구)의 누적 토큰이라도 보인다.
-  const fallback = [{ t: `Σ ${fmtTokens(sessions.reduce((a, s) => a + (s.tokens?.total ?? 0), 0))} tok`, fg: PALETTE.muted, bg: B }];
+  const fallback = [{ t: `Σ ${fmtTokens(sessions.reduce((a, s) => a + (s.host ? 0 : (s.tokens?.total ?? 0)), 0))} tok`, fg: PALETTE.muted, bg: B }];
   const clockSeg = { t: clock(view.data.at), fg: PALETTE.muted, bg: B };
   // 비용은 API 정가 환산이다 (구독 요금제의 실제 청구액이 아님). 폭이 되면 그렇다고 적는다.
   const api = { t: `${t(net ? 'hdr.netLong' : 'hdr.apiLong')}  `, fg: net ? PALETTE.brand : PALETTE.info, bg: B };
@@ -531,5 +531,29 @@ export function groupRow(g, W) {
     { t: groupName(g), fg: PALETTE.muted, bold: true },
     { t: `  ${t('group.count', { n: g.count })}`, fg: PALETTE.info },
     ...(g.cost > 0 || g.unknown ? [{ t: ' · ', fg: PALETTE.info }, { t: money(g.cost, g.unknown), fg: PALETTE.muted }] : []),
+  ], W);
+}
+
+// 원격 구분 줄 (#308): '── dev · 3 세션 · 10초 전 ──', 실패하면 '── dev · 연결 안 됨 (시간 초과) ──', 첫 결과 전에는 '── dev · 연결 중… ──'.
+// r 은 remote.mjs 폴러의 상태({ name, ok, error, pending, at }), n 은 이 구획에 보이는 세션 수.
+// 폭이 모자라면 호스트 이름을 먼저 줄이고 상태 글은 남긴다.
+export function remoteAgo(at, now = NOW) {
+  if (!at) return '';
+  const sec = Math.max(0, Math.floor((now - at) / 1000));
+  return sec < 60 ? t('remote.secAgo', { n: sec }) : t('remote.minAgo', { n: Math.floor(sec / 60) });
+}
+
+export function remoteRow(r, n, W) {
+  const h = glyphs().rule;
+  const down = !r.ok && !r.pending;
+  const state = !r.ok && r.pending ? t('remote.pending') : down ? t('remote.down', { why: t(`remote.err.${r.error ?? 'unreachable'}`) }) : `${t('remote.count', { n })}${r.at ? ` · ${remoteAgo(r.at)}` : ''}`;
+  const tail = ` · ${state} `;
+  const room = Math.max(1, W - 3 - width(tail) - 2);
+  const name = truncate(r.name, room);
+  return line([
+    { t: `${h}${h} `, fg: PALETTE.line },
+    { t: name, fg: PALETTE.muted, bold: true },
+    { t: tail, fg: down ? PALETTE.alert : PALETTE.info },
+    { t: h.repeat(Math.max(0, W - 3 - width(name) - width(tail))), fg: PALETTE.line },
   ], W);
 }

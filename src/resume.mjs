@@ -41,9 +41,27 @@ function resumeArgs(s) {
   return null;
 }
 
+// 원격 세션(#308)의 이어 열기: 원격이 준 resumeCmd 는 믿지 않고, 원래 id·도구·폴더로 여기서 다시 만든다.
+// ssh: ssh -t <host> 'cd <폴더> && claude --resume <id>' (원격 셸이 받는 한 줄을 통째로 따옴표로 감싼다).
+// WSL: wsl.exe -d <배포판> --cd <폴더> -- claude --resume <id>. 기본이 아닌 기록 폴더 변수는 원격에서 알 수 없어 붙이지 않는다.
+function remoteResumeCmd(s) {
+  const host = stripControls(s.host);
+  const local = { ...s, host: null, id: s.remoteId, home: null };
+  const wsl = /^wsl:(.+)$/i.exec(host);
+  if (wsl) {
+    const args = resumeArgs(local);
+    if (!args) return null;
+    const cwd = stripControls(s.cwd);
+    return ['wsl.exe', '-d', wsl[1], ...(cwd ? ['--cd', cwd] : []), '--', ...args].map(shellQuote).join(' ');
+  }
+  const inner = resumeCmd(local);
+  return inner && host ? `ssh -t ${shellQuote(host)} ${shellQuote(inner)}` : null;
+}
+
 // 세션을 이어 여는 한 줄 명령. 작업 폴더를 알면 cd 를 앞에 붙인다. 만들 수 없으면 null.
 export function resumeCmd(s) {
   if (!s) return null;
+  if (s.host) return remoteResumeCmd(s);
   const args = resumeArgs(s);
   if (!args) return null;
   // 기본 폴더가 아닌 설정 폴더(#212)의 세션은 그 폴더를 변수로 집어 줘야 도구가 기록을 찾는다.

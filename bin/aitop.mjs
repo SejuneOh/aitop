@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs';
-import { budgetDayOption, configJson, configPath, configText, readConfigFile, resolveConfig } from '../src/config.mjs';
+import { budgetDayOption, configJson, configPath, configText, parseRemote, readConfigFile, remoteOption, resolveConfig } from '../src/config.mjs';
 import { langOption, pickLang, setLang, t } from '../src/i18n.mjs';
 import { notifyOptions } from '../src/notify.mjs';
 import { lineOption } from '../src/line.mjs';
@@ -11,7 +11,7 @@ import { mask, setAmbiguous, stripControl } from '../src/text.mjs';
 const KNOWN = new Set(['-h', '--help', '-v', '--version', '--once', '--all', '--json', '--doctor', '--bell', '--show-requests', '--print-config', '--no-bell', '--no-all', '--no-show-requests', '--debug', '--no-debug', '--color-blind', '--no-color-blind']);
 const THEMES = ['light', 'dark'];
 // 잘못 친 옵션에 제안할 후보. KNOWN 의 긴 옵션과, 다른 모듈이 먼저 꺼내는 값 옵션을 합친다.
-const OPTIONS = [...[...KNOWN].filter((o) => o.startsWith('--')), '--theme', '--lang', '--notify', '--no-notify', '--on-waiting', '--no-on-waiting', '--budget-day', '--no-budget-day', '--line', '--line-width', '--report', '--by', '--days', '--months', '--since', '--plan', '--md', '--show-prompts'];
+const OPTIONS = [...[...KNOWN].filter((o) => o.startsWith('--')), '--theme', '--lang', '--notify', '--no-notify', '--on-waiting', '--no-on-waiting', '--budget-day', '--no-budget-day', '--line', '--line-width', '--report', '--by', '--days', '--months', '--since', '--plan', '--md', '--show-prompts', '--remote', '--no-remote'];
 const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
 // 언어는 다른 옵션의 오류 문구보다 먼저 정한다: --lang > AITOP_LANG > 설정 파일 lang > LC_ALL > LC_MESSAGES > LANG.
@@ -50,10 +50,16 @@ if (report.error) {
   process.stderr.write(`aitop: ${report.error}\n`);
   process.exit(2);
 }
+// --remote <목록>, --remote=<목록>, --no-remote 는 remoteOption 이 꺼낸다 (#308). 잘못된 호스트 이름은 여기서 끝낸다.
+const remoteOpt = remoteOption(report.rest);
+if (remoteOpt.error) {
+  process.stderr.write(`aitop: ${remoteOpt.error}\n`);
+  process.exit(2);
+}
 // 사용자가 준 NO_COLOR. 아래에서 파이프 출력이면 NO_COLOR 를 켜므로 그 전에 읽어 둔다 (tmux 의 #() 는 TTY 가 아니다).
 const userNoColor = Boolean(process.env.NO_COLOR);
 // --theme light, --theme=light 처럼 값을 받는 옵션은 따로 꺼낸다.
-const argv = report.rest;
+const argv = remoteOpt.rest;
 let theme = null;
 const rest = [];
 for (let i = 0; i < argv.length; i++) {
@@ -75,7 +81,7 @@ const flag = (name) => {
 const notifyFlag = cli.notify ? (cli.eventsSet ? cli.events : true) : notifyOptions(cliArgs, { notify: true }).notify ? undefined : false;
 // onWaiting 은 --on-waiting 이 뒤에 오면 그 명령, --no-on-waiting 이 뒤에 오면 null(끔), 둘 다 없으면 정하지 않은 것이다.
 const onWaitingFlag = cli.onWaiting ?? (notifyOptions(cliArgs, { onWaiting: 'x' }).onWaiting === null ? null : undefined);
-const config = resolveConfig({ flags: { theme: THEMES.includes(theme) ? theme : undefined, colorBlind: flag('color-blind'), bell: flag('bell'), showRequests: flag('show-requests'), all: flag('all'), debug: flag('debug'), notify: notifyFlag, onWaiting: onWaitingFlag, budgetDay: budget.value, lang: langOpt.value }, file: cfgFile });
+const config = resolveConfig({ flags: { theme: THEMES.includes(theme) ? theme : undefined, colorBlind: flag('color-blind'), bell: flag('bell'), showRequests: flag('show-requests'), all: flag('all'), debug: flag('debug'), notify: notifyFlag, onWaiting: onWaitingFlag, budgetDay: budget.value, lang: langOpt.value, remotes: remoteOpt.value }, file: cfgFile });
 const opt = Object.fromEntries(Object.entries(config.values).map(([k, v]) => [k, v.value]));
 // 알림은 설정 파일 값(onWaiting 은 권한 검사를 통과한 것만)을 깔고 명령줄 옵션이 덮는다.
 const fromFile = (k) => (config.values[k].source === 'file' ? config.values[k].value : undefined);
@@ -270,7 +276,7 @@ if (args.has('--doctor')) {
   // 진단은 한 번 돌고 끝나므로 Windows 의 첫 PowerShell CIM 호출을 더 오래 기다린다 (procs.mjs WIN_DOCTOR_TIMEOUT_MS).
   const { setFirstScanTimeout, WIN_DOCTOR_TIMEOUT_MS } = await import('../src/procs.mjs');
   setFirstScanTimeout(WIN_DOCTOR_TIMEOUT_MS);
-  const result = { ...checkTools(), config: configJson(config), log: { on: log.on, path: log.path } };
+  const result = { ...checkTools(), config: configJson(config), log: { on: log.on, path: log.path }, remotes: (opt.remotes ?? []).map((n) => parseRemote(n)?.name).filter(Boolean) };
   await printAndExit(args.has('--json') ? JSON.stringify({ version: VERSION, ...result, tools: toolsJson(result.tools) }, null, 2) : doctorText(result, VERSION));
 }
 
@@ -289,6 +295,14 @@ const { applyNotifyToggle, createNotifier, createNotifyToggle, notifyExplicitOff
 const { onKey, fixFocus } = await import('../src/keys.mjs');
 const { admit, createLoading, latchReady } = await import('../src/loading.mjs');
 const { osc52, resumeCmd } = await import('../src/resume.mjs');
+
+// --remote (#308): 원격을 켰을 때만 remote.mjs 를 불러온다 (--report·--line 은 위에서 이미 끝났다).
+// 폴러가 뒤에서 원격마다 aitop --json 을 부르고, refresh 가 그 마지막 결과를 로컬 세션 뒤에 붙인다.
+let poller = null;
+if (opt.remotes?.length) {
+  const { createRemotePoller, remoteTargets } = await import('../src/remote.mjs');
+  poller = createRemotePoller(remoteTargets(opt.remotes));
+}
 
 // 요청 전체 보기는 기본으로 꺼 둔다. 켜지 않으면 상세 패널에도 --json 에도 나가지 않는다.
 const showRequests = opt.showRequests;
@@ -328,6 +342,11 @@ const eventWatch = notifier && eventKinds.length ? createEventWatch({ doneMs: op
 // 알림(벨·--notify·--on-waiting)은 화면에 올리지 않은 갱신에서도 그대로 돈다. 돌려주는 값은 화면 데이터를 바꿨는지.
 function refresh({ throttle = false } = {}) {
   const data = collect({ showEnded: view.showEnded, selectedId: view.selectedId, budgetBytes: once ? Infinity : TICK_BUDGET, budgetMs: once ? Infinity : TICK_MS });
+  if (poller) {
+    const snap = poller.snapshot();
+    data.sessions.push(...snap.sessions);
+    data.remotes = snap.statuses;
+  }
   // 준비 완료를 먼저 정해, 처음 고르는 세션도 이번 갱신의 정렬을 따르게 한다.
   if (!once) latchReady(loading, data.sessionsMore);
   if (!data.sessions.some((s) => s.id === view.selectedId)) {
@@ -388,10 +407,13 @@ function select(id) {
 }
 
 if (once) {
+  // --once·--json 은 모든 원격이 끝날 때(원격마다 최대 20초)까지 기다린 뒤 낸다.
+  if (poller) await poller.pollAll();
   refresh();
   flushCache();
   // --line 이 작업 중 수를 낼 수 있게 요약을 남긴다 (summary.mjs).
-  writeSummary(summarize(view.data.sessions));
+  // 원격 세션(#308)은 --line 이 다루지 않으므로 요약에 넣지 않는다.
+  writeSummary(summarize(view.data.sessions.filter((s) => !s.host)));
   const size = (v) => (Number(v) > 0 ? Math.floor(Number(v)) : 0);
   const W = process.stdout.columns || size(process.env.COLUMNS) || 140;
   const H = process.stdout.rows || size(process.env.LINES) || 40;
@@ -445,12 +467,14 @@ function leaveScreen() {
 }
 
 restore = () => {
+  poller?.stop();
   notifier?.killAll();
   leaveScreen();
   flushCache();
 };
 
 function quit() {
+  poller?.stop();
   notifier?.killAll();
   leaveScreen();
   flushCache();
@@ -469,6 +493,7 @@ process.on('SIGCONT', () => {
 });
 process.on('uncaughtException', (err) => {
   debug('aitop', 'uncaughtException', err);
+  poller?.stop();
   notifier?.killAll();
   leaveScreen();
   try {
@@ -534,6 +559,8 @@ const act = {
   keepVisible: keepSelectionVisible,
   // 아티팩트 원본을 뒤에서 찾은 뒤 다시 그린다 (#307).
   redraw: () => draw(),
+  // 키 줄에 잠깐 안내를 띄운다 (원격 세션의 아티팩트 원본 막힘, #308).
+  notice: (key) => toast(key),
 };
 
 stdin.on('data', (key) => {
@@ -546,7 +573,7 @@ let lastFlush = 0;
 const writeSummaryThrottled = createSummaryWriter();
 function tick() {
   const shown = refresh({ throttle: true });
-  if (loading.ready && view.data) writeSummaryThrottled(view.data.sessions);
+  if (loading.ready && view.data) writeSummaryThrottled(view.data.sessions.filter((s) => !s.host));
   const more = lastMore;
   if (more ? Date.now() - lastFlush > LOADING_FLUSH_MS : Date.now() - lastFlush > 15_000) {
     flushCache();
@@ -557,3 +584,5 @@ function tick() {
 }
 
 setTimeout(tick, 30);
+// 원격은 화면에 들어간 뒤 뒤에서 부른다. 결과는 다음 갱신(1초 안)에 붙는다.
+poller?.start();

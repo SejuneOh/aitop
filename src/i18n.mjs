@@ -68,6 +68,10 @@ const HELP_KO = `{logo} aitop - 터미널에서 Claude Code · Codex · Antigrav
                    1분 안에 aitop 화면·--once·--json 이 남긴 요약이 있을 때만 보인다
   aitop --json     세션 목록과 사용량 합계를 JSON 으로 한 번 출력한다 (--all 과 함께 쓸 수 있다)
                    세션마다 resumeCmd 에 그 세션을 이어 여는 명령을 넣는다 (예: cd /repo && claude --resume <id>, 없으면 null)
+  aitop --remote dev,me@vm2,wsl:Ubuntu-22.04  SSH 원격과 WSL 배포판의 세션을 함께 본다. 각 원격에서 aitop --json --no-remote 를
+                   ssh -o BatchMode=yes(wsl.exe -d <배포판>)로 10초마다 실행한다 (원격에도 aitop 설치 필요, 한 번에 20초 제한).
+                   인증은 내 ssh 설정·agent 에 맡기고 비밀번호는 묻지 않는다. 표에는 로컬 세션 아래 호스트별 '── dev · 3 세션 ──' 줄로 나뉜다.
+                   원격 세션은 변경 내용(diff)·아티팩트 원본을 가져오지 않고, 비용은 헤더 합계에 더하지 않는다 (설정 파일 remotes, --no-remote 로 끔)
   aitop --report daily [--by tool|model|project] [--days N] [--json]  최근 N일(기본·최대 30)의 날짜별 토큰·비용(API 정가 환산)을
                    도구별·모델별·프로젝트별 표로 내고 끝낸다. 최근 날짜가 위, 맨 아래는 합계. 처음 실행은 30일치 기록을 읽느라 오래 걸릴 수 있다
                    프로젝트는 작업 폴더의 마지막 이름이고, 열이 터미널 폭을 넘으면 비용이 작은 쪽을 (그 외) 로 합친다
@@ -86,14 +90,14 @@ const HELP_KO = `{logo} aitop - 터미널에서 Claude Code · Codex · Antigrav
   aitop --notify=waiting,done,context  알릴 종류를 고른다 (--notify 만 주면 설정 파일 notify 배열, 없으면 waiting). done: 3분(설정 파일 doneMinutes, 응답 대기 시간 빼고) 넘게 작업하던 세션이 다음 지시를
                    기다리면 한 번. context: 컨텍스트가 90% 를 넘으면 한 번 (85% 아래로 내려가면 다시)
   aitop --on-waiting <명령>  알릴 일이 생기면 /bin/sh -c (Windows 는 cmd.exe /c) 로 명령을 실행한다 (내 권한으로 실행, 10초 제한). 종류는 --notify 를 따른다 (--no-notify 여도)
-                   세션 정보는 환경변수로만: AITOP_EVENT(waiting|done|context) AITOP_TOOL AITOP_PROJECT AITOP_SESSION_ID AITOP_CWD AITOP_WAITING_FOR
+                   세션 정보는 환경변수로만: AITOP_EVENT(waiting|done|context) AITOP_TOOL AITOP_PROJECT AITOP_SESSION_ID AITOP_CWD AITOP_WAITING_FOR AITOP_HOST(원격 세션만)
   aitop --show-requests  응답 대기 요청 전체를 상세 패널·--json 에 보인다 (AITOP_SHOW_REQUESTS=1). 비밀값 가림은 최선일 뿐이라 명령 속 비밀값이 보일 수 있다
   aitop --budget-day <달러>  하루 예산. 헤더에 오늘 $12.30/$50 처럼 보이고, 오늘 끝 예상 비용(오늘 + 최근 속도 × 자정까지, 늘 API 환산)이
                    80% 를 넘으면 '예상 $45', 100% 를 넘으면 '예상 $60!' 로 알린다 (AITOP_BUDGET_DAY, 설정 파일 budgetDay)
   aitop --theme light|dark  밝은 배경 / 어두운 배경 색 (없으면 COLORFGBG 로 고른다)
   aitop --color-blind  적록 색약용 색. 응답 대기·돈·경고·diff 를 노랑·파랑 계열로 가른다 (AITOP_COLOR_BLIND=1, 설정 파일 colorBlind). --theme 과 함께 쓴다
   aitop --lang ko|en  화면·--help·--doctor·오류 문구의 언어 (AITOP_LANG, 설정 파일 lang, 없으면 LC_ALL·LC_MESSAGES·LANG 이 ko 로 시작할 때 한국어)
-  aitop --no-bell · --no-all · --no-show-requests · --no-notify · --no-on-waiting · --no-budget-day · --no-debug · --no-color-blind  설정 파일에서 켠 값을 이번 실행만 끈다
+  aitop --no-bell · --no-all · --no-show-requests · --no-notify · --no-on-waiting · --no-budget-day · --no-debug · --no-color-blind · --no-remote  설정 파일에서 켠 값을 이번 실행만 끈다
   aitop --debug    디버그 로그를 남긴다 (AITOP_DEBUG=1, 설정 파일 debug). 기록 형식이 바뀌어 값이 빌 때 원인 확인용
                    {logPath} (1MB 넘으면 .1 로 하나만 남김, 오류 이름·파일 이름만 쓰고 비밀값은 가림)
   aitop --print-config  설정 값마다 값과 출처(flag/env/file/default), 설정 파일 위치를 보인다 (--json 과 함께 쓸 수 있다)
@@ -109,6 +113,7 @@ const HELP_KO = `{logo} aitop - 터미널에서 Claude Code · Codex · Antigrav
     claudeDirs, codexHomes: 읽을 Claude 설정 폴더·Codex 홈 목록 (예: ["~/.claude", "~/.claude-work"], 기본 ~/.claude, ~/.codex).
       AITOP_CLAUDE_DIRS, AITOP_CODEX_HOMES 에 경로를 : (Windows 는 ;) 로 이어 주면 설정 파일보다 먼저 쓴다.
       설정 파일 목록이 있으면 물려받은 CLAUDE_CONFIG_DIR, CODEX_HOME 은 쓰지 않는다 (없으면 그 경로를 읽는다)
+    remotes: 모아 볼 원격 목록 (예: ["dev", "wsl:Ubuntu"]). --remote 가 덮는다
     onWaiting 은 파일 소유자가 나이고 그룹·다른 사용자가 쓸 수 없을 때(chmod 600)만 받는다.
     옵션 > 환경 변수 > 설정 파일 순서로 정한다. 잘못된 값은 무시하고 --doctor 에 알린다.
 
@@ -128,6 +133,10 @@ const HELP_EN = `{logo} aitop - watch Claude Code, Codex, Antigravity and Gemini
                    show only when the live screen, --once or --json left a summary in the last minute
   aitop --json     print the session list and usage totals as JSON once (works with --all)
                    Each session has resumeCmd, the command that reopens it (e.g. cd /repo && claude --resume <id>, null if none)
+  aitop --remote dev,me@vm2,wsl:Ubuntu-22.04  also show sessions on SSH hosts and WSL distros. Runs aitop --json --no-remote on each one
+                   with ssh -o BatchMode=yes (wsl.exe -d <distro>) every 10 seconds (aitop must be installed there, 20 second limit per call).
+                   Auth is left to your ssh config and agent; no password prompts. The table splits them below local sessions with '── dev · 3 sessions ──' lines.
+                   Remote diffs and artifact sources are not fetched, and remote cost is not added to the header (config remotes, off with --no-remote)
   aitop --report daily [--by tool|model|project] [--days N] [--json]  print daily tokens and cost (API list price) for the last N days
                    (default and max 30) by tool, model or project, then exit. Newest day first, total at the bottom. The first run reads 30 days of logs and may take a while
                    A project is the last folder name of the working directory. Columns beyond the terminal width are merged into (others)
@@ -148,14 +157,14 @@ const HELP_EN = `{logo} aitop - watch Claude Code, Codex, Antigravity and Gemini
   aitop --notify=waiting,done,context  pick what to notify about (plain --notify: the config notify list, else waiting). done: once when a session that worked for
                    over 3 minutes (config doneMinutes, approval waits not counted) waits for its next instruction. context: once when context passes 90% (again after it drops below 85%)
   aitop --on-waiting <cmd>  run a command with /bin/sh -c (cmd.exe /c on Windows) when there is something to notify (runs as you, 10 second limit). Follows the --notify kinds (even with --no-notify)
-                   Session info is passed only in env vars: AITOP_EVENT(waiting|done|context) AITOP_TOOL AITOP_PROJECT AITOP_SESSION_ID AITOP_CWD AITOP_WAITING_FOR
+                   Session info is passed only in env vars: AITOP_EVENT(waiting|done|context) AITOP_TOOL AITOP_PROJECT AITOP_SESSION_ID AITOP_CWD AITOP_WAITING_FOR AITOP_HOST(remote sessions only)
   aitop --show-requests  show full waiting requests in the detail panel and --json (AITOP_SHOW_REQUESTS=1). Secret masking is best effort, so secrets in commands may show
   aitop --budget-day <usd>  daily budget. The header shows today $12.30/$50, and it warns when the projected end-of-day cost (today + recent rate until midnight, always API cost)
                    passes 80%, and in the warning color with ! past 100% (AITOP_BUDGET_DAY, config budgetDay)
   aitop --theme light|dark  colors for a light or dark background (picked from COLORFGBG if not set)
   aitop --color-blind  red-green color blind palette. Waiting, money, warnings and diffs use yellow and blue (AITOP_COLOR_BLIND=1, config colorBlind). Works with --theme
   aitop --lang ko|en  language for the screen, --help, --doctor and error messages (AITOP_LANG, config lang, else Korean when LC_ALL, LC_MESSAGES or LANG starts with ko)
-  aitop --no-bell · --no-all · --no-show-requests · --no-notify · --no-on-waiting · --no-budget-day · --no-debug · --no-color-blind  turn off a config file setting for this run
+  aitop --no-bell · --no-all · --no-show-requests · --no-notify · --no-on-waiting · --no-budget-day · --no-debug · --no-color-blind · --no-remote  turn off a config file setting for this run
   aitop --debug    write a debug log (AITOP_DEBUG=1, config debug). Useful when a log format changes and values go blank
                    {logPath} (keeps one .1 file past 1MB, writes only error and file names, masks secrets)
   aitop --print-config  show each setting with its value, source (flag/env/file/default) and the config file path (works with --json)
@@ -171,6 +180,7 @@ const HELP_EN = `{logo} aitop - watch Claude Code, Codex, Antigravity and Gemini
     claudeDirs, codexHomes: Claude config folders and Codex homes to read (e.g. ["~/.claude", "~/.claude-work"], default ~/.claude, ~/.codex).
       AITOP_CLAUDE_DIRS and AITOP_CODEX_HOMES take paths joined with : (; on Windows) and win over the config file.
       With a config list, an inherited CLAUDE_CONFIG_DIR or CODEX_HOME is not used (without one, that path is read)
+    remotes: remote hosts to show (e.g. ["dev", "wsl:Ubuntu"]). --remote overrides it
     onWaiting is accepted only when you own the file and no group or other user can write it (chmod 600).
     Order: option > env var > config file. Bad values are ignored and reported by --doctor.
 
@@ -267,6 +277,9 @@ export const STRINGS = {
     'opt.daysDaily': '--days 는 --report daily 와 함께 쓴다 (monthly 는 --months)',
     'opt.monthsMonthly': '--months 는 --report monthly 와 함께 쓴다 (daily 는 --days)',
     'opt.reportOnly': '--by, --days, --months 는 --report 와 함께 쓴다',
+    'opt.remoteMissing': '--remote 값이 없습니다 (쉼표로 이은 SSH 호스트 또는 wsl:<배포판>)',
+    'opt.remoteBad': '--remote 값 {value} 이 잘못되었습니다 (SSH 호스트 별칭·user@host 또는 wsl:<배포판>. - 로 시작하는 값·포트(:22)·공백은 받지 않는다. 포트는 ~/.ssh/config 별칭으로 준다)',
+    'opt.remoteMany': '--remote 는 {n}개까지 준다',
 
     // 기간 리포트 (--report daily). 도구·모델 이름은 번역하지 않는다.
     'report.title': '날짜별 사용량 · 최근 {n}일 ({from} ~ {to}) · {by} · API 정가 환산',
@@ -348,6 +361,7 @@ export const STRINGS = {
     'cfg.paths': '절대 경로(또는 ~/...) 문자열 배열, 1~16개',
     'cfg.agyApp': 'true, false 또는 절대 경로(또는 ~/...) 배열',
     'cfg.cowork': 'true, false 또는 Claude 앱 폴더 절대 경로(또는 ~/...) 배열',
+    'cfg.remotes': 'SSH 호스트(별칭·user@host) 또는 "wsl:<배포판>" 문자열 배열, 1~16개',
     'cfg.agyAppEnv': 'off 또는 절대 경로(또는 ~/...) 목록',
     'cfg.masked': '설정 파일의 {key} 는 {name} 이 있어 무시합니다',
     'cfg.file': '설정 파일: {path} ({state})',
@@ -400,6 +414,7 @@ export const STRINGS = {
     'doctor.debugOn': '켬',
     'doctor.debugOff': '꺼짐',
     'doctor.debugTail': ' · --debug 로 켬',
+    'doctor.remotes': '{mark} 원격   {list} (점검에서는 접속하지 않는다)',
 
     // 상태 문구 (phaseText 가 phase.msg ?? phase.kind 로 고른다). --json 의 phase 는 늘 이 한국어 표로 만든다.
     'phase.ended': '종료',
@@ -471,6 +486,19 @@ export const STRINGS = {
     'member.sdk': '-p',
     'session.auto': '자동',
     'group.count': '{n}개',
+    // 원격 호스트 구분 줄 (#308): '── dev · 3 세션 · 10초 전 ──', 실패하면 '── dev · 연결 안 됨 (시간 초과) ──'.
+    'remote.count': '{n} 세션',
+    'remote.secAgo': '{n}초 전',
+    'remote.minAgo': '{n}분 전',
+    'remote.pending': '연결 중…',
+    'remote.down': '연결 안 됨 ({why})',
+    'remote.err.auth': '인증 실패',
+    'remote.err.unreachable': '접속 실패',
+    'remote.err.notFound': '원격에 aitop 없음',
+    'remote.err.old': '원격 aitop 이 옛 버전',
+    'remote.err.newer': '원격 aitop 이 더 새 버전',
+    'remote.err.timeout': '시간 초과',
+    'remote.err.bad': '잘못된 응답',
     'group.waiting': '응답 대기',
     'group.pinned': '고정',
     'group.noFolder': '(폴더 없음)',
@@ -512,6 +540,7 @@ export const STRINGS = {
     'foot.costMode': '비용 기준',
     'foot.copied': '이어 여는 명령을 클립보드로 보냄 (OSC 52)',
     'foot.copyNone': '이 세션은 이어 여는 명령이 없다',
+    'foot.remoteNoSource': '원격 세션은 아티팩트 원본을 열 수 없다 (링크만)',
     'foot.notify': '알림:{v}',
     'foot.notifyHint': '응답 대기 알림 켜기: a',
     'foot.notifyOn': '응답 대기 알림 켬 (이번 실행만)',
@@ -635,6 +664,8 @@ export const STRINGS = {
     'detail.hidden': '비밀값이 있을 수 있는 파일이라 변경 내용을 숨겼습니다',
     'detail.deleted': '이 파일을 삭제했습니다',
     'detail.noHunks': '보관된 변경 내용이 없습니다',
+    'detail.remoteDiff': '원격 세션은 변경 내용 없음 (파일 통계만 받는다)',
+    'detail.host': '호스트',
     // 소스(claude·codex)가 메인 세션의 변경에 붙이는 이름. 화면에서만 바꾼다.
     'detail.main': '메인',
     'detail.cut': '… {n}줄 생략',
@@ -798,6 +829,9 @@ export const STRINGS = {
     'opt.daysDaily': '--days only works with --report daily (use --months for monthly)',
     'opt.monthsMonthly': '--months only works with --report monthly (use --days for daily)',
     'opt.reportOnly': '--by, --days and --months only work with --report',
+    'opt.remoteMissing': '--remote needs a value (SSH hosts or wsl:<distro>, joined with commas)',
+    'opt.remoteBad': 'bad --remote value {value} (an SSH host alias, user@host or wsl:<distro>. Values starting with -, ports (:22) and spaces are not accepted. Set a port with an alias in ~/.ssh/config)',
+    'opt.remoteMany': '--remote takes at most {n} hosts',
 
     'report.title': 'Daily usage, last {n} days ({from} to {to}), {by}, API list price',
     'report.by.tool': 'by tool',
@@ -877,6 +911,7 @@ export const STRINGS = {
     'cfg.paths': 'a list of 1 to 16 absolute paths (or ~/...)',
     'cfg.agyApp': 'true, false, or a list of absolute paths (or ~/...)',
     'cfg.cowork': 'true, false, or a list of absolute Claude app folder paths (or ~/...)',
+    'cfg.remotes': 'a list of 1 to 16 SSH hosts (alias or user@host) or "wsl:<distro>" strings',
     'cfg.agyAppEnv': 'off or a list of absolute paths (or ~/...)',
     'cfg.masked': 'ignoring {key} in the config file because {name} is set',
     'cfg.file': 'Config file: {path} ({state})',
@@ -929,6 +964,7 @@ export const STRINGS = {
     'doctor.debugOn': 'on',
     'doctor.debugOff': 'off',
     'doctor.debugTail': ' · turn on with --debug',
+    'doctor.remotes': '{mark} remote   {list} (not contacted by the check)',
 
     'phase.ended': 'Ended',
     'phase.done': 'Done',
@@ -993,6 +1029,18 @@ export const STRINGS = {
     'member.sdk': '-p',
     'session.auto': 'auto',
     'group.count': '{n}',
+    'remote.count': '{n} sessions',
+    'remote.secAgo': '{n}s ago',
+    'remote.minAgo': '{n}m ago',
+    'remote.pending': 'connecting…',
+    'remote.down': 'not connected ({why})',
+    'remote.err.auth': 'auth failed',
+    'remote.err.unreachable': 'unreachable',
+    'remote.err.notFound': 'no aitop on remote',
+    'remote.err.old': 'remote aitop too old',
+    'remote.err.newer': 'remote aitop newer',
+    'remote.err.timeout': 'timed out',
+    'remote.err.bad': 'bad response',
     'group.waiting': 'Waiting',
     'group.pinned': 'Pinned',
     'group.noFolder': '(no folder)',
@@ -1034,6 +1082,7 @@ export const STRINGS = {
     'foot.costMode': 'cost',
     'foot.copied': 'resume command sent to clipboard (OSC 52)',
     'foot.copyNone': 'no resume command for this session',
+    'foot.remoteNoSource': 'remote sessions cannot open artifact sources (link only)',
     'foot.notify': 'alerts:{v}',
     'foot.notifyHint': 'turn on waiting alerts: a',
     'foot.notifyOn': 'waiting alerts on (this run only)',
@@ -1155,6 +1204,8 @@ export const STRINGS = {
     'detail.hidden': 'Changes hidden because this file may hold secrets',
     'detail.deleted': 'This file was deleted',
     'detail.noHunks': 'No saved changes',
+    'detail.remoteDiff': 'No changes for remote sessions (file stats only)',
+    'detail.host': 'Host',
     'detail.main': 'main',
     'detail.cut': { one: '… {n} line cut', other: '… {n} lines cut' },
     'detail.dropped': { one: '… {n} older change cut (over the limit)', other: '… {n} older changes cut (over the limit)' },

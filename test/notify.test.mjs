@@ -57,7 +57,7 @@ test('--notify, --on-waiting <cmd>, --on-waiting=<cmd> 를 한 곳에서 해석�
 
 test('환경변수에 세션 정보를 넣고, 대기 사유는 짧게·가려서 넣는다', () => {
   const env = waitingEnv(s('sid-1', 'waiting', { phase: { kind: 'waiting', args: { what: 'Bash token=abcdefghijkl\nnext' } } }));
-  assert.deepEqual(Object.keys(env).sort(), ['AITOP_CWD', 'AITOP_PROJECT', 'AITOP_SESSION_ID', 'AITOP_TOOL', 'AITOP_WAITING_FOR']);
+  assert.deepEqual(Object.keys(env).sort(), ['AITOP_CWD', 'AITOP_HOST', 'AITOP_PROJECT', 'AITOP_SESSION_ID', 'AITOP_TOOL', 'AITOP_WAITING_FOR']);
   assert.equal(env.AITOP_TOOL, 'claude');
   assert.equal(env.AITOP_PROJECT, 'demo');
   assert.equal(env.AITOP_SESSION_ID, 'sid-1');

@@ -25,16 +25,27 @@ const usageOf = (u) => (u ? { ...u, ...('cost' in u ? { cost: money(u.cost) } : 
 // --json 의 phase 문구. 한국어 표로 만든다 (영어 화면 1/3 의 계약).
 const koPhase = (p) => (p?.kind ? phaseText(p, { lang: 'ko' }) : null);
 
+// --json 모양의 버전 (#308). 다른 aitop 이 --remote 로 이 출력을 읽을 때 모양이 맞는지 본다.
+// 필드를 더하기만 하면 그대로 두고, 있던 필드의 뜻이나 모양을 바꿀 때 올린다.
+export const SCHEMA = 1;
+const remoteOf = (r) => ({ name: r.name, kind: r.kind, ok: Boolean(r.ok), error: r.error ?? null, version: r.version ?? null, schema: r.schema ?? null, at: iso(r.at) });
+
 export function toJson(data, version = null, opts = {}) {
   const b = data.usage ? projectBudget(data.usage, opts.budgetDay, { now: data.at ?? Date.now() }) : null;
   return {
     version,
+    schema: SCHEMA,
     at: iso(data.at),
     tools: toolsJson(data.tools?.tools),
     usage: data.usage ? { today: usageOf(data.usage.today), last7days: { ...usageOf(data.usage.week), ...dailyOf(data.usage.days7) }, lastHour: lastHourOf(data.usage.lastHour), complete: data.usage.loading == null, ...(b ? { budget: { day: b.day, projected: money(b.projected), unknown: b.unknown, level: b.level } } : {}) } : null,
+    // --remote 로 모은 원격마다 마지막 결과 (#308). 원격을 켜지 않으면 빈 배열. at 은 마지막으로 성공한 시각.
+    remotes: (data.remotes ?? []).map(remoteOf),
     sessions: data.sessions.map((s) => ({
       tool: s.tool,
+      // 원격 세션의 id 는 '<host>:<원래 id>' 이고 원래 id 는 remoteId 에 있다. 로컬 세션은 host·remoteId 가 null.
       id: s.id,
+      host: s.host ?? null,
+      remoteId: s.host ? (s.remoteId ?? null) : null,
       name: s.name ?? null,
       project: s.project ?? null,
       cwd: s.cwd ?? null,

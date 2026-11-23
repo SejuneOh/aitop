@@ -47,6 +47,51 @@ export function budgetDayOption(argv) {
   return { value, rest, error };
 }
 
+// 원격(#308): SSH 호스트(별칭, user@host) 또는 wsl:<배포판>. 원격 실행은 remote.mjs 가 하고, 여기는 이름만 확인한다
+// (remote.mjs 는 원격을 켤 때만 불러오므로 확인 규칙은 늘 불러오는 이 모듈에 둔다).
+// ssh 인자로 들어가므로 - 로 시작하는 값(-oProxyCommand=…), 포트(:22), 공백·셸 메타 문자는 받지 않는다. 포트는 ~/.ssh/config 별칭으로 준다.
+export const REMOTE_MAX = 16;
+const SSH_HOST = /^([A-Za-z0-9][A-Za-z0-9._-]{0,63}@)?[A-Za-z0-9][A-Za-z0-9._-]{0,252}$/;
+const WSL_DISTRO = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+// 'dev' → { name: 'dev', kind: 'ssh', target: 'dev' }, 'wsl:Ubuntu' → { name: 'wsl:Ubuntu', kind: 'wsl', target: 'Ubuntu' }. 잘못되면 null.
+export function parseRemote(v) {
+  if (typeof v !== 'string') return null;
+  const w = /^wsl:(.*)$/i.exec(v);
+  if (w) return WSL_DISTRO.test(w[1]) ? { name: `wsl:${w[1]}`, kind: 'wsl', target: w[1] } : null;
+  return SSH_HOST.test(v) ? { name: v, kind: 'ssh', target: v } : null;
+}
+const remoteList = (v) => Array.isArray(v) && v.length > 0 && v.length <= REMOTE_MAX && v.every((x) => parseRemote(x) != null);
+
+// argv 에서 --remote <목록>, --remote=<목록>, --no-remote 를 꺼낸다. 목록은 쉼표로 잇는다. 뒤에 준 쪽을 따른다.
+// value: 이름 배열, null(--no-remote, 설정 파일 remotes 도 끔), undefined(주지 않음).
+export function remoteOption(argv) {
+  let value;
+  let error = null;
+  const rest = [];
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--no-remote') {
+      value = null;
+      continue;
+    }
+    const m = /^--remote(?:=(.*))?$/.exec(a);
+    if (!m) {
+      rest.push(a);
+      continue;
+    }
+    const next = argv[i + 1];
+    const raw = m[1] ?? (next == null || next.startsWith('-') ? '' : argv[++i]);
+    const list = raw.split(',').map((x) => x.trim()).filter(Boolean);
+    const bad = list.find((x) => parseRemote(x) == null);
+    if (!list.length) error ??= t('opt.remoteMissing');
+    else if (bad != null) error ??= t('opt.remoteBad', { value: JSON.stringify(stripControl(bad).slice(0, 80)) });
+    else if (list.length > REMOTE_MAX) error ??= t('opt.remoteMany', { n: REMOTE_MAX });
+    // 같은 이름을 두 번 주면 한 번만 부른다.
+    else value = [...new Set(list.map((x) => parseRemote(x).name))];
+  }
+  return { value, rest, error };
+}
+
 const BOOL = ['true', 'false'];
 // 기록 폴더 목록: 절대 경로(또는 ~ 로 시작) 문자열 배열, 1~16개.
 const pathList = (v) => Array.isArray(v) && v.length > 0 && v.length <= 16 && v.every(pathLike);
@@ -88,6 +133,8 @@ export const KEYS = {
   // Claude Desktop Cowork(에이전트 모드) 세션을 담은 앱 폴더 (#304, cowork.mjs findCoworkRoots). 모양은 agyApp 과 같다.
   // AITOP_COWORK_HOME(경로 또는 off) > 설정 파일 > 기본(true, 저절로 찾음).
   cowork: { ok: (v) => bool(v) || pathList(v), expect: 'cfg.cowork', def: true, env: ['AITOP_COWORK_HOME', coworkEnv], envProblem: true, envExpect: 'cfg.agyAppEnv' },
+  // 모아 볼 원격 (#308): SSH 호스트 또는 wsl:<배포판> 배열, 1~16개. --remote 가 덮고 --no-remote 는 끈다 (null).
+  remotes: { ok: remoteList, expect: 'cfg.remotes', def: null },
 };
 
 // Windows 는 XDG_CONFIG_HOME 이 없으면 %APPDATA%\aitop\config.json.
