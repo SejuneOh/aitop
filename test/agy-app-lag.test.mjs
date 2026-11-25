@@ -148,3 +148,43 @@ test(`--doctor 의 agy 점검: 앱 기록 ${N}개여도 앱 폴더를 기록마�
   rmSync(wal);
   assert.equal(checkTools({ home: join(base, 'h-none') }).tools.agy.lastAt, Date.parse(fx.ts(now - 3600_000)));
 });
+
+test(`장부: 앱 폴더 대화 목록을 새로 만들 때 기록 ${N}개를 다 stat 하지 않고, 새 기록·다시 쓰인 기록·7일 밖으로 나간 기록은 맞게 판정한다`, { skip: noSqlite }, () => {
+  const conv = (id) => join(app, 'conversations', `${id}.db`);
+  const old = Date.now() / 1000 - 8 * 86400;
+  const olds = Array.from({ length: 50 }, (_, i) => `old-${i}`);
+  for (const id of olds) {
+    fx.makeConversation(app, id, [{ input: 1, output: 1 }]);
+    utimesSync(conv(id), old, old);
+  }
+  ledgerTest.reset();
+  assert.equal(collectAgyLedger({ budget: createBudget() }).paths.length, N, '7일 밖의 기록은 빠진다');
+  // 7일 밖으로 나가는 기록: TTL 확인에서 수정 시각을 새로 본다 (목록은 아직 TTL 안).
+  utimesSync(conv(ids[10]), old, old);
+  ledgerTest.age(APP_TTL_MS);
+  collectAgyLedger({ budget: createBudget() });
+  // 새 기록 3개, 다시 쓰이기 시작한 옛 기록 하나(-wal 이 있다).
+  const news = ['new-0', 'new-1', 'new-2'];
+  for (const id of news) fx.makeConversation(app, id, [{ input: 1, output: 1 }]);
+  writeFileSync(`${conv(olds[0])}-wal`, '');
+  const t = Date.now() / 1000;
+  utimesSync(conv(olds[0]), t, t);
+
+  ledgerTest.age(30_000);
+  const { value: out, calls: c } = count(() => collectAgyLedger({ budget: tight() }));
+  const stats = c.filter((x) => x.name === 'statSync' && x.path.endsWith('.db'));
+  // 새 기록·다시 쓰인 기록은 목록 stat 과 첫 읽기 stat, 그 밖에 TTL 확인 4개와 옛 기록 돌려 보기 4개, 여유 2.
+  assert.ok(stats.length <= (news.length + 1) * 2 + 4 + 4 + 2, `앱 폴더 .db stat ${stats.length}회`);
+  for (const id of news) assert.ok(out.paths.includes(conv(id)), `새 기록 ${id}`);
+  assert.ok(out.paths.includes(conv(olds[0])), '-wal 이 있는 옛 기록은 바로 다시 본다');
+  assert.ok(!out.paths.includes(conv(ids[10])), '마지막으로 본 수정 시각이 7일 밖이면 뺀다');
+  assert.ok(!out.paths.includes(conv(olds[1])), '조용한 옛 기록은 그대로 빠진다');
+  assert.equal(out.paths.length, N - 1 + news.length + 1);
+
+  // 한도 없는 목록은 예전처럼 모두 stat 해 같은 결과다.
+  ledgerTest.age(30_000);
+  const { value: exact, calls: all } = count(() => collectAgyLedger({ budget: createBudget() }));
+  assert.ok(all.filter((x) => x.name === 'statSync' && x.path.endsWith('.db')).length >= N + 50);
+  assert.deepEqual([...exact.paths].sort(), [...out.paths].sort());
+  rmSync(`${conv(olds[0])}-wal`);
+});

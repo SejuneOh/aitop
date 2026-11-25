@@ -74,6 +74,8 @@ export class AgyBook {
     this.seenSig = sig;
     // 이번에 본 크기 (없으면 0). 갱신마다 장부 전체 크기와 '집계 중' 진행률에 쓴다.
     this.lastSize = s?.st.size ?? 0;
+    // 이번에 본 수정 시각. 앱 폴더 목록을 새로 만들 때 이 값으로 7일 판정을 해서 다시 stat 하지 않는다 (recentFiles).
+    if (s) this.mtime = s.st.mtimeMs;
     if (sig === null || sig === this.sig || sig === this.failSig) return;
     if (outOf(budget)) {
       budget.exhausted = true;
@@ -155,12 +157,33 @@ const inApp = (p) => apps.has(dirname(p));
 
 // 최근 days 일(평소 7일, 리포트는 더 길게) 안에 바뀐 대화 기록. CLI 폴더와 앱 폴더를 모두 본다 (#303).
 // 장부·캐시는 파일 경로로 나뉘어 폴더끼리 섞이지 않는다. 같은 대화 id 가 두 폴더에 있으면 앞 폴더 것만 센다.
-function recentFiles(days = DAYS, roots = agyRoots()) {
+//
+// 앱 폴더(WSL 에서는 /mnt/c, stat 이 느리다)는 목록을 새로 만들 때 기록마다 stat 하지 않는다 (#326).
+// - 처음 보는 이름과, -wal 이 있는(쓰는 중인) 기록만 바로 stat 한다.
+// - 장부에 있는 기록은 장부 확인(sigStat)에서 마지막으로 본 수정 시각으로 7일 판정을 한다. 그 사이 바뀌었으면 TTL 확인
+//   (recheckApps)이 수정 시각을 새로 고치므로, 마지막으로 안 시각이 7일 밖이면 밖으로 나간 것으로 보아도 된다.
+// - 7일 밖이라 장부에 없는 기록은 지난번 목록에서 본 수정 시각을 쓰고, 갱신 시간 한도 안에서 가장 오래 보지 않은 것부터
+//   돌아가며 다시 stat 한다 (적어도 MIN_APP_CHECKS 개). 다시 쓰이기 시작하면 대개 -wal 이 생겨 바로 잡힌다.
+// 한도가 없으면(--once·--json·리포트처럼 days 가 긴 때) 예전처럼 모두 stat 해 정확히 판정한다. CLI 폴더는 늘 모두 stat 한다.
+function recentFiles(days = DAYS, roots = agyRoots(), budget) {
   if (listed.days === days && Date.now() - listed.at < LIST_TTL_MS) return listed.files;
   apps = new Set(roots.filter((r) => r.source === 'app').map((r) => join(r.dir, 'conversations')));
   const cutoff = Date.now() - days * 86400_000;
+  const exact = (budget?.deadline ?? Infinity) === Infinity;
   const files = [];
   const seen = new Set();
+  const known = new Map();
+  // 지난 값으로 판정해 두고 시간이 남으면 다시 stat 할 앱 기록.
+  const later = [];
+  const look = (p) => {
+    try {
+      const m = statSync(p).mtimeMs;
+      known.set(p, { mtime: m, at: Date.now() });
+      return m;
+    } catch {
+      return null;
+    }
+  };
   for (const r of roots) {
     const dir = join(r.dir, 'conversations');
     if (!existsSync(dir)) continue;
@@ -170,18 +193,45 @@ function recentFiles(days = DAYS, roots = agyRoots()) {
     } catch (e) {
       debugIo('ledger', 'agy conversations read failed', e);
     }
+    const app = r.source === 'app';
+    const wal = app ? new Set(names.filter((f) => f.endsWith('.db-wal'))) : null;
     for (const f of names) {
       if (!f.endsWith('.db') || seen.has(f)) continue;
       seen.add(f);
       const p = join(dir, f);
-      try {
-        if (statSync(p).mtimeMs >= cutoff) files.push(p);
-      } catch {}
+      const book = app ? books.get(p)?.mtime : undefined;
+      const prev = app ? appMtimes.get(p) : undefined;
+      let m;
+      if (!app || exact || wal.has(`${f}-wal`) || (book == null && prev == null)) m = look(p);
+      else if (book != null) {
+        m = book;
+        known.set(p, { mtime: book, at: Date.now() });
+      } else {
+        m = prev.mtime;
+        known.set(p, prev);
+        later.push(p);
+      }
+      if (m != null && m >= cutoff) files.push(p);
     }
   }
+  if (later.length) {
+    later.sort((x, y) => known.get(x).at - known.get(y).at || (x < y ? -1 : x > y ? 1 : 0));
+    const deadline = budget?.deadline ?? Infinity;
+    const out = new Set(files);
+    for (let i = 0; i < later.length; i++) {
+      if (i >= MIN_APP_CHECKS && Date.now() >= deadline) break;
+      const m = look(later[i]);
+      if (m == null) known.delete(later[i]);
+      if (m != null && m >= cutoff && !out.has(later[i])) files.push(later[i]);
+    }
+  }
+  appMtimes = new Map([...known].filter(([p]) => inApp(p)));
   listed = { at: Date.now(), files, days };
   return files;
 }
+
+// 앱 폴더 기록마다 지난번 목록에서 쓴 수정 시각과 그것을 stat 으로 본 때 ({ mtime, at }).
+let appMtimes = new Map();
 
 const books = new Map();
 
@@ -217,7 +267,7 @@ function recheckApps(files, budget) {
 export function collectAgyLedger({ budget, days = DAYS } = {}) {
   const out = { days: [], slots: [], paths: [], stale: [], pending: 0, size: 0 };
   if (!loadSqlite() || !agyRoots().some((r) => existsSync(join(r.dir, 'conversations')))) return out;
-  const files = recentFiles(days);
+  const files = recentFiles(days, agyRoots(), budget);
   const keep = new Set(files);
   for (const p of books.keys()) if (!keep.has(p)) books.delete(p);
   for (const p of files) if (!books.has(p)) books.set(p, new AgyBook(p));
@@ -249,7 +299,7 @@ export function collectAgyLedger({ budget, days = DAYS } = {}) {
 // 테스트용: 기록을 연 횟수.
 let opens = 0;
 export const _test = {
-  reset: () => ((listed = { at: 0, files: [], days: 0 }), books.clear()),
+  reset: () => ((listed = { at: 0, files: [], days: 0 }), (appMtimes = new Map()), books.clear()),
   opens: () => opens,
   // 앱 폴더 기록의 TTL 이 지난 것을 흉내 낸다.
   age: (ms) => {
