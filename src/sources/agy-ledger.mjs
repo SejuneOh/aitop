@@ -17,6 +17,8 @@ const LIST_TTL_MS = 30_000;
 // 한 번 갱신에서 TTL 이 끝난 앱 기록을 시간 한도와 상관없이 다시 확인하는 최소 개수 (#326).
 // 다른 장부가 시간을 다 써도 확인이 조금씩은 앞으로 가게 한다.
 const MIN_APP_CHECKS = 4;
+// 그 가운데 쓰는 중이라 앞당겨 보는 기록의 최대 수. 나머지 몫은 오래 확인하지 않은 순서라 -wal 이 많아도 굶는 기록이 없다.
+const BUSY_FIRST = 2;
 
 const outOf = (budget) => budget.left <= 0 || (budget.read > 0 && Date.now() >= (budget.deadline ?? Infinity));
 // 하루 합계 안의 모델별 몫도 따로 복사해, 읽다가 버릴 때 원래 장부가 바뀌지 않게 한다.
@@ -257,17 +259,20 @@ function settle(b, p, prev) {
 }
 
 // TTL 이 끝난 앱 기록을 다시 확인한다 (#326). 확인(stat·헤더 읽기)도 /mnt/c 에서는 느려서 갱신 한도의 시간(deadline) 안에서만 한다.
-// 쓰는 중인(-wal 이 있는) 기록을 먼저, 그다음 가장 오래 확인하지 않은 것부터 보고 (오늘 합계·5분 칸에 바로 잡히게), 한도를 넘으면 멈춘다 (다른 장부가 시간을 다 썼어도 적어도 MIN_APP_CHECKS 개는 본다).
+// 쓰는 중인(-wal 이 있는) 기록 가운데 오래 확인하지 않은 BUSY_FIRST 개를 먼저 보고(오늘 합계·5분 칸에 바로 잡히게), 그다음은
+// 쓰는 중인지와 상관없이 가장 오래 확인하지 않은 것부터 본다. 한도를 넘으면 멈춘다 (다른 장부가 시간을 다 썼어도 적어도 MIN_APP_CHECKS 개는 본다).
 // 한도가 없으면(--once·--json·리포트) 모두 본다. 못 본 기록은 checkedAt 이 그대로라 다음 갱신에 앞쪽에 선다 (계속 밀리는 기록이 없다).
 // 확인한 기록의 경로를 돌려준다.
 function recheckApps(files, budget) {
   const now = Date.now();
   const due = files.filter((p) => inApp(p) && books.get(p).checkedAt != null && now - books.get(p).checkedAt >= APP_TTL_MS);
-  const busy = new Set(due.filter(writing));
-  due.sort((x, y) => Number(busy.has(y)) - Number(busy.has(x)) || books.get(x).checkedAt - books.get(y).checkedAt || (x < y ? -1 : x > y ? 1 : 0));
+  due.sort((x, y) => books.get(x).checkedAt - books.get(y).checkedAt || (x < y ? -1 : x > y ? 1 : 0));
+  const first = due.filter(writing).slice(0, BUSY_FIRST);
+  const picked = new Set(first);
+  const order = [...first, ...due.filter((p) => !picked.has(p))];
   const deadline = budget?.deadline ?? Infinity;
   const done = new Set();
-  for (const p of due) {
+  for (const p of order) {
     if (done.size >= MIN_APP_CHECKS && Date.now() >= deadline) break;
     const b = books.get(p);
     const prev = b.checkedAt;

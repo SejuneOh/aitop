@@ -55,8 +55,13 @@ after(() => rmSync(base, { recursive: true, force: true }));
 const noSqlite = !loadSqlite() && 'agy 기록을 immutable 로 열 수 없는 Node (22.15 미만)';
 const now = Date.now();
 const ids = Array.from({ length: N }, (_, i) => `lag-${String(i).padStart(4, '0')}`);
+// 가짜 기록에는 단계(호출 시각)가 없어 장부는 호출 시각을 읽을 때의 파일 수정 시각으로 어림한다.
+// 그 시각이 5분 칸 경계를 넘나들면 나눠 읽은 장부와 한 번에 읽은 장부가 다른 칸에 넣으므로, 수정 시각을 한 5분 칸 안에 고정한다.
+const fixedAt = (Math.floor(now / 300_000) * 300_000 - 600_000 + 60_000) / 1000;
+const pin = (id) => utimesSync(join(app, 'conversations', `${id}.db`), fixedAt, fixedAt);
 if (loadSqlite()) {
   ids.forEach((id, i) => fx.makeConversation(app, id, [{ input: i + 1, output: 1 }]));
+  ids.forEach(pin);
   fx.makeSummaries(cli, []);
   fx.makeSummaries(app, ids.map((id, i) => ({ id, title: id, modified: fx.ts(now - 3600_000 - i * 1000), ws: ['file:///w/app'] })));
 }
@@ -110,6 +115,9 @@ test('장부: 한도 있는 갱신을 이어 가면 바뀐 기록도 결국 세�
   collectAgyLedger({ budget: createBudget() });
   fx.makeConversation(app, ids[123], [{ input: 1000, output: 0 }]);
   fx.makeConversation(app, ids[7], [{ input: 2000, output: 0 }]);
+  // 다시 쓴 기록도 수정 시각을 같은 칸에 둔다 (서명은 크기·변경 카운터가 바뀌어 달라진다).
+  pin(ids[123]);
+  pin(ids[7]);
   ledgerTest.age(APP_TTL_MS);
   // 바뀐 두 기록을 첫 갱신에서 함께 확인하게 맨 앞에 세운다 (기계 속도에 따라 같은 갱신에 들 수도, 아닐 수도 있어서 정해 둔다).
   const first = Math.min(...[...ids.map((id) => ledgerTest.book(join(app, 'conversations', `${id}.db`)).checkedAt)]) - 1;
@@ -129,9 +137,7 @@ test('장부: 한도 있는 갱신을 이어 가면 바뀐 기록도 결국 세�
   assert.equal(total(out), total(fresh));
   assert.equal(total(out), (N * (N + 1)) / 2 + N + 3000);
   assert.equal(slotSum(out), slotSum(fresh));
-  // 날의 첫·마지막 호출 시각(a·z)은 가짜 기록에 단계가 없어 읽은 때의 수정 시각으로 어림한 값이라 견주지 않는다.
-  const noAz = (days) => days.map((d) => Object.fromEntries(Object.entries(d).map(([k, { a, z, ...v }]) => [k, v])));
-  assert.deepEqual(noAz(out.days), noAz(fresh.days));
+  assert.deepEqual(out.days, fresh.days);
   assert.deepEqual(out.slots, fresh.slots);
 });
 
@@ -218,4 +224,24 @@ test(`장부: TTL 이 끝난 앱 기록 ${N}개 가운데 쓰는 중인(-wal 이
   assert.notEqual(ledgerTest.book(last).checkedAt, before, '쓰는 중인 기록을 다시 확인했다');
   assert.ok(c.filter((x) => x.name === 'statSync' && x.path.endsWith('.db')).length <= 4 + 4 + 2, '다시 확인은 여전히 몇 개뿐');
   rmSync(`${last}-wal`);
+});
+
+test('장부: 쓰는 중인(-wal 이 있는) 기록이 많아도 앞당기는 것은 갱신마다 몇 개뿐이라, -wal 없는 오래된 기록도 몇 갱신 안에 다시 확인한다', { skip: noSqlite }, () => {
+  ledgerTest.reset();
+  collectAgyLedger({ budget: createBudget() });
+  const paths = ids.map((id) => join(app, 'conversations', `${id}.db`)).filter((p) => ledgerTest.book(p));
+  paths.sort((x, y) => ledgerTest.book(x).checkedAt - ledgerTest.book(y).checkedAt || (x < y ? -1 : 1));
+  // 가장 최근에 확인한 100개에 -wal 을 둔다. 확인 순서로 10번째인 -wal 없는 기록을 본다.
+  const busy = paths.slice(-100);
+  for (const p of busy) writeFileSync(`${p}-wal`, '');
+  const target = paths[9];
+  ledgerTest.age(30_000);
+  const before = ledgerTest.book(target).checkedAt;
+  let ticks = 0;
+  while (ledgerTest.book(target).checkedAt === before && ticks < 50) {
+    collectAgyLedger({ budget: tight() });
+    ticks++;
+  }
+  assert.ok(ticks <= 6, `-wal 없는 기록을 ${ticks}번째 갱신에 확인했다`);
+  for (const p of busy) rmSync(`${p}-wal`);
 });
