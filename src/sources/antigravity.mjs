@@ -846,6 +846,9 @@ function appSnapshot(root) {
   return snap;
 }
 
+// 앱 폴더의 -wal 목록 가운데 이미 읽어 둔 것 (대화 id → 수정 시각). 새로 읽지 않는다 (장부가 쓰는 중인 기록을 먼저 보는 데 쓴다, #326).
+export const cachedAppWal = (root) => appCache.get(root)?.wal ?? new Map();
+
 // 테스트용: 앱 폴더 캐시를 ms 만큼 오래된 것으로 만든다 (TTL 이 지난 것을 흉내 낸다).
 export const _test = {
   age(ms) {

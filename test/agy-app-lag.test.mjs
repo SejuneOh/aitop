@@ -111,11 +111,18 @@ test('장부: 한도 있는 갱신을 이어 가면 바뀐 기록도 결국 세�
   fx.makeConversation(app, ids[123], [{ input: 1000, output: 0 }]);
   fx.makeConversation(app, ids[7], [{ input: 2000, output: 0 }]);
   ledgerTest.age(APP_TTL_MS);
-  let out;
-  for (let i = 0; i < N; i++) {
+  // 바뀐 두 기록을 첫 갱신에서 함께 확인하게 맨 앞에 세운다 (기계 속도에 따라 같은 갱신에 들 수도, 아닐 수도 있어서 정해 둔다).
+  const first = Math.min(...[...ids.map((id) => ledgerTest.book(join(app, 'conversations', `${id}.db`)).checkedAt)]) - 1;
+  for (const id of [ids[123], ids[7]]) ledgerTest.book(join(app, 'conversations', `${id}.db`)).checkedAt = first;
+  // 첫 갱신: 앞의 기록을 읽은 뒤에는 시간 한도가 이미 끝나 뒤의 기록은 읽지 못한다. 바뀐 기록을 덜 읽은 것이라 exhausted 가 맞다.
+  const b1 = tight();
+  let out = collectAgyLedger({ budget: b1 });
+  assert.equal(b1.exhausted, true, '바뀐 기록을 덜 읽으면 exhausted');
+  // 그다음부터는 덜 읽은 기록을 마저 읽고, 나머지는 다 읽은 기록의 확인만 밀린 것이라 exhausted 가 아니다.
+  for (let i = 1; i < N; i++) {
     const budget = tight();
     out = collectAgyLedger({ budget });
-    assert.equal(budget.exhausted, false);
+    assert.equal(budget.exhausted, false, `갱신 ${i + 1}`);
   }
   ledgerTest.reset();
   const fresh = collectAgyLedger({ budget: createBudget() });
@@ -170,15 +177,24 @@ test(`장부: 앱 폴더 대화 목록을 새로 만들 때 기록 ${N}개를 �
   const t = Date.now() / 1000;
   utimesSync(conv(olds[0]), t, t);
 
+  // 마지막으로 본 수정 시각은 7일 밖인데, 그 뒤 -wal 없이 다시 쓰인 기록. 목록에서 다시 stat 해 남긴다.
+  const back = conv(ids[20]);
+  utimesSync(back, old, old);
+  ledgerTest.book(back).checkedAt -= APP_TTL_MS;
+  collectAgyLedger({ budget: createBudget() });
+  assert.ok(ledgerTest.book(back).mtime < Date.now() - 7 * 86400_000);
+  utimesSync(back, t, t);
+
   ledgerTest.age(30_000);
   const { value: out, calls: c } = count(() => collectAgyLedger({ budget: tight() }));
   const stats = c.filter((x) => x.name === 'statSync' && x.path.endsWith('.db'));
   // 새 기록·다시 쓰인 기록은 목록 stat 과 첫 읽기 stat, 그 밖에 TTL 확인 4개와 옛 기록 돌려 보기 4개, 여유 2.
-  assert.ok(stats.length <= (news.length + 1) * 2 + 4 + 4 + 2, `앱 폴더 .db stat ${stats.length}회`);
+  assert.ok(stats.length <= (news.length + 1) * 2 + 4 + 4 + 2 + 2, `앱 폴더 .db stat ${stats.length}회`);
   for (const id of news) assert.ok(out.paths.includes(conv(id)), `새 기록 ${id}`);
   assert.ok(out.paths.includes(conv(olds[0])), '-wal 이 있는 옛 기록은 바로 다시 본다');
   assert.ok(!out.paths.includes(conv(ids[10])), '마지막으로 본 수정 시각이 7일 밖이면 뺀다');
   assert.ok(!out.paths.includes(conv(olds[1])), '조용한 옛 기록은 그대로 빠진다');
+  assert.ok(out.paths.includes(back), '7일 밖으로 알던 기록이 다시 쓰였으면 남긴다');
   assert.equal(out.paths.length, N - 1 + news.length + 1);
 
   // 한도 없는 목록은 예전처럼 모두 stat 해 같은 결과다.
@@ -187,4 +203,19 @@ test(`장부: 앱 폴더 대화 목록을 새로 만들 때 기록 ${N}개를 �
   assert.ok(all.filter((x) => x.name === 'statSync' && x.path.endsWith('.db')).length >= N + 50);
   assert.deepEqual([...exact.paths].sort(), [...out.paths].sort());
   rmSync(`${conv(olds[0])}-wal`);
+});
+
+test(`장부: TTL 이 끝난 앱 기록 ${N}개 가운데 쓰는 중인(-wal 이 있는) 기록을 첫 한도 갱신에서 먼저 다시 확인한다`, { skip: noSqlite }, () => {
+  ledgerTest.reset();
+  collectAgyLedger({ budget: createBudget() });
+  // 순서로는 맨 뒤(가장 최근에 확인한 것)가 되는 기록을 고른다.
+  const paths = ids.map((id) => join(app, 'conversations', `${id}.db`)).filter((p) => ledgerTest.book(p));
+  const last = paths.reduce((a, p) => (ledgerTest.book(p).checkedAt > ledgerTest.book(a).checkedAt ? p : a));
+  writeFileSync(`${last}-wal`, '');
+  ledgerTest.age(30_000);
+  const before = ledgerTest.book(last).checkedAt;
+  const { calls: c } = count(() => collectAgyLedger({ budget: tight() }));
+  assert.notEqual(ledgerTest.book(last).checkedAt, before, '쓰는 중인 기록을 다시 확인했다');
+  assert.ok(c.filter((x) => x.name === 'statSync' && x.path.endsWith('.db')).length <= 4 + 4 + 2, '다시 확인은 여전히 몇 개뿐');
+  rmSync(`${last}-wal`);
 });
