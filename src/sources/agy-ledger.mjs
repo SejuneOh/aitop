@@ -4,7 +4,7 @@
 // 기록은 늘 immutable 로 열어 agy 폴더에 아무것도 만들거나 고치지 않는다.
 import { readdirSync, statSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { agyRoots, readCalls, sigOf, maxIdx, APP_TTL_MS } from './antigravity.mjs';
+import { agyRoots, readCalls, sigOf, sigStat, maxIdx, APP_TTL_MS, settledAt } from './antigravity.mjs';
 import { openReadOnly, loadSqlite } from '../sqlite.mjs';
 import { loadCache, markDirty } from '../cache.mjs';
 import { dayKey, addSlot, addModel, recentDays } from './common.mjs';
@@ -14,6 +14,9 @@ import { debugIo } from '../log.mjs';
 const KIND = 'agy-ledger2';
 const DAYS = 7;
 const LIST_TTL_MS = 30_000;
+// 한 번 갱신에서 TTL 이 끝난 앱 기록을 시간 한도와 상관없이 다시 확인하는 최소 개수 (#326).
+// 다른 장부가 시간을 다 써도 확인이 조금씩은 앞으로 가게 한다.
+const MIN_APP_CHECKS = 4;
 
 const outOf = (budget) => budget.left <= 0 || (budget.read > 0 && Date.now() >= (budget.deadline ?? Infinity));
 // 하루 합계 안의 모델별 몫도 따로 복사해, 읽다가 버릴 때 원래 장부가 바뀌지 않게 한다.
@@ -63,25 +66,22 @@ export class AgyBook {
     this.failSig = sig;
   }
 
-  get size() {
-    try {
-      return statSync(this.path).size;
-    } catch {
-      return 0;
-    }
-  }
-
   update(budget) {
-    const sig = sigOf(this.path);
+    // 서명을 본 stat 하나를 크기·수정 시각에도 나눠 쓴다 (따로 stat 하지 않는다, #326).
+    const s = sigStat(this.path);
+    const sig = s?.sig ?? null;
     // 이번에 본 서명. 끝까지 읽었는지(sig) 또는 실패로 멈춰 둔 것인지(failSig) 판단에 쓴다 (앱 폴더 TTL, #303).
     this.seenSig = sig;
+    // 이번에 본 크기 (없으면 0). 갱신마다 장부 전체 크기와 '집계 중' 진행률에 쓴다.
+    this.lastSize = s?.st.size ?? 0;
     if (sig === null || sig === this.sig || sig === this.failSig) return;
     if (outOf(budget)) {
       budget.exhausted = true;
       return;
     }
-    const mainSig = sigOf(this.path, false);
-    const mtime = statSync(this.path).mtimeMs;
+    // 읽은 뒤 이 본 파일 서명과 견줘, 읽는 동안 agy 가 썼는지 본다.
+    const mainSig = s.main;
+    const mtime = s.st.mtimeMs;
     let n = { idx: this.idx, model: this.model, days: copyDays(this.days), slots: copyDays(this.slots) };
     let db;
     let result = null;
@@ -185,6 +185,32 @@ function recentFiles(days = DAYS, roots = agyRoots()) {
 
 const books = new Map();
 
+// 앱 기록의 확인을 마쳤을 때: 지금 서명까지 다 읽었거나 실패로 멈춰 둔 서명이면 TTL 을 시작하고, 아니면(덜 읽음·없음) 다음 갱신에 바로 본다.
+function settle(b, p, prev) {
+  b.checkedAt = b.seenSig != null && (b.seenSig === b.sig || b.seenSig === b.failSig) ? settledAt(prev, p) : null;
+}
+
+// TTL 이 끝난 앱 기록을 다시 확인한다 (#326). 확인(stat·헤더 읽기)도 /mnt/c 에서는 느려서 갱신 한도의 시간(deadline) 안에서만 한다.
+// 가장 오래 확인하지 않은 것부터 보고, 한도를 넘으면 멈춘다 (다른 장부가 시간을 다 썼어도 적어도 MIN_APP_CHECKS 개는 본다).
+// 한도가 없으면(--once·--json·리포트) 모두 본다. 못 본 기록은 checkedAt 이 그대로라 다음 갱신에 앞쪽에 선다 (계속 밀리는 기록이 없다).
+// 확인한 기록의 경로를 돌려준다.
+function recheckApps(files, budget) {
+  const now = Date.now();
+  const due = files.filter((p) => inApp(p) && books.get(p).checkedAt != null && now - books.get(p).checkedAt >= APP_TTL_MS);
+  due.sort((x, y) => books.get(x).checkedAt - books.get(y).checkedAt || (x < y ? -1 : x > y ? 1 : 0));
+  const deadline = budget?.deadline ?? Infinity;
+  const done = new Set();
+  for (const p of due) {
+    if (done.size >= MIN_APP_CHECKS && Date.now() >= deadline) break;
+    const b = books.get(p);
+    const prev = b.checkedAt;
+    b.update(budget);
+    settle(b, p, prev);
+    done.add(p);
+  }
+  return done;
+}
+
 // 대화마다 날짜별 합계(days)와 5분 칸(slots), 처음 읽기가 덜 끝난 기록의 크기(pending)·전체 크기(size),
 // 기록마다 마지막 갱신이 실패했으면 빠졌을 수 있는 첫날(stale, 아니면 null).
 // node:sqlite 를 못 쓰는 Node 에서는 비어 있다 (agy 는 프로세스만 보인다).
@@ -194,19 +220,21 @@ export function collectAgyLedger({ budget, days = DAYS } = {}) {
   const files = recentFiles(days);
   const keep = new Set(files);
   for (const p of books.keys()) if (!keep.has(p)) books.delete(p);
+  for (const p of files) if (!books.has(p)) books.set(p, new AgyBook(p));
+  const checked = recheckApps(files, budget);
   for (const p of files) {
-    let b = books.get(p);
-    if (!b) books.set(p, (b = new AgyBook(p)));
+    const b = books.get(p);
     // 앱 폴더(/mnt/c 일 수 있음)의 기록은 지금 서명까지 다 읽었거나(sig), 실패로 멈춰 둔 서명(failSig)이면
     // TTL 안에서는 다시 stat·열기를 하지 않고 지난 값을 쓴다. 읽기 한도에 걸려 덜 읽었으면 다음 갱신에 바로 이어 읽는다.
+    // TTL 이 끝났어도 이번 갱신의 확인(recheckApps)에 들지 못했으면 지난 값을 쓰고 다음 갱신에 확인한다 (#326).
+    // 이미 다 읽은 기록의 확인이 밀린 것이라 읽기 한도 바닥(exhausted)으로 치지 않는다 ('집계 중' 진행 줄이 뜨지 않는다).
     const app = inApp(p);
-    const fresh = app && b.checkedAt != null && Date.now() - b.checkedAt < APP_TTL_MS;
-    if (!fresh) {
+    if (!checked.has(p) && !(app && b.checkedAt != null)) {
+      const prev = b.checkedAt;
       b.update(budget);
-      if (app) b.checkedAt = b.seenSig != null && (b.seenSig === b.sig || b.seenSig === b.failSig) ? Date.now() : null;
+      if (app) settle(b, p, prev);
     }
-    const size = fresh ? b.lastSize : b.size;
-    b.lastSize = size;
+    const size = b.lastSize ?? 0;
     out.size += size;
     if (!b.complete) out.pending += size;
     // 실패한 기록은 빠졌을 수 있는 첫날, 아니면 null.

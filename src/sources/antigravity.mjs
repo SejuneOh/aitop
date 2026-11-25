@@ -317,19 +317,26 @@ function changeCounter(path) {
 // 다시 읽을지는 -wal 의 상태까지 함께 본다 (agy 가 쓰면 -wal 이 생기거나 바뀌고, 합치면 지워지거나 비워진다).
 // 읽은 결과를 버릴지는 본 파일만 본다 (immutable 은 본 파일만 읽는다).
 export function sigOf(path, withWal = true) {
+  return sigStat(path, withWal)?.sig ?? null;
+}
+
+// sigOf 와 같은 서명에 본 파일 서명(main)과 그때 본 stat(st)을 함께 돌려준다. 없으면 null.
+// 크기·수정 시각이 필요한 곳은 이 stat 을 나눠 써서 같은 파일을 다시 stat 하지 않는다 (/mnt/c 는 stat 이 느리다, #326).
+export function sigStat(path, withWal = true) {
+  let st;
   let main;
   try {
-    const st = statSync(path);
+    st = statSync(path);
     main = `${changeCounter(path)};${st.mtimeMs}:${st.size}`;
   } catch {
     return null;
   }
-  if (!withWal) return main;
+  if (!withWal) return { sig: main, main, st };
   try {
     const w = statSync(`${path}-wal`);
-    return `${main};${w.mtimeMs}:${w.size}`;
+    return { sig: `${main};${w.mtimeMs}:${w.size}`, main, st };
   } catch {
-    return `${main};-`;
+    return { sig: `${main};-`, main, st };
   }
 }
 
@@ -518,7 +525,7 @@ export function readConversation(id, budget, root = AGY_ROOT, ttl = 0) {
   if (ttl && g.checkedAt != null && Date.now() - g.checkedAt < ttl) return g;
   const sig = sigOf(path);
   if (sig === null || sig === g.sig) {
-    if (ttl && sig !== null) g.checkedAt = Date.now();
+    if (ttl && sig !== null) g.checkedAt = settledAt(g.checkedAt, path);
     return g;
   }
   const mainSig = sigOf(path, false);
@@ -560,7 +567,8 @@ export function readConversation(id, budget, root = AGY_ROOT, ttl = 0) {
   }
   if (ok) Object.assign(g, n);
   // 끝까지 읽었을 때만 TTL 을 시작한다 (읽기 한도에 걸렸으면 다음 갱신에 이어 읽는다).
-  if (ttl) g.checkedAt = ok && g.sig === sig ? Date.now() : null;
+  // 처음 마친 기록은 확인 시각을 흩어 TTL 이 한꺼번에 끝나지 않게 한다 (#326).
+  if (ttl) g.checkedAt = ok && g.sig === sig ? settledAt(g.checkedAt, path) : null;
   return g;
 }
 
@@ -814,6 +822,18 @@ export function appLive(root, rows, now = Date.now(), wal = appWal(root)) {
 // 앱 폴더는 WSL 에서 /mnt/c(9P, stat 한 번에 약 0.6ms)에 있을 수 있어, 폴더가 있는지·대화 목록·-wal 목록·대화 기록 서명을
 // APP_TTL_MS 마다 한 번만 본다. 실행 중 판정(APP_LIVE_MS)은 매 갱신 지금 시각으로 다시 한다.
 export const APP_TTL_MS = 10_000;
+
+// 처음 다 읽은 앱 기록의 확인 시각(checkedAt)을 기록마다 0~0.9*APP_TTL_MS 만큼 앞당길 값 (#326).
+// 처음 읽을 때 거의 같은 시각에 다 읽어 TTL 이 한꺼번에 끝나는 것을 막는다. 경로로 정해 테스트가 결정적이다.
+// 0.9 까지만 앞당겨, 다 읽은 바로 뒤의 갱신은 늘 TTL 안이다.
+export function ttlJitter(path) {
+  let h = 2166136261;
+  for (let i = 0; i < path.length; i++) h = Math.imul(h ^ path.charCodeAt(i), 16777619);
+  return Math.floor(((h >>> 0) / 2 ** 32) * APP_TTL_MS * 0.9);
+}
+
+// 확인을 마친 시각. 처음 마친 것(prev 가 없음)이면 기록마다 흩는다.
+export const settledAt = (prev, path, now = Date.now()) => (prev == null ? now - ttlJitter(path) : now);
 const appCache = new Map();
 
 // 앱 폴더 하나의 { exists, rows, wal }. TTL 안이면 지난 값을 쓴다.
