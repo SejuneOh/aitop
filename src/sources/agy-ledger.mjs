@@ -3,8 +3,8 @@
 // 세션 화면과 상관없이 끝난 대화까지 세야 해서 토큰만 가볍게 따로 읽고(진행 기록은 읽지 않는다), 어디까지 읽었는지는 캐시에 둔다.
 // 기록은 늘 immutable 로 열어 agy 폴더에 아무것도 만들거나 고치지 않는다.
 import { readdirSync, statSync, existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { agyRoots, readCalls, sigOf, maxIdx, APP_TTL_MS } from './antigravity.mjs';
+import { basename, dirname, join } from 'node:path';
+import { agyRoots, readCalls, sigOf, sigStat, maxIdx, APP_TTL_MS, settledAt, cachedAppWal } from './antigravity.mjs';
 import { openReadOnly, loadSqlite } from '../sqlite.mjs';
 import { loadCache, markDirty } from '../cache.mjs';
 import { dayKey, addSlot, addModel, recentDays } from './common.mjs';
@@ -14,6 +14,11 @@ import { debugIo } from '../log.mjs';
 const KIND = 'agy-ledger2';
 const DAYS = 7;
 const LIST_TTL_MS = 30_000;
+// 한 번 갱신에서 TTL 이 끝난 앱 기록을 시간 한도와 상관없이 다시 확인하는 최소 개수 (#326).
+// 다른 장부가 시간을 다 써도 확인이 조금씩은 앞으로 가게 한다.
+const MIN_APP_CHECKS = 4;
+// 그 가운데 쓰는 중이라 앞당겨 보는 기록의 최대 수. 나머지 몫은 오래 확인하지 않은 순서라 -wal 이 많아도 굶는 기록이 없다.
+const BUSY_FIRST = 2;
 
 const outOf = (budget) => budget.left <= 0 || (budget.read > 0 && Date.now() >= (budget.deadline ?? Infinity));
 // 하루 합계 안의 모델별 몫도 따로 복사해, 읽다가 버릴 때 원래 장부가 바뀌지 않게 한다.
@@ -63,25 +68,24 @@ export class AgyBook {
     this.failSig = sig;
   }
 
-  get size() {
-    try {
-      return statSync(this.path).size;
-    } catch {
-      return 0;
-    }
-  }
-
   update(budget) {
-    const sig = sigOf(this.path);
+    // 서명을 본 stat 하나를 크기·수정 시각에도 나눠 쓴다 (따로 stat 하지 않는다, #326).
+    const s = sigStat(this.path);
+    const sig = s?.sig ?? null;
     // 이번에 본 서명. 끝까지 읽었는지(sig) 또는 실패로 멈춰 둔 것인지(failSig) 판단에 쓴다 (앱 폴더 TTL, #303).
     this.seenSig = sig;
+    // 이번에 본 크기 (없으면 0). 갱신마다 장부 전체 크기와 '집계 중' 진행률에 쓴다.
+    this.lastSize = s?.st.size ?? 0;
+    // 이번에 본 수정 시각. 앱 폴더 목록을 새로 만들 때 이 값으로 7일 판정을 해서 다시 stat 하지 않는다 (recentFiles).
+    if (s) this.mtime = s.st.mtimeMs;
     if (sig === null || sig === this.sig || sig === this.failSig) return;
     if (outOf(budget)) {
       budget.exhausted = true;
       return;
     }
-    const mainSig = sigOf(this.path, false);
-    const mtime = statSync(this.path).mtimeMs;
+    // 읽은 뒤 이 본 파일 서명과 견줘, 읽는 동안 agy 가 썼는지 본다.
+    const mainSig = s.main;
+    const mtime = s.st.mtimeMs;
     let n = { idx: this.idx, model: this.model, days: copyDays(this.days), slots: copyDays(this.slots) };
     let db;
     let result = null;
@@ -155,12 +159,36 @@ const inApp = (p) => apps.has(dirname(p));
 
 // 최근 days 일(평소 7일, 리포트는 더 길게) 안에 바뀐 대화 기록. CLI 폴더와 앱 폴더를 모두 본다 (#303).
 // 장부·캐시는 파일 경로로 나뉘어 폴더끼리 섞이지 않는다. 같은 대화 id 가 두 폴더에 있으면 앞 폴더 것만 센다.
-function recentFiles(days = DAYS, roots = agyRoots()) {
+//
+// 앱 폴더(WSL 에서는 /mnt/c, stat 이 느리다)는 목록을 새로 만들 때 기록마다 stat 하지 않는다 (#326).
+// - 처음 보는 이름과, -wal 이 있는(쓰는 중인) 기록만 바로 stat 한다.
+// - 장부에 있는 기록은 장부 확인(sigStat)에서 마지막으로 본 수정 시각으로 7일 판정을 한다. 그 사이 바뀌었으면 TTL 확인
+//   (recheckApps)이 수정 시각을 새로 고친다. 마지막으로 안 시각이 7일 밖이면 그 기록만 다시 stat 해서 정한다
+//   (경계를 넘는 기록은 몇 개뿐이고, 마지막 확인 뒤 다시 쓰인 기록을 장부에서 지우지 않게 한다).
+// - 7일 밖이라 장부에 없는 기록은 지난번 목록에서 본 수정 시각을 쓰고, 갱신 시간 한도 안에서 가장 오래 보지 않은 것부터
+//   돌아가며 다시 stat 한다 (적어도 MIN_APP_CHECKS 개). 다시 쓰이기 시작하면 대개 -wal 이 생겨 바로 잡힌다.
+// 한도가 없으면(--once·--json·리포트처럼 days 가 긴 때) 예전처럼 모두 stat 해 정확히 판정한다. CLI 폴더는 늘 모두 stat 한다.
+function recentFiles(days = DAYS, roots = agyRoots(), budget) {
   if (listed.days === days && Date.now() - listed.at < LIST_TTL_MS) return listed.files;
   apps = new Set(roots.filter((r) => r.source === 'app').map((r) => join(r.dir, 'conversations')));
   const cutoff = Date.now() - days * 86400_000;
-  const files = [];
+  const exact = (budget?.deadline ?? Infinity) === Infinity;
+  // 목록 차례대로 [경로, 수정 시각]. 수정 시각이 null 이면 아래에서 지난 값 또는 다시 stat 한 값으로 정한다.
+  const order = [];
   const seen = new Set();
+  const known = new Map();
+  const wals = new Set();
+  // 지난 값으로 판정해 두고 시간이 남으면 다시 stat 할 앱 기록.
+  const later = [];
+  const look = (p) => {
+    try {
+      const m = statSync(p).mtimeMs;
+      known.set(p, { mtime: m, at: Date.now() });
+      return m;
+    } catch {
+      return null;
+    }
+  };
   for (const r of roots) {
     const dir = join(r.dir, 'conversations');
     if (!existsSync(dir)) continue;
@@ -170,20 +198,90 @@ function recentFiles(days = DAYS, roots = agyRoots()) {
     } catch (e) {
       debugIo('ledger', 'agy conversations read failed', e);
     }
+    const app = r.source === 'app';
+    const wal = app ? new Set(names.filter((f) => f.endsWith('.db-wal'))) : null;
     for (const f of names) {
       if (!f.endsWith('.db') || seen.has(f)) continue;
       seen.add(f);
       const p = join(dir, f);
-      try {
-        if (statSync(p).mtimeMs >= cutoff) files.push(p);
-      } catch {}
+      if (app && wal.has(`${f}-wal`)) wals.add(p);
+      const book = app ? books.get(p)?.mtime : undefined;
+      const prev = app ? appMtimes.get(p) : undefined;
+      let m = null;
+      if (!app || exact || wals.has(p) || (book == null && prev == null) || (book != null && book < cutoff)) m = look(p);
+      else if (book != null) {
+        m = book;
+        known.set(p, { mtime: book, at: Date.now() });
+      } else {
+        known.set(p, prev);
+        later.push(p);
+      }
+      order.push([p, m]);
     }
   }
+  // 다시 stat 하지 못한 옛 기록은 지난 값, 다시 stat 한 기록은 그 결과로 정한다 (사라졌으면 뺀다).
+  const restat = new Map();
+  if (later.length) {
+    later.sort((x, y) => known.get(x).at - known.get(y).at || (x < y ? -1 : x > y ? 1 : 0));
+    const deadline = budget?.deadline ?? Infinity;
+    for (let i = 0; i < later.length; i++) {
+      if (i >= MIN_APP_CHECKS && Date.now() >= deadline) break;
+      const m = look(later[i]);
+      if (m == null) known.delete(later[i]);
+      restat.set(later[i], m);
+    }
+  }
+  const files = [];
+  for (const [p, m0] of order) {
+    const m = m0 ?? (restat.has(p) ? restat.get(p) : (known.get(p)?.mtime ?? null));
+    if (m != null && m >= cutoff) files.push(p);
+  }
+  appMtimes = new Map([...known].filter(([p]) => inApp(p)));
+  appWals = wals;
   listed = { at: Date.now(), files, days };
   return files;
 }
 
+// 앱 폴더 기록마다 지난번 목록에서 쓴 수정 시각과 그것을 stat 으로 본 때 ({ mtime, at }).
+let appMtimes = new Map();
+// 지난번 목록에서 -wal 이 있던(쓰는 중인) 앱 기록 경로. 다시 확인 순서에서 앞에 둔다 (recheckApps).
+let appWals = new Set();
+
+// 쓰는 중인 앱 기록인지. 목록을 새로 만들 때 본 -wal(30초마다)과 세션 수집이 10초마다 읽는 -wal 목록(cachedAppWal)을
+// 함께 본다. 둘 다 이미 읽은 폴더 목록이라 stat 이 늘지 않는다.
+const writing = (p) => appWals.has(p) || cachedAppWal(dirname(dirname(p))).has(basename(p, '.db'));
+
 const books = new Map();
+
+// 앱 기록의 확인을 마쳤을 때: 지금 서명까지 다 읽었거나 실패로 멈춰 둔 서명이면 TTL 을 시작하고, 아니면(덜 읽음·없음) 다음 갱신에 바로 본다.
+function settle(b, p, prev) {
+  b.checkedAt = b.seenSig != null && (b.seenSig === b.sig || b.seenSig === b.failSig) ? settledAt(prev, p) : null;
+}
+
+// TTL 이 끝난 앱 기록을 다시 확인한다 (#326). 확인(stat·헤더 읽기)도 /mnt/c 에서는 느려서 갱신 한도의 시간(deadline) 안에서만 한다.
+// 쓰는 중인(-wal 이 있는) 기록 가운데 오래 확인하지 않은 BUSY_FIRST 개를 먼저 보고(오늘 합계·5분 칸에 바로 잡히게), 그다음은
+// 쓰는 중인지와 상관없이 가장 오래 확인하지 않은 것부터 본다. 한도를 넘으면 멈춘다 (다른 장부가 시간을 다 썼어도 적어도 MIN_APP_CHECKS 개는 본다).
+// 한도가 없으면(--once·--json·리포트) 모두 본다. 못 본 기록은 checkedAt 이 그대로라 다음 갱신에 앞쪽에 선다 (계속 밀리는 기록이 없다).
+// 확인한 기록의 경로를 돌려준다.
+function recheckApps(files, budget) {
+  const now = Date.now();
+  const due = files.filter((p) => inApp(p) && books.get(p).checkedAt != null && now - books.get(p).checkedAt >= APP_TTL_MS);
+  due.sort((x, y) => books.get(x).checkedAt - books.get(y).checkedAt || (x < y ? -1 : x > y ? 1 : 0));
+  const first = due.filter(writing).slice(0, BUSY_FIRST);
+  const picked = new Set(first);
+  const order = [...first, ...due.filter((p) => !picked.has(p))];
+  const deadline = budget?.deadline ?? Infinity;
+  const done = new Set();
+  for (const p of order) {
+    if (done.size >= MIN_APP_CHECKS && Date.now() >= deadline) break;
+    const b = books.get(p);
+    const prev = b.checkedAt;
+    b.update(budget);
+    settle(b, p, prev);
+    done.add(p);
+  }
+  return done;
+}
 
 // 대화마다 날짜별 합계(days)와 5분 칸(slots), 처음 읽기가 덜 끝난 기록의 크기(pending)·전체 크기(size),
 // 기록마다 마지막 갱신이 실패했으면 빠졌을 수 있는 첫날(stale, 아니면 null).
@@ -191,22 +289,24 @@ const books = new Map();
 export function collectAgyLedger({ budget, days = DAYS } = {}) {
   const out = { days: [], slots: [], paths: [], stale: [], pending: 0, size: 0 };
   if (!loadSqlite() || !agyRoots().some((r) => existsSync(join(r.dir, 'conversations')))) return out;
-  const files = recentFiles(days);
+  const files = recentFiles(days, agyRoots(), budget);
   const keep = new Set(files);
   for (const p of books.keys()) if (!keep.has(p)) books.delete(p);
+  for (const p of files) if (!books.has(p)) books.set(p, new AgyBook(p));
+  const checked = recheckApps(files, budget);
   for (const p of files) {
-    let b = books.get(p);
-    if (!b) books.set(p, (b = new AgyBook(p)));
+    const b = books.get(p);
     // 앱 폴더(/mnt/c 일 수 있음)의 기록은 지금 서명까지 다 읽었거나(sig), 실패로 멈춰 둔 서명(failSig)이면
     // TTL 안에서는 다시 stat·열기를 하지 않고 지난 값을 쓴다. 읽기 한도에 걸려 덜 읽었으면 다음 갱신에 바로 이어 읽는다.
+    // TTL 이 끝났어도 이번 갱신의 확인(recheckApps)에 들지 못했으면 지난 값을 쓰고 다음 갱신에 확인한다 (#326).
+    // 이미 다 읽은 기록의 확인이 밀린 것이라 읽기 한도 바닥(exhausted)으로 치지 않는다 ('집계 중' 진행 줄이 뜨지 않는다).
     const app = inApp(p);
-    const fresh = app && b.checkedAt != null && Date.now() - b.checkedAt < APP_TTL_MS;
-    if (!fresh) {
+    if (!checked.has(p) && !(app && b.checkedAt != null)) {
+      const prev = b.checkedAt;
       b.update(budget);
-      if (app) b.checkedAt = b.seenSig != null && (b.seenSig === b.sig || b.seenSig === b.failSig) ? Date.now() : null;
+      if (app) settle(b, p, prev);
     }
-    const size = fresh ? b.lastSize : b.size;
-    b.lastSize = size;
+    const size = b.lastSize ?? 0;
     out.size += size;
     if (!b.complete) out.pending += size;
     // 실패한 기록은 빠졌을 수 있는 첫날, 아니면 null.
@@ -221,8 +321,10 @@ export function collectAgyLedger({ budget, days = DAYS } = {}) {
 // 테스트용: 기록을 연 횟수.
 let opens = 0;
 export const _test = {
-  reset: () => ((listed = { at: 0, files: [], days: 0 }), books.clear()),
+  reset: () => ((listed = { at: 0, files: [], days: 0 }), (appMtimes = new Map()), (appWals = new Set()), books.clear()),
   opens: () => opens,
+  // 기록 하나의 장부 (확인 시각 checkedAt 등을 보거나 바꾼다).
+  book: (p) => books.get(p),
   // 앱 폴더 기록의 TTL 이 지난 것을 흉내 낸다.
   age: (ms) => {
     listed.at -= ms;
