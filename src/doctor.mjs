@@ -5,7 +5,7 @@ import { readdirSync, readFileSync, statSync, existsSync, openSync, readSync, cl
 import { basename, join } from 'node:path';
 import { homedir, platform } from 'node:os';
 import { findProcesses, isCodex, isGemini, isAgy, canListProcesses, isAlive, isSessionAlive, processMethod } from './procs.mjs';
-import { agyRoots } from './sources/antigravity.mjs';
+import { agyRoots, parseTime } from './sources/antigravity.mjs';
 import { coworkCheck } from './sources/cowork.mjs';
 import { loadSqlite, openReadOnly } from './sqlite.mjs';
 import { fmtAgo, pad, stripControl, width } from './text.mjs';
@@ -178,36 +178,51 @@ function gemini() {
 // Antigravity CLI 와 데스크톱 앱(#303): 요약 DB 를 열어 대화 목록을 읽을 수 있는지 본다. node:sqlite 가 없으면 프로세스만 센다.
 // path 는 CLI 폴더(예전 모양). 앱 폴더가 있으면 dirs 에 폴더마다 { path, found, records, source } 를 두고 둘째 줄부터 보인다.
 // 앱 폴더는 있는 것만 목록에 들어오므로(findAgyRoots) 없으면 줄이 생기지 않는다. 앱 폴더에서도 conversations/ 와 요약 DB 만 본다.
+// 마지막 사용 시각(lastAt)은 대화 기록(.db)과 -wal 가운데 가장 늦은 수정 시각이다. -wal 이 있는지는 폴더 목록으로 알아
+// 따로 존재 확인을 하지 않는다. 앱 폴더(WSL 에서는 /mnt/c, stat 이 느리다)는 기록마다 stat 하지 않고, 요약 DB 의
+// 가장 늦은 대화 수정 시각(last_modified_time)과 있는 -wal 의 수정 시각만 본다 (#326). 그래서 앱 폴더의 lastAt 은
+// 앱이 요약에 적은 시각이라 기록 파일의 수정 시각과 조금 다를 수 있다. 요약 DB 를 읽지 못하면 예전처럼 기록마다 stat 한다.
 function agy(roots = agyRoots()) {
   const running = canListProcesses() ? findProcesses(isAgy).length : null;
   const dirs = [];
-  const files = [];
   for (const r of roots) {
     const dir = join(r.dir, 'conversations');
-    const got = existsSync(dir) ? walk(dir, 0, (n) => n.endsWith('.db')) : null;
-    dirs.push({ path: tilde(r.dir), found: Boolean(got), records: got?.length ?? 0, source: r.source, root: r.dir });
-    files.push(...(got ?? []));
+    const names = existsSync(dir) ? ls(dir).filter((e) => e.isFile()).map((e) => e.name) : null;
+    const dbs = names?.filter((n) => n.endsWith('.db')).map((n) => join(dir, n)) ?? [];
+    const wals = names?.filter((n) => n.endsWith('.db-wal')).map((n) => join(dir, n)) ?? [];
+    dirs.push({ path: tilde(r.dir), found: Boolean(names), records: dbs.length, source: r.source, root: r.dir, dbs, wals });
   }
   const path = dirs[0].path;
   // 앱 폴더가 없으면 예전과 같은 모양 (dirs 없음).
-  const more = dirs.length > 1 ? { dirs: dirs.map(({ root, ...d }) => d) } : {};
+  const more = dirs.length > 1 ? { dirs: dirs.map(({ root, dbs, wals, ...d }) => d) } : {};
+  const records = dirs.reduce((a, d) => a + d.records, 0);
   if (!dirs.some((d) => d.found)) return { tool: 'agy', state: 'missing', path, ...more, records: 0, lastAt: null, running, readable: null, hint: null };
-  const last = newest(files.flatMap((f) => [f, `${f}-wal`]).filter((f) => existsSync(f)));
-  if (!loadSqlite()) return { tool: 'agy', state: 'limited', path, ...more, records: files.length, lastAt: last?.mtime ?? null, running, readable: null, hint: null };
+  const sqlite = Boolean(loadSqlite());
   // 기록이 있는 폴더의 요약 DB 를 모두 읽을 수 있어야 읽을 수 있다고 본다.
   let readable = true;
+  let lastAt = null;
+  const later = (t) => {
+    if (t != null && !(lastAt >= t)) lastAt = t;
+  };
   for (const d of dirs.filter((x) => x.found)) {
-    let db;
-    try {
-      db = openReadOnly(join(d.root, 'conversation_summaries.db'));
-      db.prepare('select count(*) n from conversation_summaries').get();
-    } catch {
-      readable = false;
-    } finally {
-      db?.close();
+    let summaryAt;
+    if (sqlite) {
+      let db;
+      try {
+        db = openReadOnly(join(d.root, 'conversation_summaries.db'));
+        summaryAt = parseTime(db.prepare('select count(*) n, max(last_modified_time) m from conversation_summaries').get()?.m);
+      } catch {
+        readable = false;
+      } finally {
+        db?.close();
+      }
     }
+    const app = d.source === 'app' && summaryAt != null;
+    if (app) later(summaryAt);
+    later(newest(app ? d.wals : [...d.dbs, ...d.wals])?.mtime ?? null);
   }
-  return { tool: 'agy', state: 'ok', path, ...more, records: files.length, lastAt: last?.mtime ?? null, running, readable, hint: null };
+  if (!sqlite) return { tool: 'agy', state: 'limited', path, ...more, records, lastAt, running, readable: null, hint: null };
+  return { tool: 'agy', state: 'ok', path, ...more, records, lastAt, running, readable, hint: null };
 }
 
 // Claude Desktop Cowork(#304): 앱 폴더마다 세션 목록(메타)만 본다. 기록 내용·audit.jsonl 은 읽지 않는다.
