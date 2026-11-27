@@ -1,17 +1,28 @@
 #!/usr/bin/env node
-import { readFileSync } from 'node:fs';
-import { budgetDayOption, configJson, configPath, configText, parseRemote, readConfigFile, remoteOption, resolveConfig } from '../src/config.mjs';
-import { langOption, pickLang, setLang, t } from '../src/i18n.mjs';
-import { notifyOptions } from '../src/notify.mjs';
-import { lineOption } from '../src/line.mjs';
-import { reportOption } from '../src/report.mjs';
-import { suggest } from '../src/suggest.mjs';
-import { mask, setAmbiguous, stripControl } from '../src/text.mjs';
+// --statusline (#332): Claude Code 상태줄이 응답마다 부르는 경로다. 설정·i18n·화면 모듈을 불러오기 전에 갈라 빨리 끝낸다.
+// `--` 앞에는 --statusline 만 둔다 (다른 옵션은 statusline.mjs 가 사용법 오류로 알린다).
+const rawArgs = process.argv.slice(2);
+const slAt = rawArgs.indexOf('--statusline');
+const dashAt = rawArgs.indexOf('--');
+if (slAt >= 0 && (dashAt < 0 || slAt < dashAt)) {
+  const { statusline } = await import('../src/statusline.mjs');
+  process.stdout.on('error', () => process.exit(0));
+  process.exit(await statusline(rawArgs.filter((_, i) => i !== slAt)));
+}
+
+const { readFileSync } = await import('node:fs');
+const { budgetDayOption, configJson, configPath, configText, parseRemote, readConfigFile, remoteOption, resolveConfig } = await import('../src/config.mjs');
+const { langOption, pickLang, setLang, t } = await import('../src/i18n.mjs');
+const { notifyOptions } = await import('../src/notify.mjs');
+const { lineOption } = await import('../src/line.mjs');
+const { reportOption } = await import('../src/report.mjs');
+const { suggest } = await import('../src/suggest.mjs');
+const { mask, setAmbiguous, stripControl } = await import('../src/text.mjs');
 
 const KNOWN = new Set(['-h', '--help', '-v', '--version', '--once', '--all', '--json', '--doctor', '--bell', '--show-requests', '--print-config', '--no-bell', '--no-all', '--no-show-requests', '--debug', '--no-debug', '--color-blind', '--no-color-blind']);
 const THEMES = ['light', 'dark'];
 // 잘못 친 옵션에 제안할 후보. KNOWN 의 긴 옵션과, 다른 모듈이 먼저 꺼내는 값 옵션을 합친다.
-const OPTIONS = [...[...KNOWN].filter((o) => o.startsWith('--')), '--theme', '--lang', '--notify', '--no-notify', '--on-waiting', '--no-on-waiting', '--budget-day', '--no-budget-day', '--line', '--line-width', '--report', '--by', '--days', '--months', '--since', '--plan', '--md', '--show-prompts', '--remote', '--no-remote'];
+const OPTIONS = [...[...KNOWN].filter((o) => o.startsWith('--')), '--theme', '--lang', '--notify', '--no-notify', '--on-waiting', '--no-on-waiting', '--budget-day', '--no-budget-day', '--line', '--line-width', '--report', '--by', '--days', '--months', '--since', '--plan', '--md', '--show-prompts', '--remote', '--no-remote', '--statusline'];
 const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
 // 언어는 다른 옵션의 오류 문구보다 먼저 정한다: --lang > AITOP_LANG > 설정 파일 lang > LC_ALL > LC_MESSAGES > LANG.
@@ -276,7 +287,8 @@ if (args.has('--doctor')) {
   // 진단은 한 번 돌고 끝나므로 Windows 의 첫 PowerShell CIM 호출을 더 오래 기다린다 (procs.mjs WIN_DOCTOR_TIMEOUT_MS).
   const { setFirstScanTimeout, WIN_DOCTOR_TIMEOUT_MS } = await import('../src/procs.mjs');
   setFirstScanTimeout(WIN_DOCTOR_TIMEOUT_MS);
-  const result = { ...checkTools(), config: configJson(config), log: { on: log.on, path: log.path }, remotes: (opt.remotes ?? []).map((n) => parseRemote(n)?.name).filter(Boolean) };
+  const { limitsCheck } = await import('../src/limits.mjs');
+  const result = { ...checkTools(), config: configJson(config), log: { on: log.on, path: log.path }, remotes: (opt.remotes ?? []).map((n) => parseRemote(n)?.name).filter(Boolean), limits: limitsCheck() };
   await printAndExit(args.has('--json') ? JSON.stringify({ version: VERSION, ...result, tools: toolsJson(result.tools) }, null, 2) : doctorText(result, VERSION));
 }
 

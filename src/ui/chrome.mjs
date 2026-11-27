@@ -65,7 +65,8 @@ export function helpSections(view = {}, open = false) {
   const keys = [...here.map((n) => VIEWS[n]), COMMON].map((v) => viewText(v)).flatMap((v, i) => [...(i ? [['', '']] : []), [`${v.title}${i ? '' : t('help.here')}`, null], ...v.keys]);
   const others = Object.keys(VIEWS).filter((n) => !here.includes(n));
   const rest = [['', ''], [t('help.others'), null], ...others.map((n) => [viewText(VIEWS[n]).title, keysLine(n), 'dim'])];
-  const now = settingsLine(view.settings);
+  // Claude 한도의 마지막 갱신은 화면 데이터(collect 의 limits)에서 가져온다 (#332).
+  const now = settingsLine(view.settings && view.data ? { ...view.settings, limitsAt: view.data.limits?.at ?? null, now: view.data.at } : view.settings);
   const opts = [
     [t('help.options'), null],
     ...options(),

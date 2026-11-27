@@ -37,7 +37,8 @@ function removeOldDirs() {
       // summary.json(--line 용 요약, summary.mjs)은 버전 폴더 밖에 두고 여기서 지우지 않는다. 남은 임시 파일은 일주일 뒤 지운다.
       // monthly.json(월별 보관함, monthly.mjs)과 깨져서 옆으로 옮긴 monthly.json.bad-* 도 사용자 기록이라 지우지 않는다.
       // sdk-parents.json(claude -p 실행의 기억된 부모)도 형식 버전과 상관없이 남긴다.
-      if (d === NAME || d === 'summary.json' || d === 'monthly.json' || d === PARENTS_FILE || d.startsWith('monthly.json.bad-')) continue;
+      // claude-limits.json(--statusline 이 저장한 Claude 한도, limits.mjs)도 남긴다. 오래된 값은 읽는 쪽이 숨긴다.
+      if (d === NAME || d === 'summary.json' || d === 'claude-limits.json' || d === 'monthly.json' || d === PARENTS_FILE || d.startsWith('monthly.json.bad-')) continue;
       const p = join(ROOT, d);
       // 이 버전보다 낮은 형식(v2, v6-… 등)은 더 이상 어떤 버전도 쓰지 않으므로 바로 지운다.
       const ver = Number(/^v(\d+)(?:-|$)/.exec(d)?.[1]);

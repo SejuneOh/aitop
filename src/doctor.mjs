@@ -397,5 +397,14 @@ export function doctorText(result, version, now = Date.now(), lang = getLang()) 
   }
   // --remote(#308)로 정한 원격 목록. 점검은 접속하지 않는다 (네트워크를 쓰지 않음).
   if (result.remotes?.length) out.push('', tr('doctor.remotes', { mark: '○', list: result.remotes.join(', ') }, o));
+  // Claude 한도 (#332): aitop --statusline 이 저장한 파일이 있는지와 마지막 갱신. 없으면 넣는 방법을 알린다.
+  const lim = result.limits;
+  if (lim) {
+    const at = Date.parse(lim.at);
+    const pctOr = (p) => (p == null ? '-' : `${Math.round(p)}%`);
+    const tail = lim.fiveHour != null || lim.sevenDay != null ? tr('doctor.limitsNow', { five: pctOr(lim.fiveHour), week: pctOr(lim.sevenDay) }, o) : '';
+    if (lim.connected && Number.isFinite(at)) out.push('', tr('doctor.limitsOn', { ago: lang === 'ko' ? ago(now - at) : fmtAgo(now - at), tail }, o));
+    else out.push('', tr('doctor.limitsOff', null, o), `         → ${tr('doctor.limitsHint', null, o)}`);
+  }
   return stripControl(out.join('\n'));
 }

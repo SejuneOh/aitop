@@ -2,6 +2,7 @@
 // 화면 모듈을 불러오지 않는다 (bin 이 색·테마를 정하기 전에 불러도 되게).
 // 화면 이름, 키 설명, 키 짧은 이름은 i18n.mjs 표에 있다. 표(VIEWS)에는 ko 값을 두고, 화면 안 도움말과 --help 는 지금 언어로 바꾼다.
 import { STRINGS, getLang, t } from './i18n.mjs';
+import { fmtAgo } from './text.mjs';
 
 const ko = (key) => STRINGS.ko[key];
 
@@ -120,6 +121,7 @@ const OPTION_IDS = [
   ['--color-blind', 'hopt.colorBlind'],
   ['--debug', 'hopt.debug'],
   ['--line[=tmux]', 'hopt.line'],
+  ['--statusline', 'hopt.statusline'],
   ['--print-config', 'hopt.printConfig'],
   ['AITOP_AMBIGUOUS=wide', 'hopt.ambiguous'],
 ];
@@ -154,6 +156,10 @@ export function keysText(lang = getLang()) {
   return [`${t('help.keys', null, { lang })}: ${keysLine('table', lang)} · ${keysLine('common', lang)}`, ...['detail', 'files', 'diff', 'artifacts', 'artifact', 'filtered', 'search'].map((n) => `  ${title(n)}: ${keysLine(n, lang)}`)].join('\n');
 }
 
+// 지난 시간 짧게: 한국어는 3분, 그 밖은 3m.
+const KO_UNIT = { s: '초', m: '분', h: '시간', d: '일' };
+const agoText = (ms, lang) => (lang === 'ko' ? fmtAgo(ms).replace(/[smhd]$/, (u) => KO_UNIT[u]) : fmtAgo(ms));
+
 // 지금 설정 값 한 줄 (예: 예산 $50 · 알림 켜짐 · 디버그 꺼짐). settings 가 없으면 null.
 export function settingsLine(s, lang = getLang()) {
   if (!s) return null;
@@ -162,5 +168,7 @@ export function settingsLine(s, lang = getLang()) {
   const usd = (x) => (Number.isInteger(x) ? `$${x}` : `$${x.toFixed(2)}`);
   // 알림이 켜져 있고 종류를 기본(waiting)과 다르게 정했으면 함께 보인다. 예: 알림 켜짐 (waiting,done)
   const kinds = s.notify && s.events && s.events.join(',') !== 'waiting' ? ` (${s.events.join(',')})` : '';
-  return [t('set.budget', { v: s.budgetDay > 0 ? usd(s.budgetDay) : t('set.none', null, o) }, o), t('set.notify', { v: onOff(s.notify) + kinds }, o), ...(s.onWaiting ? [t('set.onWaiting', null, o)] : []), t('set.debug', { v: onOff(s.debug) }, o)].join(' · ');
+  // Claude 한도 (#332): 상태줄(aitop --statusline)이 저장한 적이 있으면 마지막 갱신, 없으면 연결 안 됨. limitsAt 을 줬을 때만 넣는다.
+  const lim = 'limitsAt' in s ? [t('set.limits', { v: Number.isFinite(s.limitsAt) ? t('set.limitsOn', { ago: agoText((s.now ?? Date.now()) - s.limitsAt, lang) }, o) : t('set.limitsOff', null, o) }, o)] : [];
+  return [t('set.budget', { v: s.budgetDay > 0 ? usd(s.budgetDay) : t('set.none', null, o) }, o), t('set.notify', { v: onOff(s.notify) + kinds }, o), ...(s.onWaiting ? [t('set.onWaiting', null, o)] : []), t('set.debug', { v: onOff(s.debug) }, o), ...lim].join(' · ');
 }

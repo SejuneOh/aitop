@@ -4,6 +4,7 @@ import { phaseText } from './i18n.mjs';
 import { resumeCmd } from './resume.mjs';
 import { cacheHitRate, hitJson, memberStalled } from './sources/common.mjs';
 import { artifactLink } from './sources/artifacts.mjs';
+import { freshLimits } from './limits.mjs';
 
 // aitop --json 출력. 다른 스크립트나 AI 가 읽기 쉬운 모양으로 세션 목록과 사용량 합계를 담는다.
 // 텍스트는 수집 단계에서 이미 비밀값 가림이 적용돼 있다.
@@ -31,6 +32,15 @@ const koPhase = (p) => (p?.kind ? phaseText(p, { lang: 'ko' }) : null);
 export const SCHEMA = 1;
 const remoteOf = (r) => ({ name: r.name, kind: r.kind, ok: Boolean(r.ok), error: r.error ?? null, version: r.version ?? null, schema: r.schema ?? null, at: iso(r.at) });
 
+// Claude 한도 (#332): --statusline 이 저장한 값 중 아직 유효한 창만. 값이 없거나 오래됐으면 null.
+// usedPercent 는 0~100 (spend 는 한도를 넘으면 100 초과), resetsAt·at 은 ISO 시각.
+const winJson = (w) => (w ? { usedPercent: w.pct, resetsAt: iso(w.resetsAt) } : null);
+export function limitsJson(rec, now = Date.now()) {
+  const f = freshLimits(rec, now);
+  if (!f) return null;
+  return { fiveHour: winJson(f.fiveHour), sevenDay: winJson(f.sevenDay), ...(f.spend ? { spend: winJson(f.spend) } : {}), at: iso(f.at) };
+}
+
 export function toJson(data, version = null, opts = {}) {
   const b = data.usage ? projectBudget(data.usage, opts.budgetDay, { now: data.at ?? Date.now() }) : null;
   return {
@@ -39,6 +49,8 @@ export function toJson(data, version = null, opts = {}) {
     at: iso(data.at),
     tools: toolsJson(data.tools?.tools),
     usage: data.usage ? { today: usageOf(data.usage.today), last7days: { ...usageOf(data.usage.week), ...dailyOf(data.usage.days7) }, lastHour: lastHourOf(data.usage.lastHour), complete: data.usage.loading == null, ...(b ? { budget: { day: b.day, projected: money(b.projected), unknown: b.unknown, level: b.level } } : {}) } : null,
+    // 이 기기의 Claude 남은 사용 한도 (aitop --statusline 을 Claude Code 상태줄에 넣었을 때만 값이 있다).
+    limits: { claude: limitsJson(data.limits, data.at ?? Date.now()) },
     // --remote 로 모은 원격마다 마지막 결과 (#308). 원격을 켜지 않으면 빈 배열. at 은 마지막으로 성공한 시각.
     remotes: (data.remotes ?? []).map(remoteOf),
     sessions: data.sessions.map((s) => ({

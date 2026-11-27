@@ -378,6 +378,7 @@ set -g status-interval 15
 - The Claude Code sessions stopped by an API error (`stop 1`, read live).
 - The number of sessions running (`run 3`).
 - Spend over the last hour.
+- Claude usage limits at the end (`5h23% 7d41%`) once [`--statusline`](#claude-usage-limits) has saved them.
 - `aitop idle` when there is nothing to show (`idle` or `-` in a very narrow `--line-width`), so an empty line never looks like a broken setup.
 
 **Options**
@@ -409,6 +410,41 @@ set -g status-interval 15
 - So escape `%` (for example `${$(aitop --line)//\%/%%}`) or use the line only in tmux.
 
 </details>
+
+## Claude usage limits
+
+See how much of your Claude 5-hour and 7-day limits you have used, without any network call.
+
+Claude Code sends these numbers only to its status line command, and does not write them to its logs. So add `aitop --statusline` to the status line yourself, in `~/.claude/settings.json`:
+
+```json
+{ "statusLine": { "type": "command", "command": "aitop --statusline" } }
+```
+
+That prints a short line such as `5h 24% (2h10m) | 7d 41%`. To keep the status line you already have, put its command after `--`:
+
+```json
+{ "statusLine": { "type": "command", "command": "aitop --statusline -- npx -y ccstatusline" } }
+```
+
+- aitop passes the same input to that command and prints its output and exit code as they are (2-second limit).
+- The words after `--` run as an argument list, without a shell. A single argument with spaces (`aitop --statusline -- "my-status --short"`) runs through the shell (`/bin/sh`, or `cmd.exe` on Windows). On Windows, a command it cannot start directly (such as `npx.cmd`) is retried through `cmd.exe`.
+- So a single path with spaces is read as a shell string: quote it inside, as in `aitop --statusline -- "'/opt/my tools/status'"` (or `"\"C:\Program Files\st\st.exe\""` on Windows).
+- When the command runs over 2 seconds, or aitop itself is stopped, the command is stopped with everything it started (its process group, or `taskkill /T` on Windows). Output over 64 KB is cut.
+
+**Where it shows**
+
+- The header, next to `claude`: `5h 23% · 7d 41%`. 80% and over in the caution color, 95% and over in the warning color. Folded away first on a narrow screen.
+- `--json`: `limits.claude` (below), `--line`: `5h23% 7d41%` at the end.
+- `--doctor` and the `?` help: whether the status line is connected and when it last saved.
+
+**What it saves**
+
+- Only `rate_limits.five_hour`, `seven_day` and `spend_limit`: the used percentage and reset time. Model, folders, session id and cost are not saved.
+- The file is `claude-limits.json` in aitop's cache folder (next to `summary.json`, mode 0600). It is replaced on each change, never sent anywhere.
+- A window is hidden after its reset time, and everything is hidden when nothing was saved for 7 days.
+- With several Claude config folders or accounts, the one that saved last is shown. Limits on [`--remote`](#remote-hosts-and-wsl-distros) hosts are not merged in.
+- Values come only on claude.ai Pro, Max and Ultra plans (or behind a Claude apps gateway with a spend limit), and only after the first reply in a session. Before that, the file is left as it was.
 
 ## Several Claude or Codex profiles
 
@@ -591,6 +627,7 @@ See sessions on machines you manage (a VM, a dev server, another WSL distro) on 
 - For scripts, use `phaseKind`, a stable state name: `think`, `write`, `tool`, `team`, `waiting`, `idle`, `stopped`, `done`, `ended` (or `null`).
 - `stopReason` says why a session is `stopped`: `{ "kind": "auth" }` login needed, `network` connection lost, `api` any other API error. `null` otherwise.
 - `schema` (top level) is the JSON shape version, now `1`. It goes up only when an existing field changes meaning or shape.
+- `limits.claude`: Claude usage limits saved by [`--statusline`](#claude-usage-limits), `{ fiveHour: { usedPercent, resetsAt }, sevenDay, spend?, at }` with ISO times, or `null`. `--doctor --json` has `limits: { connected, at, file, fiveHour, sevenDay }`.
 - With [`--remote`](#remote-hosts-and-wsl-distros): each session has `host` (`null` for local) and `remoteId` (its id on that host; `id` is `<host>:<id>`), and `remotes` lists each remote as `{ name, kind, ok, error, version, schema, at }` (`[]` when off). `usage` stays local.
 
 <details>
