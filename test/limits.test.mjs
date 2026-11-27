@@ -12,7 +12,7 @@ process.env.XDG_CACHE_HOME = join(root, 'cache');
 after(() => rmSync(root, { recursive: true, force: true }));
 
 const { LIMITS_FILE, freshLimits, limitsCheck, loadLimits, parseLimits, saveLimits, statusText, fmtLeft } = await import('../src/limits.mjs');
-const { statusline, commandPlan } = await import('../src/statusline.mjs');
+const { statusline, commandPlan, runCommand } = await import('../src/statusline.mjs');
 const { toJson, limitsJson } = await import('../src/json.mjs');
 const { formatLine } = await import('../src/line.mjs');
 const { toolStrip } = await import('../src/ui/table.mjs');
@@ -46,7 +46,7 @@ const sample = (over = {}) => ({
 const fileIn = (name) => join(root, `${name}-${Math.random().toString(36).slice(2)}.json`);
 
 test('parseLimits: 5시간·7일·지출 한도의 % 와 초기화 시각(ms)만 꺼낸다', () => {
-  const l = parseLimits(sample());
+  const l = parseLimits(sample(), NOW);
   assert.deepEqual(Object.keys(l).sort(), ['fiveHour', 'sevenDay', 'spend']);
   assert.deepEqual(l.fiveHour, { pct: 23.5, resetsAt: sec(NOW + 2 * 3600_000 + 10 * 60_000) * 1000 });
   assert.equal(l.spend.pct, 62.8);
@@ -54,7 +54,7 @@ test('parseLimits: 5시간·7일·지출 한도의 % 와 초기화 시각(ms)만
 });
 
 test('parseLimits: 문자열·음수·100 넘는 %·이상한 시각은 받지 않는다. 맞는 창이 없으면 null', () => {
-  const bad = (w) => parseLimits({ rate_limits: { five_hour: w } });
+  const bad = (w) => parseLimits({ rate_limits: { five_hour: w } }, NOW);
   const reset = sec(NOW + 3600_000);
   assert.equal(bad({ used_percentage: '23', resets_at: reset }), null);
   assert.equal(bad({ used_percentage: -1, resets_at: reset }), null);
@@ -63,18 +63,25 @@ test('parseLimits: 문자열·음수·100 넘는 %·이상한 시각은 받지 �
   assert.equal(bad({ used_percentage: 20, resets_at: String(reset) }), null);
   assert.equal(bad({ used_percentage: 20, resets_at: reset * 1000 }), null, 'ms 로 온 시각은 단위가 틀렸다');
   assert.equal(bad({ used_percentage: 20 }), null);
-  assert.equal(parseLimits({ model: { display_name: 'Opus' } }), null, '첫 응답 전에는 rate_limits 가 없다');
+  assert.equal(parseLimits({ model: { display_name: 'Opus' } }, NOW), null, '첫 응답 전에는 rate_limits 가 없다');
   assert.equal(parseLimits(null), null);
   assert.equal(parseLimits({ rate_limits: 'x' }), null);
   // 창 하나만 맞으면 그것만.
-  assert.deepEqual(Object.keys(parseLimits({ rate_limits: { five_hour: { used_percentage: 200, resets_at: reset }, seven_day: { used_percentage: 0, resets_at: reset } } })), ['sevenDay']);
+  assert.deepEqual(Object.keys(parseLimits({ rate_limits: { five_hour: { used_percentage: 200, resets_at: reset }, seven_day: { used_percentage: 0, resets_at: reset } } }, NOW)), ['sevenDay']);
   // 지출 한도는 한도를 넘으면 100 을 넘을 수 있다 (문서).
-  assert.equal(parseLimits({ rate_limits: { spend_limit: { used_percentage: 120, resets_at: reset } } }).spend.pct, 120);
+  assert.equal(parseLimits({ rate_limits: { spend_limit: { used_percentage: 120, resets_at: reset } } }, NOW).spend.pct, 120);
+  // 초기화 시각 상한: 5시간 창은 6시간, 7일 창은 8일 넘게 먼 미래면 버린다. 지출 한도는 한 달 뒤도 받는다.
+  const far = (k, ms) => parseLimits({ rate_limits: { [k]: { used_percentage: 10, resets_at: sec(NOW + ms) } } }, NOW);
+  assert.equal(far('five_hour', 6 * 3600_000 + 60_000), null);
+  assert.ok(far('five_hour', 5 * 3600_000));
+  assert.equal(far('seven_day', 8 * 86_400_000 + 60_000), null);
+  assert.ok(far('seven_day', 7 * 86_400_000));
+  assert.ok(far('spend_limit', 30 * 86_400_000));
 });
 
 test('saveLimits: 숫자·시각만 0600 파일에 원자적으로 저장하고, 다른 필드는 파일에 없다', () => {
   const file = fileIn('save');
-  assert.equal(saveLimits(parseLimits(sample()), { file, now: NOW }), true);
+  assert.equal(saveLimits(parseLimits(sample(), NOW), { file, now: NOW }), true);
   const raw = readFileSync(file, 'utf8');
   const got = JSON.parse(raw);
   assert.deepEqual(Object.keys(got).sort(), ['at', 'fiveHour', 'sevenDay', 'spend']);
@@ -83,8 +90,8 @@ test('saveLimits: 숫자·시각만 0600 파일에 원자적으로 저장하고,
   if (process.platform !== 'win32') assert.equal(statSync(file).mode & 0o777, 0o600);
   assert.equal(existsSync(`${file}.${process.pid}.tmp`), false, '임시 파일이 남지 않는다');
   // 같은 값이 30초 안에 다시 오면 쓰지 않고, 값이 바뀌면 쓴다.
-  assert.equal(saveLimits(parseLimits(sample()), { file, now: NOW + 5_000 }), false);
-  assert.equal(saveLimits({ ...parseLimits(sample()), fiveHour: { pct: 30, resetsAt: NOW + 3600_000 } }, { file, now: NOW + 6_000 }), true);
+  assert.equal(saveLimits(parseLimits(sample(), NOW), { file, now: NOW + 5_000 }), false);
+  assert.equal(saveLimits({ ...parseLimits(sample(), NOW), fiveHour: { pct: 30, resetsAt: NOW + 3600_000 } }, { file, now: NOW + 6_000 }), true);
   assert.equal(loadLimits({ file }).fiveHour.pct, 30);
 });
 
@@ -109,9 +116,9 @@ test('loadLimits: 깨진 파일·손으로 고친 이상한 값은 버린다', (
 });
 
 test('statusText: ASCII 기본 줄, 값이 없으면 빈 글', () => {
-  assert.equal(statusText(parseLimits(sample()), NOW), '5h 24% (2h10m) | 7d 41% | spend 63%');
+  assert.equal(statusText(parseLimits(sample(), NOW), NOW), '5h 24% (2h10m) | 7d 41% | spend 63%');
   assert.equal(statusText(null, NOW), '');
-  assert.match(statusText(parseLimits(sample()), NOW), /^[\x20-\x7e]*$/);
+  assert.match(statusText(parseLimits(sample(), NOW), NOW), /^[\x20-\x7e]*$/);
   assert.equal(fmtLeft(45 * 60_000), '45m');
   assert.equal(fmtLeft(3 * 86_400_000 + 4 * 3600_000), '3d4h');
 });
@@ -206,6 +213,111 @@ test('--statusline -- 명령: 2초를 넘기면 끄고 그때까지의 출력과
   assert.equal(miss.code, 127);
 });
 
+// pid 가 아직 살아 있는지. 끈 직후에는 잠깐 남을 수 있어 1초까지 기다려 본다.
+async function goneSoon(pid) {
+  for (let i = 0; i < 20; i++) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return true;
+    }
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  return false;
+}
+const posix = process.platform !== 'win32';
+
+test('POSIX: 시간 초과 때 셸 문자열의 손자(sleep)까지 그룹째 끈다', { skip: !posix && 'POSIX 전용' }, async () => {
+  const pidFile = join(root, 'grand.pid');
+  const r = await runStatus(['--', `sleep 30 & echo $! > '${pidFile}'; wait`], '{}');
+  assert.equal(r.code, 124);
+  const pid = Number(readFileSync(pidFile, 'utf8'));
+  assert.ok(pid > 0);
+  assert.ok(await goneSoon(pid), '손자 sleep 이 남지 않는다');
+});
+
+test('POSIX: SIGTERM 을 무시하는 자식도 잠시 뒤 SIGKILL 로 끈다', { skip: !posix && 'POSIX 전용' }, async () => {
+  const pidFile = join(root, 'stubborn.pid');
+  const stubborn = join(root, 'stubborn.mjs');
+  writeFileSync(stubborn, `import { writeFileSync } from 'node:fs';process.on('SIGTERM',()=>{});writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));setInterval(()=>{},1000);`);
+  const r = await runStatus(['--', process.execPath, stubborn], '{}');
+  assert.equal(r.code, 124);
+  assert.ok(await goneSoon(Number(readFileSync(pidFile, 'utf8'))), 'TERM 무시 자식이 남지 않는다');
+});
+
+test('자식 stdout 은 64KB 에서 자른다', async () => {
+  const big = join(root, 'big.mjs');
+  writeFileSync(big, `process.stdin.resume();process.stdin.on('end',()=>process.stdout.write('x'.repeat(200000)));`);
+  const r = await runStatus(['--', process.execPath, big], '{}');
+  assert.equal(r.code, 0);
+  assert.equal(r.out.length, 64 * 1024);
+});
+
+test('기본 줄은 초기화 시각이 지난 창을 뺀다', async () => {
+  const input = JSON.stringify({ rate_limits: { five_hour: { used_percentage: 50, resets_at: sec(NOW - 60_000) }, seven_day: { used_percentage: 41.2, resets_at: sec(NOW + 86_400_000) } } });
+  assert.equal((await runStatus([], input)).out, '7d 41%\n');
+});
+
+// Windows 흉내: 가짜 spawn 이 부른 내용을 적고, 셸 없이 부르면 ENOENT, 셸로 부르면 code 로 끝난다.
+const { EventEmitter } = await import('node:events');
+function fakeSpawn({ shellCode = 9009, calls = [] } = {}) {
+  const fn = (file, a, b) => {
+    const opts = Array.isArray(a) ? b : a;
+    calls.push({ file, shell: Boolean(opts?.shell) });
+    const child = new EventEmitter();
+    child.stdout = new PassThrough();
+    child.stdin = new PassThrough();
+    child.kill = () => {};
+    child.pid = 4242;
+    setImmediate(() => {
+      if (!opts?.shell) return child.emit('error', Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' }));
+      child.stdout.end(shellCode === 0 ? 'from cmd\n' : '');
+      child.emit('close', shellCode, null);
+    });
+    return child;
+  };
+  fn.calls = calls;
+  return fn;
+}
+
+test('win32: 경로로 적은 없는 명령은 cmd 로 다시 해 보지 않고 ENOENT(127)', async () => {
+  const spawnFn = fakeSpawn();
+  const r = await runCommand(['C:\\nope\\status.exe'], Buffer.from('{}'), { platform: 'win32', spawnFn, exists: () => false });
+  assert.equal(r.error?.code, 'ENOENT');
+  assert.deepEqual(spawnFn.calls.map((c) => c.shell), [false]);
+  const st = await runStatus(['--', join(root, 'no-such-command')], '{}');
+  assert.equal(st.code, 127, '이 플랫폼에서도 127');
+});
+
+test('win32: 이름만 적은 명령은 cmd 로 다시 해 보고, cmd 가 9009(못 찾음)면 ENOENT(127), 찾으면 그 결과', async () => {
+  const miss = fakeSpawn({ shellCode: 9009 });
+  const r = await runCommand(['no-such-status'], Buffer.from('{}'), { platform: 'win32', spawnFn: miss, exists: () => false });
+  assert.equal(r.error?.code, 'ENOENT');
+  assert.deepEqual(miss.calls, [{ file: 'no-such-status', shell: false }, { file: 'no-such-status', shell: true }]);
+  const ok = fakeSpawn({ shellCode: 0 });
+  const r2 = await runCommand(['npx', 'ccstatusline', 'a b'], Buffer.from('{}'), { platform: 'win32', spawnFn: ok, exists: () => false });
+  assert.equal(r2.code, 0);
+  assert.equal(r2.stdout.toString(), 'from cmd\n');
+  assert.equal(ok.calls[1].file, 'npx ccstatusline "a b"');
+});
+
+test('win32: 시간을 넘기면 taskkill /T /F 로 손자까지 끈다', async () => {
+  const calls = [];
+  const spawnFn = (file, a, b) => {
+    calls.push([file, Array.isArray(a) ? a : []]);
+    const child = new EventEmitter();
+    child.stdout = new PassThrough();
+    child.stdin = new PassThrough();
+    child.pid = 777;
+    child.kill = () => calls.push(['kill']);
+    return child;
+  };
+  const r = await runCommand(['"slow status"'.slice(1, -1)], Buffer.from('{}'), { platform: 'win32', spawnFn, ms: 50 });
+  assert.equal(r.timedOut, true);
+  assert.match(calls[1][0], /taskkill\.exe$/i);
+  assert.deepEqual(calls[1][1], ['/pid', '777', '/T', '/F']);
+});
+
 // 화면·--json·--line 에 넘기는 저장값 (collect 의 limits 와 같은 모양).
 const rec = (five, week, at = NOW) => ({ at, fiveHour: { pct: five, resetsAt: NOW + 2 * 3600_000 }, sevenDay: { pct: week, resetsAt: NOW + 3 * 86_400_000 } });
 
@@ -265,7 +377,7 @@ test('--doctor: 상태줄 연결됨과 마지막 갱신, 없으면 넣는 방법
   const base = { platform: 'linux', processes: true, tools: {} };
   const file = fileIn('doctor');
   assert.match(doctorText({ ...base, limits: limitsCheck({ file, now: NOW }) }, '0', NOW, 'ko'), /○ Claude 한도  상태줄 연결 안 됨\n.*statusLine\.command.*aitop --statusline/);
-  saveLimits(parseLimits(sample()), { file, now: NOW - 3 * 60_000 });
+  saveLimits(parseLimits(sample(), NOW), { file, now: NOW - 3 * 60_000 });
   const c = limitsCheck({ file, now: NOW });
   assert.deepEqual({ connected: c.connected, at: c.at, fiveHour: c.fiveHour, sevenDay: c.sevenDay }, { connected: true, at: new Date(NOW - 3 * 60_000).toISOString(), fiveHour: 23.5, sevenDay: 41.2 });
   assert.match(doctorText({ ...base, limits: c }, '0', NOW, 'ko'), /✓ Claude 한도  상태줄 연결됨 · 마지막 갱신 3분 전 · 5시간 24% · 7일 41%/);

@@ -23,6 +23,8 @@ const PCT_MAX = { fiveHour: 100, sevenDay: 100, spend: 1000 };
 // resets_at 은 초 단위 epoch. 2001~2286년 밖이면 단위가 틀렸거나 깨진 값으로 본다.
 const SEC_MIN = 1e9;
 const SEC_MAX = 1e10;
+// 창마다 resets_at 이 지금보다 이만큼 넘게 먼 미래면 버린다 (5시간 창은 6시간, 7일 창은 8일). 지출 한도는 기간(일·주·달)이 달라 SEC_MAX 만 본다.
+const AHEAD_MS = { fiveHour: 6 * 3600_000, sevenDay: 8 * 86_400_000, spend: Infinity };
 // 화면·--line 에서 주의색·경고색을 쓰는 기준 (예산 색 규칙과 같은 단계 이름).
 export const CAUTION_PCT = 80;
 export const WARN_PCT = 95;
@@ -35,23 +37,24 @@ const KEYS = [
 
 // 창 하나: used_percentage(숫자, 0~max)와 resets_at(초 epoch)이 둘 다 맞아야 { pct, resetsAt(ms) }. 아니면 null.
 // 문자열 숫자·음수·상한 넘는 값·NaN 은 받지 않는다.
-function windowOf(w, max) {
+function windowOf(w, max, maxAt = Infinity) {
   if (!w || typeof w !== 'object') return null;
   const pct = w.used_percentage;
   const sec = w.resets_at;
   if (typeof pct !== 'number' || !Number.isFinite(pct) || pct < 0 || pct > max) return null;
   if (typeof sec !== 'number' || !Number.isFinite(sec) || sec < SEC_MIN || sec > SEC_MAX) return null;
+  if (sec * 1000 > maxAt) return null;
   return { pct: Math.round(pct * 10) / 10, resetsAt: Math.round(sec * 1000) };
 }
 
-// 상태줄 입력(JSON 객체)에서 한도만 꺼낸다. 맞는 창이 하나도 없으면 null.
+// 상태줄 입력(JSON 객체)에서 한도만 꺼낸다. 맞는 창이 하나도 없으면 null. now 는 초기화 시각 상한(AHEAD_MS)의 기준.
 // 모델명·경로·세션 id·비용 같은 다른 필드는 보지도 담지도 않는다. 지출 한도의 used_usd·limit_usd·period 도 담지 않는다.
-export function parseLimits(input) {
+export function parseLimits(input, now = Date.now()) {
   const r = input && typeof input === 'object' ? input.rate_limits : null;
   if (!r || typeof r !== 'object') return null;
   const out = {};
   for (const [key, src] of KEYS) {
-    const w = windowOf(r[src], PCT_MAX[key]);
+    const w = windowOf(r[src], PCT_MAX[key], now + AHEAD_MS[key]);
     if (w) out[key] = w;
   }
   return Object.keys(out).length ? out : null;

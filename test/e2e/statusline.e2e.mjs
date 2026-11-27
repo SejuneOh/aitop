@@ -105,3 +105,33 @@ test('저장된 한도가 --json·--line·--doctor 에 보인다', () => {
   assert.equal(JSON.parse(run(['--json'], { cache: empty }).stdout).limits.claude, null);
   assert.match(run(['--doctor'], { cache: empty, env: { AITOP_LANG: 'en' } }).stdout, /○ Claude limits {2}status line not connected/);
 });
+
+test('POSIX: aitop 이 SIGTERM 을 받으면 사용자 명령의 손자까지 끄고 끝난다', { skip: process.platform === 'win32' && 'POSIX 전용' }, async () => {
+  const { spawn } = await import('node:child_process');
+  const pidFile = join(root, `sig-${process.pid}.pid`);
+  const child = spawn(process.execPath, [BIN, '--statusline', '--', `sleep 30 & echo $! > '${pidFile}'; wait`], { env: { ...process.env, XDG_CACHE_HOME: freshCache() }, stdio: ['pipe', 'ignore', 'ignore'] });
+  child.stdin.end('{}');
+  // 손자가 pid 를 적을 때까지 기다린다.
+  let pid = 0;
+  for (let i = 0; i < 40 && !pid; i++) {
+    await new Promise((r) => setTimeout(r, 50));
+    try {
+      pid = Number(readFileSync(pidFile, 'utf8')) || 0;
+    } catch {}
+  }
+  assert.ok(pid > 0);
+  const closed = new Promise((r) => child.on('close', (code, sig) => r({ code, sig })));
+  child.kill('SIGTERM');
+  const res = await closed;
+  assert.equal(res.code, 143);
+  let alive = true;
+  for (let i = 0; i < 20 && alive; i++) {
+    try {
+      process.kill(pid, 0);
+      await new Promise((r) => setTimeout(r, 50));
+    } catch {
+      alive = false;
+    }
+  }
+  assert.equal(alive, false, '손자 sleep 이 남지 않는다');
+});

@@ -428,6 +428,8 @@ That prints a short line such as `5h 24% (2h10m) | 7d 41%`. To keep the status l
 
 - aitop passes the same input to that command and prints its output and exit code as they are (2-second limit).
 - The words after `--` run as an argument list, without a shell. A single argument with spaces (`aitop --statusline -- "my-status --short"`) runs through the shell (`/bin/sh`, or `cmd.exe` on Windows). On Windows, a command it cannot start directly (such as `npx.cmd`) is retried through `cmd.exe`.
+- So a single path with spaces is read as a shell string: quote it inside, as in `aitop --statusline -- "'/opt/my tools/status'"` (or `"\"C:\Program Files\st\st.exe\""` on Windows).
+- When the command runs over 2 seconds, or aitop itself is stopped, the command is stopped with everything it started (its process group, or `taskkill /T` on Windows). Output over 64 KB is cut.
 
 **Where it shows**
 
@@ -440,6 +442,7 @@ That prints a short line such as `5h 24% (2h10m) | 7d 41%`. To keep the status l
 - Only `rate_limits.five_hour`, `seven_day` and `spend_limit`: the used percentage and reset time. Model, folders, session id and cost are not saved.
 - The file is `claude-limits.json` in aitop's cache folder (next to `summary.json`, mode 0600). It is replaced on each change, never sent anywhere.
 - A window is hidden after its reset time, and everything is hidden when nothing was saved for 7 days.
+- With several Claude config folders or accounts, the one that saved last is shown. Limits on [`--remote`](#remote-hosts-and-wsl-distros) hosts are not merged in.
 - Values come only on claude.ai Pro, Max and Ultra plans (or behind a Claude apps gateway with a spend limit), and only after the first reply in a session. Before that, the file is left as it was.
 
 ## Several Claude or Codex profiles

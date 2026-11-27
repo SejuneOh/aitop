@@ -726,6 +726,8 @@ Claude Code 는 이 값을 상태줄 명령의 입력으로만 주고 기록 파
 
 - aitop 은 같은 입력을 그 명령에 넘기고, 그 출력과 종료 코드를 그대로 낸다 (2초 제한).
 - `--` 뒤 낱말들은 셸 없이 인자 배열로 실행한다. 공백이 든 인자 하나(`aitop --statusline -- "my-status --short"`)는 셸(`/bin/sh`, Windows 는 `cmd.exe`)로 실행한다. Windows 에서 바로 실행할 수 없는 명령(`npx.cmd` 같은)은 `cmd.exe` 로 한 번 더 해 본다.
+- 그래서 공백이 든 경로 하나도 셸 문자열로 읽힌다. 안쪽을 따옴표로 감싼다: `aitop --statusline -- "'/opt/my tools/status'"` (Windows 는 `"\"C:\Program Files\st\st.exe\""`).
+- 명령이 2초를 넘기거나 aitop 자신이 멈추라는 신호를 받으면, 그 명령이 띄운 프로세스까지 함께 끈다 (프로세스 그룹째, Windows 는 `taskkill /T`). 64KB 넘는 출력은 자른다.
 
 **보이는 곳**
 
@@ -738,6 +740,7 @@ Claude Code 는 이 값을 상태줄 명령의 입력으로만 주고 기록 파
 - `rate_limits.five_hour`·`seven_day`·`spend_limit` 의 사용 % 와 초기화 시각만. 모델·폴더·세션 id·비용은 저장하지 않는다.
 - 파일은 aitop 캐시 폴더의 `claude-limits.json` (`summary.json` 옆, 권한 0600). 값이 바뀔 때마다 통째로 바꾸고, 어디에도 보내지 않는다.
 - 초기화 시각이 지난 창은 숨기고, 7일 동안 새로 저장되지 않으면 모두 숨긴다.
+- Claude 설정 폴더나 계정이 여럿이면 마지막에 저장한 쪽이 보인다. [`--remote`](#원격-호스트와-wsl-배포판) 원격의 한도는 합치지 않는다.
 - 값은 claude.ai Pro·Max·Ultra 요금제(또는 지출 한도를 둔 Claude apps 게이트웨이)에서만, 세션의 첫 응답 뒤에만 온다. 그 전에는 파일을 그대로 둔다.
 
 ## 기록 폴더 여러 개
