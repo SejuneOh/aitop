@@ -183,8 +183,8 @@ test('표: 요약 카드, 머리글, 첫 지시는 --show-prompts 일 때만 (�
   assert.match(text, /합계 \$29\.00 \(API 정가 환산\) · 토큰 3\.5M · 세션 4개/);
   assert.match(text, /도구별 비용 비중: claude 90% · agy 10% · codex 0%/);
   assert.match(text, /에이전트가 기다린 시간 1h23m \(추정\)/);
-  assert.match(text, /^도구 +모델 +프로젝트 +세션 +시작 +끝 +기다림 +토큰 +비용 +파일$/m);
-  assert.match(text, /^claude +claude-opus-5-5 \+1 +app +리포트 \| 작업 +11-15 10:00 +11-16 09:10 +10m00s +1\.5M +\$6\.00 +2$/m);
+  assert.match(text, /^도구 +모델 +프로젝트 +세션 +시작 +끝 +기다림 +토큰 +캐시 +비용 +파일$/m);
+  assert.match(text, /^claude +claude-opus-5-5 \+1 +app +리포트 \| 작업 +11-15 10:00 +11-16 09:10 +10m00s +1\.5M +- +\$6\.00 +2$/m);
   assert.match(text, /^claude +.* web +11-16 12:00 +13:00 +1h12m +2\.0M/m);
   assert.match(text, /^agy .* 11-16 09:00 +10:05 +- .* -$/m);
   assert.match(text, /기다림은 .*추정.*자리 비움과 구분하지 못함/);
@@ -195,13 +195,13 @@ test('표: 요약 카드, 머리글, 첫 지시는 --show-prompts 일 때만 (�
   assert.doesNotMatch(shown, /sk-ant-api03-AAAA/);
   assert.doesNotMatch(shown, /지난 지시/, '기간 밖 날의 지시는 쓰지 않는다');
   setLang('en');
-  assert.match(formatSessions(r), /^Tool +Model +Project +Session +Start +End +Waited +Tokens +Cost +Files$/m);
+  assert.match(formatSessions(r), /^Tool +Model +Project +Session +Start +End +Waited +Tokens +Cache +Cost +Files$/m);
   assert.match(formatSessions(r), /Agents waited for you 1h23m \(estimate\)/);
   // 기다린 시간을 아는 세션이 없으면 카드 줄을 두지 않는다.
   assert.doesNotMatch(formatSessions(buildSessions(books, { since: SINCE, now: NOW })), /Agents waited/);
   // 좁은 터미널: 세션 이름 칸만 줄고 기다림 칸은 남는다.
   const narrow = formatSessions(r, { cols: 80 });
-  assert.match(narrow, /^Tool +Model +Project +Session +Start +End +Waited +Tokens +Cost +Files$/m);
+  assert.match(narrow, /^Tool +Model +Project +Session +Start +End +Waited +Tokens +Cache +Cost +Files$/m);
   assert.match(formatSessions(buildSessions([], { since: SINCE, now: NOW })), /No session used tokens in this period/);
   setLang('ko');
 });
@@ -217,8 +217,8 @@ test('Markdown: 요약 줄과 표, 칸 안의 | 와 줄바꿈은 이스케이프
   assert.ok(lines.some((l) => /^- 합계 \*\*\$29\.00\*\* \(API 정가 환산\)/.test(l)));
   assert.ok(lines.some((l) => /^- 구독료 .*API 정가 환산, 실제 청구액이 아님/.test(l)));
   assert.ok(lines.some((l) => /^- 에이전트가 기다린 시간 \*\*1h23m\*\* \(추정\)$/.test(l)));
-  assert.ok(lines.includes('| 도구 | 모델 | 프로젝트 | 세션 | 시작 | 끝 | 기다림 | 토큰 | 비용 | 파일 |'));
-  assert.ok(lines.includes('| claude | claude-opus-5-5 +1 | app | 리포트 \\| 작업 | 11-15 10:00 | 11-16 09:10 | 10m00s | 1.5M | $6.00 | 2 |'));
+  assert.ok(lines.includes('| 도구 | 모델 | 프로젝트 | 세션 | 시작 | 끝 | 기다림 | 토큰 | 캐시 | 비용 | 파일 |'));
+  assert.ok(lines.includes('| claude | claude-opus-5-5 +1 | app | 리포트 \\| 작업 | 11-15 10:00 | 11-16 09:10 | 10m00s | 1.5M | - | $6.00 | 2 |'));
   // 표 줄은 모두 같은 칸 수 (이스케이프한 | 는 세지 않는다).
   const cells = (l) => l.replace(/\\\|/g, '').split('|').length;
   const rows = lines.filter((l) => l.startsWith('|'));

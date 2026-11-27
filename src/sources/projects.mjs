@@ -10,6 +10,7 @@ import { openReadOnly } from '../sqlite.mjs';
 import { debugIo } from '../log.mjs';
 import { claudeProjectRoots } from './dirs.mjs';
 import { coworkProjectOf } from './cowork.mjs';
+import { isZst, inflateZst } from '../zstd.mjs';
 
 // 앞부분에서 cwd 를 찾을 때 읽는 최대 크기. Codex 의 첫 줄(session_meta)은 지침 글이 들어 있어 길 수 있다.
 const HEAD_BYTES = 256 * 1024;
@@ -21,6 +22,23 @@ const BUF = Buffer.allocUnsafe(HEAD_BYTES);
 // 대개 첫 몇 줄에 있으므로 CHUNK 씩 읽고, 찾으면 더 읽지 않는다.
 const CHUNK = 16 * 1024;
 function scanHead(path, pick) {
+  // Codex 압축 기록(.jsonl.zst)은 앞부분만 풀 수 없어 통째로 풀고 앞 HEAD_BYTES 안의 줄만 본다 (장부가 cwd 를 주지 못했을 때만).
+  if (isZst(path)) {
+    const got = inflateZst(path);
+    if (!got.data) return;
+    const head = got.data.subarray(0, HEAD_BYTES);
+    const end = head.length < HEAD_BYTES ? head.length : head.lastIndexOf(10);
+    for (const line of head.toString('utf8', 0, Math.max(0, end)).split('\n')) {
+      let x;
+      try {
+        x = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (pick(x)) return;
+    }
+    return;
+  }
   let fd;
   try {
     fd = openSync(path, 'r');
@@ -164,8 +182,10 @@ export function attachProjects(books, root) {
         // Claude Desktop Cowork 기록은 기록 안의 cwd(VM·outputs 폴더) 대신 cowork 또는 사용자가 고른 폴더로 묶는다 (#313).
         project = coworkProjectOf(b.path) ?? claudeProject(b.path);
         if (!project) fallback = claudeFolder(b.path, root);
-      } else if (b.tool === 'codex') project = codexProject(b.path);
-      else if (b.tool === 'agy') project = (agy ??= agyWorkspaces()).get(basename(b.path, '.db')) ?? null;
+      } else if (b.tool === 'codex') {
+        // 압축 기록은 장부가 읽으면서 기억한 작업 폴더(b.cwd)를 먼저 쓴다 (다시 풀지 않게).
+        project = (isZst(b.path) ? b.cwd : null) ?? codexProject(b.path);
+      } else if (b.tool === 'agy') project = (agy ??= agyWorkspaces()).get(basename(b.path, '.db')) ?? null;
     }
     project = projectRoot(project);
     // 한 폴더 이름에 서로 다른 경로가 둘 이상 모이면(/a/b-c 와 /a/b/c, 한글 이름 등) 어느 쪽인지 모르니 묶지 않는다 (false).

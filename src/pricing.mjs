@@ -1,8 +1,10 @@
 // Claude API 정가 기준 환산 비용 (USD / 100만 토큰). 구독 요금제 사용분도 "API 로 썼다면" 기준으로 계산한다.
-// 출처: Anthropic 공식 가격표 https://platform.claude.com/docs/en/about-claude/pricing (2026-11-18 확인).
+// 출처: Anthropic 공식 가격표 https://platform.claude.com/docs/en/about-claude/pricing (2026-11-27 확인).
 // 캐시 읽기는 기본 입력가의 0.1배이고 표에 cacheRead 가 있는 모델만 다르다 (Fable·Mythos 5.1/5.2 는 0.025배, Opus·Sonnet 5.5 는 0.05배).
-// 캐시 쓰기는 5분 1.25배·1시간 2배. Haiku 5.5 의 10만 토큰 초과 요청 단가(5배)는 반영하지 않는다:
-// 보관 벡터(monthly.mjs)에는 요청별 크기가 남지 않아서, 모두 기본 단가로 계산한다.
+// 캐시 쓰기는 5분 1.25배·1시간 2배.
+// long: 프롬프트가 over 토큰을 넘는 요청 전체에 쓰는 단가 (Haiku 5.5 는 10만 토큰 초과면 입력·출력·캐시 모두 5배).
+// 프롬프트 길이는 그 요청(usage 한 건)의 입력 + 캐시 읽기 + 캐시 쓰기 합이고, 요청마다 따로 판정한다.
+// 보관 벡터(monthly.mjs)에는 요청별 크기가 남지 않으므로, 긴 요청의 벡터는 장부에서 l 로 따로 모은다.
 import { createHash } from 'node:crypto';
 
 const PRICES = {
@@ -25,12 +27,12 @@ const PRICES = {
   'claude-sonnet-4-6': { input: 3, output: 15 },
   'claude-sonnet-4-5': { input: 3, output: 15 },
   'claude-sonnet-4': { input: 3, output: 15 },
-  'claude-haiku-5-5': { input: 0.1, output: 0.5 },
+  'claude-haiku-5-5': { input: 0.1, output: 0.5, long: { over: 100_000, input: 0.5, output: 2.5, cacheRead: 0.05 } },
   'claude-haiku-4-5': { input: 1, output: 5 },
 };
 
 // Gemini API 정가 (USD / 100만 토큰, 유료 등급 standard). Antigravity CLI(agy) 사용분을 "API 로 썼다면" 기준으로 계산한다.
-// 출처: Google 공식 가격표 https://aistudio.google.com/docs/pricing (2026-11-18 확인). 긴 컨텍스트 구간은 따로 없다.
+// 출처: Google 공식 가격표 https://ai.google.dev/gemini-api/docs/pricing (2026-11-27 확인). 긴 컨텍스트 구간은 따로 없다.
 // 출력에는 생각 토큰이 들어 있고, cacheRead 는 context caching 가격이다. 가격이 바뀌는 모델은 날짜순 목록이며,
 // from 은 그 가격이 시작되는 날(UTC 0시)이다.
 const GEMINI_PRICES = {
@@ -39,6 +41,11 @@ const GEMINI_PRICES = {
     { input: 2, output: 10, cacheRead: 0.1 },
     { from: '2026-12-01', input: 4, output: 20, cacheRead: 0.2 },
   ],
+  'gemini-4-carbon': [
+    { input: 2, output: 10, cacheRead: 0.1 },
+    { from: '2026-12-01', input: 4, output: 20, cacheRead: 0.2 },
+  ],
+  'gemini-4-neon': [{ input: 3, output: 15, cacheRead: 0.15 }],
   'gemini-3.8-flash': [
     { input: 0.75, output: 3.75, cacheRead: 0.075 },
     { from: '2027-01-01', input: 1.5, output: 7.5, cacheRead: 0.15 },
@@ -133,6 +140,7 @@ function priceOf(model) {
 
 // 사용량 벡터: [입력(캐시 제외), 출력, 캐시 읽기, 캐시 쓰기 5분, 캐시 쓰기 1시간]. 월별 보관함(monthly.mjs)이
 // 이 벡터를 남겨 두었다가 가격표가 바뀌면 지금 가격으로 다시 계산한다.
+// 벡터는 세 갈래다: u(보통), f(fast 모드), l(긴 프롬프트 요청: 표에 long 이 있는 모델만).
 export const VEC = 5;
 export const zeroVec = () => [0, 0, 0, 0, 0];
 
@@ -144,7 +152,16 @@ export function claudeVec(u) {
   return [u.input_tokens ?? 0, u.output_tokens ?? 0, u.cache_read_input_tokens ?? 0, write5m, write1h];
 }
 
-// Claude 벡터 하나의 비용 (m: fast 배수).
+// 요청 하나(usage 한 건)가 긴 프롬프트 단가를 받는지. 입력 + 캐시 읽기 + 캐시 쓰기 합이 long.over 를 넘을 때만이다 (같으면 기본 단가).
+// 장부(claude-ledger.mjs)가 이 값으로 벡터를 l 에 모은다. 표에 long 이 없는 모델은 늘 false.
+export function claudeLong(model, u) {
+  const over = priceOf(model)?.long?.over;
+  if (!over || !u) return false;
+  const v = claudeVec(u);
+  return v[0] + v[2] + v[3] + v[4] > over;
+}
+
+// Claude 벡터 하나의 비용 (m: fast 배수). 긴 요청은 p 대신 p.long 을 넘긴다 (캐시 읽기가 없으면 입력의 0.1배, 쓰기는 1.25배·2배로 같다).
 function claudeVecCost(p, v, m) {
   const input = p.input * m;
   const base = v[0] * input + v[1] * p.output * m;
@@ -156,17 +173,19 @@ function claudeVecCost(p, v, m) {
 export function claudeCost(model, u) {
   const p = priceOf(model);
   if (!p || !u) return null;
-  return claudeVecCost(p, claudeVec(u), u.speed === 'fast' && p.fast ? p.fast : 1);
+  return claudeVecCost(claudeLong(model, u) ? p.long : p, claudeVec(u), u.speed === 'fast' && p.fast ? p.fast : 1);
 }
 
-// 보관된 벡터(v: 보통, f: fast 모드)를 지금 가격표로 환산한 비용(USD). 가격표에 없는 모델이면 null.
+// 보관된 벡터(v: 보통, f: fast 모드, l: 긴 프롬프트 요청)를 지금 가격표로 환산한 비용(USD). 가격표에 없는 모델이면 null.
 // agy(Gemini)는 날짜별 가격이라 at(그 달 가운데) 시각의 가격을 쓴다.
-export function vecCost(tool, model, v, f, at = Date.now()) {
+// l 은 long 단가로 계산한다. 지금 표에서 long 이 있는 모델(Haiku 5.5)은 fast 가 없어 배수는 1 이다.
+// 표에서 long 이 사라졌으면 l 도 기본 단가로 계산한다.
+export function vecCost(tool, model, v, f, at = Date.now(), l = null) {
   const u = v ?? zeroVec();
   if (tool === 'claude') {
     const p = priceOf(model);
     if (!p) return null;
-    return claudeVecCost(p, u, 1).total + (f ? claudeVecCost(p, f, p.fast ?? 1).total : 0);
+    return claudeVecCost(p, u, 1).total + (f ? claudeVecCost(p, f, p.fast ?? 1).total : 0) + (l ? claudeVecCost(p.long ?? p, l, 1).total : 0);
   }
   const p = tool === 'codex' ? openaiPrice(model) : tool === 'agy' ? geminiPrice(model, at) : null;
   if (!p) return null;

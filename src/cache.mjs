@@ -8,6 +8,7 @@ import { appDir } from './paths.mjs';
 import { createHash } from 'node:crypto';
 import { PRICE_TAG } from './pricing.mjs';
 import { debug, debugIo } from './log.mjs';
+import { isZst } from './zstd.mjs';
 
 // 캐시 형식이 바뀌면 VERSION 을, 가격표가 바뀌면 PRICE_TAG 가 폴더 이름을 바꿔서 예전 캐시를 버린다.
 // 14: 장부의 하루 합계에 모델별 몫(models)을 더하고, 날짜를 10일이 아니라 30일 남긴다 (#128).
@@ -36,7 +37,8 @@ function removeOldDirs() {
       // summary.json(--line 용 요약, summary.mjs)은 버전 폴더 밖에 두고 여기서 지우지 않는다. 남은 임시 파일은 일주일 뒤 지운다.
       // monthly.json(월별 보관함, monthly.mjs)과 깨져서 옆으로 옮긴 monthly.json.bad-* 도 사용자 기록이라 지우지 않는다.
       // sdk-parents.json(claude -p 실행의 기억된 부모)도 형식 버전과 상관없이 남긴다.
-      if (d === NAME || d === 'summary.json' || d === 'monthly.json' || d === PARENTS_FILE || d.startsWith('monthly.json.bad-')) continue;
+      // claude-limits.json(--statusline 이 저장한 Claude 한도, limits.mjs)도 남긴다. 오래된 값은 읽는 쪽이 숨긴다.
+      if (d === NAME || d === 'summary.json' || d === 'claude-limits.json' || d === 'monthly.json' || d === PARENTS_FILE || d.startsWith('monthly.json.bad-')) continue;
       const p = join(ROOT, d);
       // 이 버전보다 낮은 형식(v2, v6-… 등)은 더 이상 어떤 버전도 쓰지 않으므로 바로 지운다.
       const ver = Number(/^v(\d+)(?:-|$)/.exec(d)?.[1]);
@@ -51,11 +53,13 @@ function removeOldDirs() {
 const keyOf = (path, kind) => createHash('sha1').update(`${kind}\0${path}`).digest('hex');
 
 // 파일이 바뀌지 않고 뒤에만 붙었을 때(크기가 같거나 커졌고 inode 가 같을 때)만 캐시를 쓴다.
+// Codex 압축 기록(.jsonl.zst)은 뒤에 붙지 않으므로 크기와 수정 시각까지 같을 때만 쓴다 (zstd.mjs).
 export function loadCache(path, kind = '') {
   try {
     const c = JSON.parse(readFileSync(join(DIR, keyOf(path, kind) + '.json'), 'utf8'));
     const st = statSync(path);
     if (c.path !== path || c.ino !== st.ino || st.size < c.offset) return null;
+    if (isZst(path) && (c.size !== st.size || c.mtime !== st.mtimeMs)) return null;
     return c;
   } catch (e) {
     debugIo('cache', 'cache load failed', e);
@@ -84,7 +88,9 @@ export function flushCache() {
       const data = build();
       if (!data) continue;
       const file = join(DIR, key + '.json');
-      writeFileSync(file + '.tmp', JSON.stringify({ ...data, path, ino: statSync(path).ino }), { mode: 0o600 });
+      const st = statSync(path);
+      // 압축 기록은 크기·수정 시각도 남겨 바뀌었는지 본다 (loadCache).
+      writeFileSync(file + '.tmp', JSON.stringify({ ...data, path, ino: st.ino, ...(isZst(path) ? { size: st.size, mtime: st.mtimeMs } : {}) }), { mode: 0o600 });
       try {
         renameSync(file + '.tmp', file, { retries });
       } catch (e) {

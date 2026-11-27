@@ -11,7 +11,7 @@ import { t } from './i18n.mjs';
 import { fmtElapsed, fmtTokens, mask, oneLine, pad, stripControl, truncate, width } from './text.mjs';
 import { money } from './line.mjs';
 import { tildeIn } from './paths.mjs';
-import { dayKey } from './sources/common.mjs';
+import { cacheHitRate, dayKey, hitJson, hitText, vecTokens } from './sources/common.mjs';
 import { projectLabels } from './sources/projects.mjs';
 import { MAX_MS, UNKNOWN, collectReport } from './report.mjs';
 
@@ -144,6 +144,9 @@ export function buildSessions(books, { since, now = Date.now(), extra = new Map(
     let tokens = 0;
     let cost = 0;
     let unpriced = false;
+    // 프롬프트 캐시 적중률용 (#334): 장부 모델별 벡터(u·f)의 입력·캐시 읽기·캐시 쓰기 합. 벡터 없이 토큰만 있는 칸이 섞이면 모름.
+    const hit = { input: 0, cacheRead: 0, cacheWrite: 0 };
+    let hitKnown = true;
     let a = null;
     let z = null;
     const files = new Set();
@@ -165,6 +168,14 @@ export function buildSessions(books, { since, now = Date.now(), extra = new Map(
           const o = (models[m] ??= { tokens: 0, cost: 0 });
           o.tokens += x.tokens;
           o.cost += x.cost;
+          if (!x.u && !x.f) {
+            if (x.tokens > 0) hitKnown = false;
+            continue;
+          }
+          for (const v of [x.u, x.f]) {
+            const p = vecTokens(v);
+            for (const k of Object.keys(hit)) hit[k] += p[k];
+          }
         }
         if (g.tool === 'agy') time(d);
       }
@@ -208,6 +219,8 @@ export function buildSessions(books, { since, now = Date.now(), extra = new Map(
       tokens,
       cost,
       unpriced,
+      // 메인과 서브에이전트(agy 는 하위 대화)를 합친 프롬프트 캐시 적중률 0~1. 모르면 null.
+      cacheHitRate: hitKnown ? cacheHitRate(hit) : null,
       files: filesKnown ? files.size : null,
       filesMore: filesKnown && more,
       prompt,
@@ -283,6 +296,8 @@ export function sessionsJson(r, version, { partial = false, prompts = false } = 
       tokens: x.tokens,
       cost: x.cost,
       unpriced: x.unpriced,
+      // 프롬프트 캐시 적중률 0~1 (소수 셋째 자리). 모르면 null.
+      cacheHitRate: hitJson(x.cacheHitRate),
       files: x.files,
       // 기다린 시간 (ms, 추정). agy 처럼 모르면 null.
       waitedMs: x.waited,
@@ -333,9 +348,10 @@ function titleOf(r) {
 }
 
 // 기다림 칸은 시작·끝 옆에 둔다 (시간끼리). 좁은 터미널에서는 다른 칸처럼 그대로 두고 세션 이름 칸이 줄어든다.
-const HEAD_KEYS = ['tool', 'model', 'project', 'name', 'start', 'end', 'waited', 'tokens', 'cost', 'files'];
-const rowCells = (x) => [x.tool, clean(modelText(x)), clean(projectText(x)), clean(x.name), startText(x), endText(x), waitedText(x.waited), used(x) ? fmtTokens(Math.round(x.tokens)) : '-', costText(x), filesText(x)];
-const RIGHT = new Set([6, 7, 8, 9]);
+// 캐시(프롬프트 캐시 적중률, #334)는 토큰 옆에 둔다.
+const HEAD_KEYS = ['tool', 'model', 'project', 'name', 'start', 'end', 'waited', 'tokens', 'cache', 'cost', 'files'];
+const rowCells = (x) => [x.tool, clean(modelText(x)), clean(projectText(x)), clean(x.name), startText(x), endText(x), waitedText(x.waited), used(x) ? fmtTokens(Math.round(x.tokens)) : '-', hitText(x.cacheHitRate) ?? '-', costText(x), filesText(x)];
+const RIGHT = new Set([6, 7, 8, 9, 10]);
 // 칸 폭 상한 (세션 이름은 터미널 폭에 맞춘다).
 const MAX_W = { 1: 24, 2: 20 };
 const NAME_MIN = 12;

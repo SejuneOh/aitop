@@ -10,7 +10,7 @@
 // 여러 aitop 이 함께 써도 파일 하나에는 늘 "since~through 의 합" 만 들어 있다: 쓰기 전에 다시 읽어 rev 가 바뀌었으면 쓰지 않고
 // (다음 기회에 다시 접는다), pid 별 임시 파일에 쓴 뒤 rename 한다.
 //
-// 값마다 사용량 벡터(입력·출력·캐시 읽기·캐시 쓰기 5분·1시간, fast 모드는 따로)를 남겨, 가격표가 바뀌면 지금 가격으로 다시 계산한다.
+// 값마다 사용량 벡터(입력·출력·캐시 읽기·캐시 쓰기 5분·1시간, fast 모드와 긴 프롬프트 요청은 따로)를 남겨, 가격표가 바뀌면 지금 가격으로 다시 계산한다.
 import { readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { renameSync } from './rename.mjs';
 import { dirname, join } from 'node:path';
@@ -68,7 +68,7 @@ export const emptyArchive = () => ({ v: V, rev: 0, price: PRICE_TAG, since: null
 
 const isNum = (x) => typeof x === 'number' && Number.isFinite(x);
 const isVec = (x) => Array.isArray(x) && x.every(isNum);
-const validEntry = (e) => e && typeof e.t === 'string' && typeof e.m === 'string' && (e.p == null || typeof e.p === 'string') && isNum(e.n) && isNum(e.c) && (e.u == null || isVec(e.u)) && (e.f == null || isVec(e.f));
+const validEntry = (e) => e && typeof e.t === 'string' && typeof e.m === 'string' && (e.p == null || typeof e.p === 'string') && isNum(e.n) && isNum(e.c) && (e.u == null || isVec(e.u)) && (e.f == null || isVec(e.f)) && (e.l == null || isVec(e.l));
 function valid(a) {
   if (!a || typeof a !== 'object' || !Number.isInteger(a.rev)) return false;
   for (const k of ['since', 'from', 'through', 'backfilled']) if (a[k] != null && !(typeof a[k] === 'string' && DAY.test(a[k]))) return false;
@@ -85,8 +85,8 @@ function reprice(a) {
   for (const [month, list] of Object.entries(a.months)) {
     const at = Date.parse(`${month}-15T12:00:00Z`);
     for (const e of list) {
-      if (!e.u && !e.f) continue;
-      const c = vecCost(e.t, e.m, e.u, e.f, at);
+      if (!e.u && !e.f && !e.l) continue;
+      const c = vecCost(e.t, e.m, e.u, e.f, at, e.l);
       if (c == null) continue;
       e.c = c;
       delete e.x;
@@ -201,7 +201,7 @@ export function foldInto(a, books, { lo, hi, complete = lo, now = Date.now(), ga
         e.n += x.tokens;
         e.c += x.cost;
         if (x.unknown) e.x = 1;
-        for (const k of ['u', 'f']) if (x[k]) e[k] = (e[k] ?? [0, 0, 0, 0, 0]).map((v, i) => v + (x[k][i] ?? 0));
+        for (const k of ['u', 'f', 'l']) if (x[k]) e[k] = (e[k] ?? [0, 0, 0, 0, 0]).map((v, i) => v + (x[k][i] ?? 0));
       }
     }
   if (a.through == null) {

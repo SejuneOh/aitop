@@ -2,6 +2,7 @@
 // token_count 는 세션 누적값(total_token_usage)이라, 같은 파일의 직전 누적값과의 차이만 그 줄의 시각에 더한다.
 // 같은 누적값이 되풀이되면 차이가 0 이라 두 번 세지 않고, 누적값이 줄었으면 새 카운터가 시작된 것으로 보고 새 누적값을 그대로 더한다.
 // 가격은 그 줄 앞의 마지막 turn_context 모델로 매긴다. 기록은 읽기만 하고, 어디까지 읽었는지는 캐시에 둔다.
+// 7일 넘게 쉬어 Codex 가 압축한 rollout-*.jsonl.zst 도 같은 기록으로 센다 (zstd.mjs). 한 번 다 풀어 읽으면 바뀔 때까지 다시 풀지 않는다.
 import { readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { JsonlTail } from '../tail.mjs';
@@ -11,6 +12,7 @@ import { allDayDirs } from './codex.mjs';
 import { dedupeBy } from './dirs.mjs';
 import { dayKey, addSlot, addModel, recentDays } from './common.mjs';
 import { debugIo } from '../log.mjs';
+import { plainName, rolloutNames } from '../zstd.mjs';
 
 // 2: 사용량 벡터, 날짜 400일 보관 (#164).
 const KIND = 'codex-ledger2';
@@ -41,6 +43,8 @@ export class CodexBook {
       this.last = c.last ?? null;
       this.days = c.days ?? {};
       this.slots = c.slots ?? {};
+      this.cwd = c.cwd ?? null;
+      this.metaCwd = c.metaCwd ?? null;
     }
   }
 
@@ -50,6 +54,10 @@ export class CodexBook {
     this.days = {};
     // 지출 속도용 5분 칸 (common.mjs addSlot).
     this.slots = {};
+    // 리포트 --by project 용 작업 폴더: 첫 turn_context.cwd, 없으면 session_meta.cwd (projects.mjs codexProject 와 같은 규칙).
+    // 압축 기록은 앞부분만 읽을 수 없어 장부가 읽으면서 기억해 둔다.
+    this.cwd = null;
+    this.metaCwd = null;
   }
 
   get pending() {
@@ -63,13 +71,15 @@ export class CodexBook {
   }
 
   snapshot() {
-    return { offset: this.tail.lineOffset, model: this.model, last: this.last, days: recentDays(this.days), slots: this.slots };
+    return { offset: this.tail.lineOffset, model: this.model, last: this.last, days: recentDays(this.days), slots: this.slots, cwd: this.cwd, metaCwd: this.metaCwd };
   }
 
   apply(x) {
     const p = x.payload ?? {};
+    if (x.type === 'session_meta' && typeof p.cwd === 'string') this.metaCwd ??= p.cwd;
     if (x.type === 'turn_context') {
       this.model = p.model ?? this.model;
+      if (typeof p.cwd === 'string') this.cwd ??= p.cwd;
       return;
     }
     if (x.type !== 'event_msg' || p.type !== 'token_count' || !p.info?.total_token_usage) return;
@@ -105,12 +115,12 @@ function recentFiles(days = DAYS) {
     } catch (e) {
       debugIo('ledger', 'codex day folder read failed', e, dir);
     }
-    for (const n of names) {
-      if (!n.startsWith('rollout-') || !n.endsWith('.jsonl')) continue;
+    // 같은 이름의 .jsonl 과 .jsonl.zst 가 함께 있으면 .jsonl 만, 홈끼리는 .zst 를 뗀 이름으로 하나로 센다.
+    for (const n of rolloutNames(names)) {
       const p = join(dir, n);
       try {
         const mtime = statSync(p).mtimeMs;
-        if (mtime >= cutoff) found.push({ key: n, path: p, mtime });
+        if (mtime >= cutoff) found.push({ key: plainName(n), path: p, mtime });
       } catch {}
     }
   }
@@ -125,7 +135,7 @@ const books = new Map();
 // 기록마다 날짜별 합계(days)와 5분 칸(slots), 아직 읽지 않은 크기(pending)·전체 크기(size).
 // days: 최근 며칠 안에 바뀐 기록을 볼지 (평소 7일, 리포트는 더 길게).
 export function collectCodexLedger({ budget, days = DAYS } = {}) {
-  const out = { days: [], slots: [], paths: [], pending: 0, size: 0 };
+  const out = { days: [], slots: [], paths: [], cwds: [], pending: 0, size: 0 };
   const files = recentFiles(days);
   const keep = new Set(files);
   for (const p of books.keys()) if (!keep.has(p)) books.delete(p);
@@ -137,6 +147,7 @@ export function collectCodexLedger({ budget, days = DAYS } = {}) {
     out.size += b.tail.size;
     out.days.push(b.days);
     out.paths.push(p);
+    out.cwds.push(b.cwd ?? b.metaCwd ?? null);
     out.slots.push(b.slots);
   }
   return out;

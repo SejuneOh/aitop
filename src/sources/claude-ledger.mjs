@@ -6,7 +6,7 @@ import { readdirSync, statSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { JsonlTail } from '../tail.mjs';
 import { loadCache, markDirty } from '../cache.mjs';
-import { claudeCost, claudeVec } from '../pricing.mjs';
+import { claudeCost, claudeLong, claudeVec } from '../pricing.mjs';
 import { dayKey, lastDays, addSlot, addModel, lastHourOf, recentTodayOf, recentDays, KEEP_DAYS } from './common.mjs';
 import { collectAgyLedger } from './agy-ledger.mjs';
 import { collectCodexLedger } from './codex-ledger.mjs';
@@ -79,7 +79,12 @@ export class UsageTracker {
     day.cost += dCost;
     const vec = claudeVec(u);
     const was = claudeVec(prev?.u);
-    addModel(day, m.model, dTokens, dCost, !cost && tokensOf(u) > 0, vec.map((x, i) => x - was[i]), u.speed === 'fast');
+    const long = claudeLong(m.model, u);
+    // 같은 응답의 직전 줄이 다른 갈래(보통·긴 요청)에 들어갔으면 그 몫을 빼고 이번 값을 통째로 새 갈래에 더한다.
+    if (prev && claudeLong(m.model, prev.u) !== long) {
+      addModel(day, m.model, 0, 0, false, was.map((x) => -x), prev.u.speed === 'fast', !long);
+      addModel(day, m.model, dTokens, dCost, unknown, vec, u.speed === 'fast', long);
+    } else addModel(day, m.model, dTokens, dCost, unknown, vec.map((x, i) => x - was[i]), u.speed === 'fast', long);
     day.costNoCache = (day.costNoCache ?? 0) + (cost?.noCache ?? 0) - (prev?.costNoCache ?? 0);
     if (unknown) day.unknown = true;
     addSlot(this.slots, at, dCost, dNoCache, unknown);
@@ -167,7 +172,8 @@ function gather({ budget, now, days = DAYS }) {
   for (const [tool, o] of others) {
     pending += o.pending;
     size += o.size;
-    books.push(...o.days.map((d, i) => ({ tool, path: o.paths[i], days: d, ...(o.stale?.[i] ? { staleFrom: o.stale[i] } : {}) })));
+    // cwd: 장부가 읽으면서 기억한 작업 폴더 (Codex 압축 기록의 프로젝트를 찾을 때 쓴다, projects.mjs).
+    books.push(...o.days.map((d, i) => ({ tool, path: o.paths[i], days: d, ...(o.stale?.[i] ? { staleFrom: o.stale[i] } : {}), ...(o.cwds?.[i] ? { cwd: o.cwds[i] } : {}) })));
     slots.push(...o.slots);
   }
   return { books, slots, pending, size };

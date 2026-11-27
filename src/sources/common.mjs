@@ -32,6 +32,29 @@ export function emptyTokens() {
   return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
 }
 
+// 프롬프트 캐시 적중률 (#334): 캐시 읽기 / (입력 + 캐시 읽기 + 캐시 쓰기), 0~1. 모델에 보낸 프롬프트 중 캐시에서 읽은 몫이다.
+// 입력은 캐시를 뺀 몫이어야 한다 (Claude usage 의 input_tokens, Codex 는 수집기가 cached 를 뺀 값, agy 도 따로 센다).
+// 분모가 0 이면(토큰을 모르는 도구, 아직 호출이 없는 세션) null.
+export function cacheHitRate(t) {
+  const read = t?.cacheRead ?? 0;
+  const all = (t?.input ?? 0) + read + (t?.cacheWrite ?? 0);
+  return all > 0 ? read / all : null;
+}
+
+// 장부 벡터([입력, 출력, 캐시 읽기, 캐시 쓰기 5분, 캐시 쓰기 1시간], addModel 의 u·f)를 적중률 계산용 토큰 모양으로.
+export const vecTokens = (v) => ({ input: v?.[0] ?? 0, cacheRead: v?.[2] ?? 0, cacheWrite: (v?.[3] ?? 0) + (v?.[4] ?? 0) });
+
+// 적중률 글: 87%. 0 보다 크지만 반올림하면 0% 인 값은 <1%, 1 보다 작지만 100% 로 오르는 값은 99% 로 (다 맞은 것처럼 보이지 않게).
+export function hitText(r) {
+  if (r == null) return null;
+  if (r > 0 && r < 0.005) return '<1%';
+  const n = Math.round(r * 100);
+  return `${n === 100 && r < 1 ? 99 : n}%`;
+}
+
+// --json 용: 소수 셋째 자리까지.
+export const hitJson = (r) => (r == null ? null : Math.round(r * 1000) / 1000);
+
 const two = (n) => String(n).padStart(2, '0');
 // 사용자가 보는 날짜(로컬 시간대) 기준 날짜 키.
 export function dayKey(ms) {
@@ -66,14 +89,15 @@ export function recentDays(days, n = STORE_DAYS, now = Date.now()) {
 
 // 하루 합계(day)에 모델별 몫 { tokens, cost, u } 를 더한다. 모델 이름을 모르면 'unknown' 으로 센다.
 // unknown: 가격표에 없는 모델이라 비용을 0 으로 셌을 때. 그 모델 몫에 unknown 을 남겨 리포트가 ? 를 붙인다.
-// vec: 사용량 벡터(pricing.mjs VEC). fast 면 f 에 따로 더한다 (Claude fast 모드는 단가가 다르다).
-export function addModel(day, model, tokens, cost, unknown = false, vec = null, fast = false) {
+// vec: 사용량 벡터(pricing.mjs VEC). fast 면 f 에, long 이면 l 에 따로 더한다 (Claude fast 모드와 긴 프롬프트 요청은 단가가 다르다).
+// long 이 fast 보다 먼저다: 긴 프롬프트 단가가 있는 모델(Haiku 5.5)은 fast 가 없다.
+export function addModel(day, model, tokens, cost, unknown = false, vec = null, fast = false, long = false) {
   const m = ((day.models ??= {})[String(model || 'unknown')] ??= { tokens: 0, cost: 0 });
   m.tokens += tokens;
   m.cost += cost;
   if (unknown) m.unknown = true;
   if (vec) {
-    const to = fast ? (m.f ??= [0, 0, 0, 0, 0]) : (m.u ??= [0, 0, 0, 0, 0]);
+    const to = long ? (m.l ??= [0, 0, 0, 0, 0]) : fast ? (m.f ??= [0, 0, 0, 0, 0]) : (m.u ??= [0, 0, 0, 0, 0]);
     for (let i = 0; i < to.length; i++) to[i] += vec[i] ?? 0;
   }
 }

@@ -1,6 +1,6 @@
 # ⣠⣴⣾ aitop
 
-AI 코딩 에이전트를 위한 `top`. 내 PC 의 Claude Code · Codex CLI · Antigravity CLI 세션과 진행 내용, 토큰을 터미널 한 화면에서 실시간으로 보는 읽기 전용 모니터 (Gemini CLI 는 프로세스만). 훅을 넣지 않는다.
+AI 코딩 에이전트를 위한 `top`. 내 PC 의 Claude Code · Codex CLI · Antigravity · Claude Desktop Cowork 세션과 진행 내용, 토큰을 터미널 한 화면에서 실시간으로 보는 읽기 전용 모니터 (Gemini CLI 는 프로세스만). 설치 단계·훅·텔레메트리가 없다.
 
 > `npx @sejuneoh/aitop`
 >
@@ -17,9 +17,12 @@ AI 코딩 에이전트를 위한 `top`. 내 PC 의 Claude Code · Codex CLI · A
 - **어느 세션이 무엇인지 안다.**
   - 모든 행에 세션 이름(`/rename` 이름이나 도구가 붙인 제목)이 보인다.
   - `y` 는 이어 열기 명령을 복사하고, `--report sessions` 는 어제 세션과 비용을 스탠드업용으로 정리한다.
-- **훅 없음, 밖으로 보내는 것 없음.**
-  - Claude Code · Codex CLI · Antigravity CLI 를 나란히, [여러 기록 폴더](#기록-폴더-여러-개)(`~/.claude`, `~/.claude-work` ...)에서 읽는다.
+- **설치 단계·훅·텔레메트리 없음.**
   - 각 도구가 이미 쓰는 기록만 읽고 설정은 건드리지 않는다. 네트워크·포트·외부 라이브러리 없음. 예외는 직접 켜는 [`--remote`](#원격-호스트와-wsl-배포판) 하나로, 내 `ssh`·`wsl.exe` 를 부른다.
+- **여러 회사 도구를 한 화면에.**
+  - Claude Code · Codex CLI · Antigravity(CLI·앱) · Gemini CLI · [Claude Desktop Cowork](#claude-desktop-cowork) 를 나란히, [여러 기록 폴더](#기록-폴더-여러-개)(`~/.claude`, `~/.claude-work` ...)에서 읽는다.
+  - 본체에도 자체 세션 화면이 생겼다 (Claude Code `claude agents`, Codex `codex agents`, Antigravity `/usage`). 다만 각자 자기 도구 세션만 보여 준다.
+  - [`--remote`](#원격-호스트와-wsl-배포판) 로 SSH 호스트·WSL 배포판도 데몬 없이 같은 화면에 모아 본다.
 
 **목차**
 
@@ -27,7 +30,7 @@ AI 코딩 에이전트를 위한 `top`. 내 PC 의 Claude Code · Codex CLI · A
 - [서브에이전트](#서브에이전트) · [기간 리포트](#기간-리포트) · [세션 리포트](#세션-리포트) · [호출 트리](#호출-트리)
 - [알림](#알림) · [tmux 상태줄](#tmux-상태줄) · [기록 폴더 여러 개](#기록-폴더-여러-개) · [이어 열기](#이어-열기) · [원격 호스트와 WSL 배포판](#원격-호스트와-wsl-배포판) · [JSON 출력](#json-출력) · [언어](#언어)
 - [옵션 전체](#옵션-전체) · [설정 파일](#설정-파일) · [디버그 로그](#디버그-로그) · [색약 팔레트](#색약-팔레트) · [로고와 탭 아이콘](#로고와-탭-아이콘) · [폭이 모호한 기호](#폭이-모호한-기호)
-- [읽는 곳](#읽는-곳) · [알려진 한계](#알려진-한계) · [비슷한 도구와 다른 점](#비슷한-도구와-다른-점) · [설치](#설치) · [릴리스](#릴리스)
+- [읽는 곳](#읽는-곳) · [보이지 않는 것](#보이지-않는-것) · [알려진 한계](#알려진-한계) · [비슷한 도구와 다른 점](#비슷한-도구와-다른-점) · [설치](#설치) · [릴리스](#릴리스)
 
 ## 빠른 시작
 
@@ -74,6 +77,7 @@ AI 코딩 에이전트를 위한 `top`. 내 PC 의 Claude Code · Codex CLI · A
 - 비용은 API 정가로 환산한 추정값이며 실제 청구액이 아니다.
 - 외부 라이브러리 없음 (Node 22 이상).
 - Antigravity CLI 의 세부 정보는 Node 22.15 이상에서만 읽는다. Node 내장 `node:sqlite` 로 기록을 immutable(파일을 하나도 만들거나 고치지 않는 열기)로 열 수 있어서다.
+- Codex 가 7일 넘게 쉰 기록을 압축해 둔 `rollout-*.jsonl.zst` 도 Node 22.15 이상에서 읽는다 (Node 내장 zstd). 그보다 낮은 Node 에서는 건너뛰고 `--doctor` 에 읽지 못한 수를 보인다.
 
 ## 화면
 
@@ -240,8 +244,8 @@ AI 코딩 에이전트를 위한 `top`. 내 PC 의 Claude Code · Codex CLI · A
 
 **Claude**
 
-- 값은 Anthropic 공식 가격표(https://platform.claude.com/docs/en/about-claude/pricing, 2026-11-18 확인) 기준이다.
-- Haiku 5.5 의 10만 토큰 초과 요청 단가는 반영하지 않고 기본 단가로 계산한다.
+- 값은 Anthropic 공식 가격표(https://platform.claude.com/docs/en/about-claude/pricing, 2026-11-27 확인) 기준이다.
+- Haiku 5.5 는 프롬프트(입력 + 캐시 읽기 + 캐시 쓰기)가 10만 토큰을 넘는 요청을 그 요청 전체 긴 프롬프트 단가($0.50/$2.50)로 계산한다. 요청마다 따로 판정한다.
 - 모델 이름이 표와 똑같을 때만 가격을 매긴다.
 - 끝의 날짜(`-20250514`, Vertex 의 `@20250514`)와 `-latest`, Bedrock 의 앞 `anthropic.`·`global.anthropic.` 등과 끝 `-v1:0`, Claude Code 의 `[1m]` 은 떼고 본다.
 - 공식 별칭 `claude-opus-4-0`·`claude-sonnet-4-0` 은 `claude-opus-4`·`claude-sonnet-4` 로 본다.
@@ -261,9 +265,9 @@ AI 코딩 에이전트를 위한 `top`. 내 PC 의 Claude Code · Codex CLI · A
 
 **Antigravity CLI**
 
-- Google 공식 Gemini API 가격표(유료 등급 standard, https://aistudio.google.com/docs/pricing, 2026-11-18 확인)로 호출마다 그 호출 시각의 가격으로 환산한다.
-- gemini-4-argon 은 2026-12-01 부터, gemini-3.8-flash·gemini-3.6-flash 는 2027-01-01 부터 두 배 가격이다 (UTC 기준).
-- gemini-4-hydrogen, gemini-3.5-flash-lite, gemini-3.1-flash-lite 도 표에 있다.
+- Google 공식 Gemini API 가격표(유료 등급 standard, https://ai.google.dev/gemini-api/docs/pricing, 2026-11-27 확인)로 호출마다 그 호출 시각의 가격으로 환산한다.
+- gemini-4-argon·gemini-4-carbon 은 2026-12-01 부터, gemini-3.8-flash·gemini-3.6-flash 는 2027-01-01 부터 두 배 가격이다 (UTC 기준).
+- gemini-4-hydrogen, gemini-4-neon, gemini-3.5-flash-lite, gemini-3.1-flash-lite 도 표에 있다.
 - 모델 이름이 표와 똑같을 때만 가격을 매기고, 그 밖의 모델(gemini-3.5-flash, gemini-3-flash-preview 등)은 추측하지 않고 비용에서 뺀다.
 
 **공통**
@@ -471,6 +475,8 @@ Total       1.69B $677  26.1M $4.45  1.71B $681
 - 기간 안 활동의 시작·끝.
 - 기다림 (아래).
 - 토큰.
+- 캐시: 프롬프트 캐시 적중률, 캐시 읽기 / (입력 + 캐시 읽기 + 캐시 쓰기), 서브에이전트 포함 (모르면 `-`). 상세 패널의 토큰 합계 옆에도 같은 숫자가 보이고, `--json` 은 `aitop --json` 과 세션 리포트 모두 세션마다 `cacheHitRate`(0~1, 모르면 `null`)를 둔다.
+  - Codex 는 캐시 쓰기 토큰을 기록하지 않아(늘 0) Claude 와 뜻이 조금 다르다.
 - 비용 (API 정가 환산, 가격표에 없는 모델은 빼고 셈).
 - 고친 파일 수 (모르면 `-`, agy 는 늘 `-`).
 - Claude 서브에이전트는 부모 세션에 더한다.
@@ -648,6 +654,7 @@ set -g status-interval 15
 - 오류로 멈춘 Claude Code 세션 수 (`stop 1`, 기록 끝에서 바로 센다).
 - 작업 중 세션 수 (`run 3`).
 - 최근 1시간 지출 (`$3.1/h`).
+- [`--statusline`](#claude-사용-한도) 이 저장한 Claude 한도가 있으면 끝에 `5h23% 7d41%`.
 - 보일 항목이 하나도 없으면 빈 줄 대신 `aitop idle` 을 낸다 (고장과 구분된다). `--line-width` 가 아주 좁으면 `idle`, 그보다 좁으면 `-`.
 
 **옵션**
@@ -706,6 +713,42 @@ set -g status-interval 15
 - 60초보다 오래된 요약은 쓰지 않고 `run` 과 Antigravity 대기 수·이름을 뺀다 (틀린 수를 보이지 않게).
 
 </details>
+
+## Claude 사용 한도
+
+Claude 의 5시간·7일 사용 한도를 얼마나 썼는지 네트워크 없이 본다.
+
+Claude Code 는 이 값을 상태줄 명령의 입력으로만 주고 기록 파일에는 남기지 않는다. 그래서 사용자가 직접 `~/.claude/settings.json` 의 상태줄에 `aitop --statusline` 을 넣는다.
+
+```json
+{ "statusLine": { "type": "command", "command": "aitop --statusline" } }
+```
+
+그러면 `5h 24% (2h10m) | 7d 41%` 같은 짧은 줄이 보인다. 쓰던 상태줄이 있으면 그 명령을 `--` 뒤에 둔다.
+
+```json
+{ "statusLine": { "type": "command", "command": "aitop --statusline -- npx -y ccstatusline" } }
+```
+
+- aitop 은 같은 입력을 그 명령에 넘기고, 그 출력과 종료 코드를 그대로 낸다 (2초 제한).
+- `--` 뒤 낱말들은 셸 없이 인자 배열로 실행한다. 공백이 든 인자 하나(`aitop --statusline -- "my-status --short"`)는 셸(`/bin/sh`, Windows 는 `cmd.exe`)로 실행한다. Windows 에서 바로 실행할 수 없는 명령(`npx.cmd` 같은)은 `cmd.exe` 로 한 번 더 해 본다.
+- 그래서 공백이 든 경로 하나도 셸 문자열로 읽힌다. 안쪽을 따옴표로 감싼다: `aitop --statusline -- "'/opt/my tools/status'"` (Windows 는 `"\"C:\Program Files\st\st.exe\""`).
+- 명령이 2초를 넘기거나 aitop 자신이 멈추라는 신호를 받으면, 그 명령이 띄운 프로세스까지 함께 끈다 (프로세스 그룹째, Windows 는 `taskkill /T`). 64KB 넘는 출력은 자른다.
+- `--` 뒤 명령은 별도 세션으로 실행되어 제어 터미널이 없다. 그래서 `/dev/tty` 를 읽는 스크립트(`tput cols`, `stty size </dev/tty`)는 결과가 다를 수 있다. 폭은 환경 변수 `COLUMNS` 등으로 읽는다.
+
+**보이는 곳**
+
+- 헤더의 `claude` 옆: `5h 23% · 7d 41%`. 80% 이상은 주의색, 95% 이상은 경고색. 화면이 좁으면 먼저 접힌다.
+- `--json` 의 `limits.claude` (아래), `--line` 끝의 `5h23% 7d41%`.
+- `--doctor` 와 `?` 도움말: 상태줄 연결 여부와 마지막 갱신 시각.
+
+**저장하는 값**
+
+- `rate_limits.five_hour`·`seven_day`·`spend_limit` 의 사용 % 와 초기화 시각만. 모델·폴더·세션 id·비용은 저장하지 않는다.
+- 파일은 aitop 캐시 폴더의 `claude-limits.json` (`summary.json` 옆, 권한 0600). 값이 바뀔 때마다 통째로 바꾸고, 어디에도 보내지 않는다.
+- 초기화 시각이 지난 창은 숨기고, 7일 동안 새로 저장되지 않으면 모두 숨긴다.
+- Claude 설정 폴더나 계정이 여럿이면 마지막에 저장한 쪽이 보인다. [`--remote`](#원격-호스트와-wsl-배포판) 원격의 한도는 합치지 않는다.
+- 값은 claude.ai Pro·Max·Ultra 요금제(또는 지출 한도를 둔 Claude apps 게이트웨이)에서만, 세션의 첫 응답 뒤에만 온다. 그 전에는 파일을 그대로 둔다.
 
 ## 기록 폴더 여러 개
 
@@ -911,6 +954,7 @@ Claude Desktop 의 에이전트 모드(Cowork) 세션도 표에 보인다. TOOL 
 - `stopReason`: `stopped` 일 때 이유를 준다 (`{ "kind": "auth" }` 로그인 필요, `network` 연결 끊김, `api` 그 밖의 API 오류). 아니면 `null`.
 - `--doctor --json` 에는 `version` 과 같은 점검 결과 `tools` 가 들어 있다.
 - 최상위 `schema` 는 JSON 모양 버전(지금 `1`)이다. 있던 필드의 뜻이나 모양이 바뀔 때만 올린다.
+- `limits.claude`: [`--statusline`](#claude-사용-한도) 이 저장한 Claude 한도. `{ fiveHour: { usedPercent, resetsAt }, sevenDay, spend?, at }` (시각은 ISO), 없으면 `null`. `--doctor --json` 에는 `limits: { connected, at, file, fiveHour, sevenDay }`.
 - [`--remote`](#원격-호스트와-wsl-배포판) 를 켜면 세션마다 `host` (로컬은 `null`) 와 `remoteId` (그 원격에서의 id, `id` 는 `<host>:<id>`), 최상위 `remotes` 에 원격마다 `{ name, kind, ok, error, version, schema, at }` 이 들어간다 (끄면 `[]`). `usage` 는 로컬만.
 
 <details>
@@ -1173,11 +1217,17 @@ end)
 | 도구 | 실행 중 판단 | 진행 내용·토큰 |
 |---|---|---|
 | Claude Code | `~/.claude/sessions/<pid>.json` + pid 가 살아 있는지 | `~/.claude/projects/*/<sessionId>.jsonl`, `…/subagents/agent-*.jsonl` |
-| Codex CLI | `codex` 프로세스와 작업 폴더 (Linux `/proc`, macOS `ps`·`lsof`). Windows 는 PowerShell CIM 의 프로세스 시작 시각 | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` |
+| Codex CLI | `codex` 프로세스와 작업 폴더 (Linux `/proc`, macOS `ps`·`lsof`). Windows 는 PowerShell CIM 의 프로세스 시작 시각 | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` (압축본 `.jsonl.zst` 포함) |
 | Antigravity CLI (`agy`) | `agy` 프로세스가 열어 둔 `presence/<id>.lock` (Linux `/proc/<pid>/fd`). macOS 는 작업 폴더로 짝짓는다 | `~/.gemini/antigravity-cli/conversation_summaries.db`(제목·상태·서브에이전트), `conversations/<id>.db` 의 `gen_metadata`(모델·토큰)·`steps`(지시·답변·도구 호출) |
 | Antigravity 데스크톱 앱 | 대화 기록·목록의 마지막 수정이 2분 안 | `~/.gemini/antigravity` (WSL 은 Windows 홈도) 의 같은 두 파일 |
 | Claude Desktop Cowork | 세션 메타의 마지막 활동·기록 수정이 2분 안, 응답 대기는 `audit.jsonl` 의 권한 요청 | 앱 폴더 `local-agent-mode-sessions/**/.claude/projects/**/*.jsonl` |
 | Gemini CLI | `gemini` 프로세스 | 아직 미지원 |
+
+## 보이지 않는 것
+
+- 클라우드·원격에서 실행되는 세션(Claude Code 웹·`--cloud`, Cowork 클라우드 작업, Codex cloud 작업, Antigravity `--remote-agent`, SSH 원격 호스트)은 이 PC에 기록이 남지 않아 보이지 않는다.
+- SSH 원격 호스트는 그 호스트에 aitop 을 설치하면 [`--remote`](#원격-호스트와-wsl-배포판) 로 모아 볼 수 있다.
+- 내 PC 세션을 원격으로 조종하는 Remote Control 은 보인다.
 
 ## 알려진 한계
 
@@ -1234,19 +1284,16 @@ end)
 
 ## 비슷한 도구와 다른 점
 
-- [ccusage](https://github.com/ryoppippi/ccusage)
-  - 로컬 기록으로 토큰 사용량과 비용을 리포트한다 (일·월·세션·5시간 블록).
-  - aitop 은 실시간 세션 모니터가 중심이고 비용 리포트는 곁들임이다.
-- [abtop](https://github.com/graykode/abtop)
-  - Claude Code · Codex CLI · OpenCode 를 보는 Rust 실시간 대시보드로, 사용 한도·포트와 세션 종료 키가 있다.
-  - aitop 은 npm 으로 설치하고 Antigravity 도 보며, 보기만 한다.
-- [claude-code-monitor](https://github.com/onikan27/claude-code-monitor)
-  - macOS 에서 `~/.claude/settings.json` 에 훅을 넣어 Claude Code 를 보고, 휴대폰 웹 화면이 있다.
-  - aitop 은 훅을 넣지 않고 이미 있는 기록만 읽으며 Linux · macOS · WSL · Windows 에서 돈다.
-- [Agents Stack](https://marketplace.visualstudio.com/items?itemName=MykD.agents-stack)
-  - Claude Code · Antigravity · Codex · Gemini CLI 를 보는 VS Code 확장이다.
-  - 각 에이전트 설정에 훅을 넣는데, Antigravity 에는 허락 대기 훅이 없어 그 대기는 보이지 않는다.
-  - aitop 은 아무 터미널에서 돌고, 훅을 넣지 않으며, Antigravity 세션의 허락 대기도 보인다.
+| 도구 | 하는 일 | 보는 에이전트 | 설치·준비 |
+|---|---|---|---|
+| [ccusage](https://github.com/ryoppippi/ccusage) (★19.6k) | 로컬 기록으로 비용 리포트 | Claude Code 외 | npm. v20.1.0(2026-11-23)부터 하루 1회 텔레메트리가 기본으로 켜짐 |
+| [abtop](https://github.com/graykode/abtop) (★3.9k) | Rust 실시간 대시보드 | Claude Code · Codex CLI · OpenCode | 한도 표시는 훅 설치 |
+| [agent-deck](https://github.com/asheshgoplani/agent-deck) | tmux 세션 관리, 원격·웹 UI | Claude Code · Codex · Gemini · Antigravity | 세션을 직접 띄우고 관리 |
+| [claude-code-trace](https://github.com/delexw/claude-code-trace) | 기록 조회·호출 트리 | Claude Code, Antigravity·Codex 는 플러그인 | 별도 앱 |
+| 본체 내장 화면 | `claude agents`, `codex agents`, Antigravity `/usage` | 각자 자기 도구만 | 없음 |
+| aitop | 로컬 기록 실시간 모니터와 비용 리포트 | Claude Code · Codex · Antigravity · Gemini CLI(프로세스) · Cowork | 없음 (훅·텔레메트리 없음) |
+
+2026-11-27 기준.
 
 ## 설치
 

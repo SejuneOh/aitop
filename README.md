@@ -3,7 +3,7 @@
 [![npm](https://img.shields.io/npm/v/@sejuneoh/aitop)](https://www.npmjs.com/package/@sejuneoh/aitop)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](https://github.com/SejuneOh/aitop/blob/main/LICENSE)
 
-**`top` for your AI coding agents.** One live terminal screen for every Claude Code, Codex CLI and Antigravity CLI session on your machine. No hooks, read-only.
+**`top` for your AI coding agents.** One live terminal screen for every Claude Code, Codex CLI, Antigravity and Claude Desktop Cowork session on your machine (Gemini CLI by process). No setup step, no hooks, no telemetry.
 
 > `npx @sejuneoh/aitop`
 >
@@ -20,9 +20,12 @@
 - **Know which session is which.**
   - Every row shows the session name (your `/rename` or the tool's title).
   - `y` copies a resume command, and `--report sessions` prints yesterday's sessions with cost for your standup.
-- **No hooks, nothing sent.**
-  - Claude Code, Codex CLI and Antigravity CLI side by side, from [several history folders](#several-claude-or-codex-profiles) (`~/.claude`, `~/.claude-work`, ...).
-  - aitop only reads the logs they already write. It changes no settings and needs no network, ports or dependencies. The one exception is the opt-in [`--remote`](#remote-hosts-and-wsl-distros), which runs your own `ssh` or `wsl.exe`.
+- **No setup, no hooks, no telemetry.**
+  - aitop only reads the logs the tools already write. It changes no settings and needs no network, ports or dependencies. The one exception is the opt-in [`--remote`](#remote-hosts-and-wsl-distros), which runs your own `ssh` or `wsl.exe`.
+- **Several vendors on one screen.**
+  - Claude Code, Codex CLI, Antigravity (CLI and app), Gemini CLI and [Claude Desktop Cowork](#claude-desktop-cowork) side by side, from [several history folders](#several-claude-or-codex-profiles) (`~/.claude`, `~/.claude-work`, ...).
+  - The tools now have their own session screens too (Claude Code `claude agents`, Codex `codex agents`, Antigravity `/usage`), each showing only its own sessions.
+  - [`--remote`](#remote-hosts-and-wsl-distros) adds SSH hosts and WSL distros to the same screen, with no daemon.
 
 **Contents**
 
@@ -31,7 +34,7 @@
 - [Subagents](#subagents) · [Daily and monthly reports](#daily-and-monthly-reports) · [Session report](#session-report) · [Call tree](#call-tree)
 - [Notifications](#notifications) · [tmux status line](#tmux-status-line) · [Several Claude or Codex profiles](#several-claude-or-codex-profiles)
 - [Resume a session elsewhere](#resume-a-session-elsewhere) · [Remote hosts and WSL distros](#remote-hosts-and-wsl-distros) · [JSON output](#json-output) · [Language](#language)
-- [How it differs from similar tools](#how-it-differs-from-similar-tools) · [Install](#install) · [License](#license)
+- [What aitop can't see](#what-aitop-cant-see) · [How it differs from similar tools](#how-it-differs-from-similar-tools) · [Install](#install) · [License](#license)
 
 ## Quick start
 
@@ -241,6 +244,8 @@ Every session that used tokens in the period, highest cost first, for standups.
 - Start and end of activity within the period.
 - Time the agent waited for you (see below).
 - Tokens.
+- Cache: prompt cache hit rate, cache reads / (input + cache reads + cache writes), subagents included (`-` when unknown). The detail panel shows the same number next to the token total, and `--json` has `cacheHitRate` (0 to 1, `null` when unknown) per session in both `aitop --json` and the session report.
+  - Codex does not log cache write tokens (always 0), so its rate means slightly more than Claude's.
 - Cost (API list price). Unpriced models are left out, not guessed, and `--json` marks them with `unpriced`.
 - Files changed (`-` when unknown, always for agy).
 - Claude subagents are counted in their parent session.
@@ -377,6 +382,7 @@ set -g status-interval 15
 - The Claude Code sessions stopped by an API error (`stop 1`, read live).
 - The number of sessions running (`run 3`).
 - Spend over the last hour.
+- Claude usage limits at the end (`5h23% 7d41%`) once [`--statusline`](#claude-usage-limits) has saved them.
 - `aitop idle` when there is nothing to show (`idle` or `-` in a very narrow `--line-width`), so an empty line never looks like a broken setup.
 
 **Options**
@@ -408,6 +414,42 @@ set -g status-interval 15
 - So escape `%` (for example `${$(aitop --line)//\%/%%}`) or use the line only in tmux.
 
 </details>
+
+## Claude usage limits
+
+See how much of your Claude 5-hour and 7-day limits you have used, without any network call.
+
+Claude Code sends these numbers only to its status line command, and does not write them to its logs. So add `aitop --statusline` to the status line yourself, in `~/.claude/settings.json`:
+
+```json
+{ "statusLine": { "type": "command", "command": "aitop --statusline" } }
+```
+
+That prints a short line such as `5h 24% (2h10m) | 7d 41%`. To keep the status line you already have, put its command after `--`:
+
+```json
+{ "statusLine": { "type": "command", "command": "aitop --statusline -- npx -y ccstatusline" } }
+```
+
+- aitop passes the same input to that command and prints its output and exit code as they are (2-second limit).
+- The words after `--` run as an argument list, without a shell. A single argument with spaces (`aitop --statusline -- "my-status --short"`) runs through the shell (`/bin/sh`, or `cmd.exe` on Windows). On Windows, a command it cannot start directly (such as `npx.cmd`) is retried through `cmd.exe`.
+- So a single path with spaces is read as a shell string: quote it inside, as in `aitop --statusline -- "'/opt/my tools/status'"` (or `"\"C:\Program Files\st\st.exe\""` on Windows).
+- When the command runs over 2 seconds, or aitop itself is stopped, the command is stopped with everything it started (its process group, or `taskkill /T` on Windows). Output over 64 KB is cut.
+- The command runs in its own session with no controlling terminal, so a script that reads `/dev/tty` (`tput cols`, `stty size </dev/tty`) may print something else. Read `COLUMNS` and other environment variables instead.
+
+**Where it shows**
+
+- The header, next to `claude`: `5h 23% · 7d 41%`. 80% and over in the caution color, 95% and over in the warning color. Folded away first on a narrow screen.
+- `--json`: `limits.claude` (below), `--line`: `5h23% 7d41%` at the end.
+- `--doctor` and the `?` help: whether the status line is connected and when it last saved.
+
+**What it saves**
+
+- Only `rate_limits.five_hour`, `seven_day` and `spend_limit`: the used percentage and reset time. Model, folders, session id and cost are not saved.
+- The file is `claude-limits.json` in aitop's cache folder (next to `summary.json`, mode 0600). It is replaced on each change, never sent anywhere.
+- A window is hidden after its reset time, and everything is hidden when nothing was saved for 7 days.
+- With several Claude config folders or accounts, the one that saved last is shown. Limits on [`--remote`](#remote-hosts-and-wsl-distros) hosts are not merged in.
+- Values come only on claude.ai Pro, Max and Ultra plans (or behind a Claude apps gateway with a spend limit), and only after the first reply in a session. Before that, the file is left as it was.
 
 ## Several Claude or Codex profiles
 
@@ -590,6 +632,7 @@ See sessions on machines you manage (a VM, a dev server, another WSL distro) on 
 - For scripts, use `phaseKind`, a stable state name: `think`, `write`, `tool`, `team`, `waiting`, `idle`, `stopped`, `done`, `ended` (or `null`).
 - `stopReason` says why a session is `stopped`: `{ "kind": "auth" }` login needed, `network` connection lost, `api` any other API error. `null` otherwise.
 - `schema` (top level) is the JSON shape version, now `1`. It goes up only when an existing field changes meaning or shape.
+- `limits.claude`: Claude usage limits saved by [`--statusline`](#claude-usage-limits), `{ fiveHour: { usedPercent, resetsAt }, sevenDay, spend?, at }` with ISO times, or `null`. `--doctor --json` has `limits: { connected, at, file, fiveHour, sevenDay }`.
 - With [`--remote`](#remote-hosts-and-wsl-distros): each session has `host` (`null` for local) and `remoteId` (its id on that host; `id` is `<host>:<id>`), and `remotes` lists each remote as `{ name, kind, ok, error, version, schema, at }` (`[]` when off). `usage` stays local.
 
 <details>
@@ -636,25 +679,28 @@ The UI follows your locale: English by default, Korean when the locale starts wi
 
 </details>
 
+## What aitop can't see
+
+- Sessions that run in the cloud or on another host (Claude Code on the web/`--cloud`, Cowork cloud tasks, Codex cloud tasks, Antigravity `--remote-agent`, SSH hosts) leave no history on this machine, so aitop can't show them.
+- SSH hosts you can reach show up with [`--remote`](#remote-hosts-and-wsl-distros), if aitop is installed there.
+- Remote Control sessions run locally and do show up.
+
 ## How it differs from similar tools
 
-- [ccusage](https://github.com/ryoppippi/ccusage)
-  - Reports token usage and cost from local logs (daily, monthly, session, 5-hour blocks).
-  - aitop is a live session monitor first, with smaller cost reports on the side.
-- [abtop](https://github.com/graykode/abtop)
-  - A Rust live dashboard for Claude Code, Codex CLI and OpenCode, with rate limits, ports and keys to kill sessions.
-  - aitop installs with npm, also covers Antigravity, and only watches.
-- [claude-code-monitor](https://github.com/onikan27/claude-code-monitor)
-  - Watches Claude Code on macOS through hooks it adds to `~/.claude/settings.json`, with a phone web view.
-  - aitop adds no hooks and only reads existing logs, on Linux, macOS, WSL and Windows.
-- [Agents Stack](https://marketplace.visualstudio.com/items?itemName=MykD.agents-stack)
-  - A VS Code extension for Claude Code, Antigravity, Codex and Gemini CLI.
-  - It adds hooks to each agent's config. Antigravity has no hook for approval waits, so those do not show.
-  - aitop runs in any terminal, adds no hooks and shows Antigravity sessions waiting for approval.
+| Tool | What it is | Agents | Setup |
+|---|---|---|---|
+| [ccusage](https://github.com/ryoppippi/ccusage) (★19.6k) | Cost reports from local logs | Claude Code and others | npm. Since v20.1.0 (2026-11-23) sends telemetry once a day by default |
+| [abtop](https://github.com/graykode/abtop) (★3.9k) | Rust live dashboard | Claude Code, Codex CLI, OpenCode | Rate limits need a hook it installs |
+| [agent-deck](https://github.com/asheshgoplani/agent-deck) | tmux session manager, remote and web UI | Claude Code, Codex, Gemini, Antigravity | Starts and manages the sessions itself |
+| [claude-code-trace](https://github.com/delexw/claude-code-trace) | History viewer with a call tree | Claude Code, plus Antigravity and Codex plugins | Separate app |
+| Built-in screens | `claude agents`, `codex agents`, Antigravity `/usage` | Their own tool only | None |
+| aitop | Live monitor of local logs, with cost reports | Claude Code, Codex, Antigravity, Gemini CLI (process), Cowork | None: no hooks, no telemetry |
+
+As of 2026-11-27.
 
 ## Install
 
-Requires Node.js 22+ on Linux, macOS, WSL or Windows.
+Requires Node.js 22+ on Linux, macOS, WSL or Windows. Antigravity details and Codex logs compressed after 7 idle days (`rollout-*.jsonl.zst`) need Node 22.15+; on older Node they are skipped and `--doctor` says how many.
 
 > `npx @sejuneoh/aitop`
 >

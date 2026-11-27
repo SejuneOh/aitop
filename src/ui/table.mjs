@@ -10,6 +10,7 @@ import { glyphs } from './glyphs.mjs';
 import { phaseText, t } from '../i18n.mjs';
 import { NO_FOLDER } from '../order.mjs';
 import { callsYou, isStopped } from '../attention.mjs';
+import { freshLimits, pctLevel, pctText } from '../limits.mjs';
 
 // 검색어가 세션 이름·폴더·모델 중 하나에 들어 있으면 남긴다 (대소문자 무시).
 export function filterSessions(sessions, query) {
@@ -213,19 +214,28 @@ export function progressSegs(r, bg) {
 // 폭이 모자랄 때 도구 이름 대신 쓰는 짧은 이름.
 export const TOOL_SHORT = { claude: 'cla', cowork: 'cwk', codex: 'cdx', gemini: 'gem' };
 
-// 도구 하나의 조각. level 0 은 다 보이고, 2 부터 토큰 수·미설치 글을 빼고, 3 은 이름을 줄인다.
+// Claude 한도 조각 (#332): ' · 5h 23% · 7d 41%'. 80% 이상은 예산과 같은 주의색, 95% 이상은 경고색.
+function limitSegs(limits) {
+  if (!limits) return [];
+  const one = (label, w) => (w ? [{ t: ' · ', fg: PALETTE.muted }, { t: `${label} `, fg: PALETTE.muted }, { t: pctText(w.pct), fg: BUDGET_COLOR[pctLevel(w.pct)] ?? PALETTE.text, bold: pctLevel(w.pct) !== 'ok' }] : []);
+  return [...one('5h', limits.fiveHour), ...one('7d', limits.sevenDay)];
+}
+
+// 도구 하나의 조각. level 0 은 다 보이고, 1 은 토큰 수를 빼고(한도가 있을 때만 쓰는 단계), 2 부터 미설치 글·한도를 빼고, 3 은 이름을 줄인다.
 function toolPart(p, level, showEnded) {
   const name = level >= 3 ? TOOL_SHORT[p.tool] : p.tool;
   const extra = level < 2;
+  const tok = level < 1;
+  const lim = extra ? limitSegs(p.limits) : [];
   // 세션이 없는 도구는 이름만 흐리게 둔다.
   if (!p.live) {
     // 종료 세션을 함께 볼 때는 그 도구의 누적 토큰을 흐리게 남긴다. 기록 폴더가 없으면 미설치로 보인다.
-    const more = !extra ? [] : p.missing ? [{ t: ` ${t('tools.missing')}`, fg: PALETTE.info, italic: true }] : showEnded && p.count ? [{ t: ` · ${fmtTokens(p.tok)}`, fg: PALETTE.info }] : [];
+    const more = !extra ? [] : p.missing ? [{ t: ` ${t('tools.missing')}`, fg: PALETTE.info, italic: true }] : showEnded && p.count && tok ? [{ t: ` · ${fmtTokens(p.tok)}`, fg: PALETTE.info }] : [];
     // 실행 중 표시(▍) 자리를 비우지 않아 조각 사이가 고르게 2칸이다.
-    return [{ t: name, fg: PALETTE.info }, ...more];
+    return [{ t: name, fg: PALETTE.info }, ...more, ...lim];
   }
   const tc = PALETTE.tools[p.tool];
-  return [{ t: glyphs().tool, fg: tc }, { t: name, fg: tc, bold: true }, { t: ` ${p.live}`, fg: PALETTE.text }, ...(extra ? [{ t: ` · ${fmtTokens(p.tok)}`, fg: PALETTE.muted }] : [])];
+  return [{ t: glyphs().tool, fg: tc }, { t: name, fg: tc, bold: true }, { t: ` ${p.live}`, fg: PALETTE.text }, ...(tok ? [{ t: ` · ${fmtTokens(p.tok)}`, fg: PALETTE.muted }] : []), ...lim];
 }
 
 // 이 기간 동안 세션이 없는 도구는 도구 줄에서 숨긴다 (설정 파일 hideIdleTools 로 끈다).
@@ -256,6 +266,8 @@ export function toolStrip(view, W) {
     const list = view.data.sessions.filter((s) => s.tool === tool);
     const live = list.filter((s) => s.live).length;
     const last = toolLastUsed(view.data, tool, now);
+    // Claude 한도 (#332): --statusline 이 저장한 값 중 아직 유효한 것. 한도가 있으면 쉬는 Claude 도 숨기지 않는다.
+    const limits = tool === 'claude' ? freshLimits(view.data.limits, now) : null;
     return {
       tool,
       count: list.length,
@@ -263,7 +275,8 @@ export function toolStrip(view, W) {
       tok: list.reduce((a, s) => a + (s.tokens?.total ?? 0), 0),
       missing: view.data.tools?.tools?.[tool]?.state === 'missing',
       // 실행 중 세션이 있는 도구는 늘 보인다. 마지막 사용을 모르면(점검 전) 숨기지 않는다.
-      idle: view.hideIdleTools !== false && !live && last != null && now - last >= IDLE_TOOL_MS,
+      idle: view.hideIdleTools !== false && !live && !limits && last != null && now - last >= IDLE_TOOL_MS,
+      limits,
     };
   });
   const visible = all.filter((p) => !p.idle);
@@ -281,7 +294,8 @@ export function toolStrip(view, W) {
   };
   const fits = (x) => segsWidth(x) <= W;
   let segs = null;
-  for (const level of [0, 2, 3]) {
+  // 한도가 있을 때만 토큰 수를 먼저 빼는 단계(1)를 넣는다. 없으면 예전과 같다.
+  for (const level of all.some((p) => p.limits) ? [0, 1, 2, 3] : [0, 2, 3]) {
     for (const note of notes) {
       const s = build(parts, level, note);
       if (fits(s)) {

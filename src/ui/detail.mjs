@@ -4,7 +4,7 @@ import { currentTab, filesForTab, turnTabs } from '../turns.mjs';
 import { isAbsolute, relative } from 'node:path';
 import { PALETTE, PHASE_COLOR } from './theme.mjs';
 import { NOW, box, cacheState, clock, fill, gauge, glyph, hhmm, levelBar, money, rule, segsWidth, tilde } from './draw.mjs';
-import { activitySeries } from '../sources/common.mjs';
+import { activitySeries, cacheHitRate, hitText } from '../sources/common.mjs';
 import { glyphs } from './glyphs.mjs';
 import { STRINGS, phaseText, t as tr } from '../i18n.mjs';
 import { resumeCmd } from '../resume.mjs';
@@ -377,7 +377,8 @@ function fitGroups(groups, w) {
 
 // 좁은 화면의 요약 두 줄.
 // 1줄: 상태 · 폴더 · 브랜치 · 종류 · 시작.
-// 2줄: 571k +서브2 (입력 90.3k·출력 18.4k·캐시 463k) · $0.17 · ctx 5% · pid 218093. 캐시는 읽기와 쓰기를 더한 값이다.
+// 2줄: 571k +서브2 (입력 90.3k·출력 18.4k·캐시 463k·적중 80%) · $0.17 · ctx 5% · pid 218093. 캐시는 읽기와 쓰기를 더한 값이다.
+// 적중은 프롬프트 캐시 적중률(#334)로, 80칸에서도 보이게 토큰 내역 괄호 안에 짧게 둔다.
 // 폭이 모자라면 pid → 토큰 내역 → 서브에이전트 수 → ctx 순으로 뺀다.
 export function summaryLines(s, w, frame, view) {
   const g = glyph(s, frame);
@@ -404,7 +405,10 @@ export function summaryLines(s, w, frame, view) {
   const t = s.tokens ?? {};
   const net = view?.costMode === 'net';
   const total = { segs: [{ t: fmtTokens(t.total), fg: PALETTE.text, bold: true }] };
-  const parts = { segs: [{ t: ' (', fg: PALETTE.info }, { t: tr('detail.tokenParts', { i: fmtTokens(t.input), o: fmtTokens(t.output), c: fmtTokens((t.cacheRead ?? 0) + (t.cacheWrite ?? 0)) }), fg: PALETTE.info }, { t: ')', fg: PALETTE.info }], drop: 3 };
+  // 프롬프트 캐시 적중률 (#334). 토큰 내역을 모르는 도구(분모 0)는 붙이지 않는다.
+  const rate = hitText(cacheHitRate(t));
+  const hit = rate ? `·${tr('detail.cacheHitShort', { r: rate })}` : '';
+  const parts = { segs: [{ t: ' (', fg: PALETTE.info }, { t: tr('detail.tokenParts', { i: fmtTokens(t.input), o: fmtTokens(t.output), c: fmtTokens((t.cacheRead ?? 0) + (t.cacheWrite ?? 0)) }) + hit, fg: PALETTE.info }, { t: ')', fg: PALETTE.info }], drop: 3 };
   const sub = t.subCount ? { segs: [{ t: tr('detail.sub', { n: t.subCount }), fg: PALETTE.muted }], drop: 2 } : null;
   const cost = s.cost != null ? { segs: [sep, ...(net ? [{ t: tr('detail.netTag'), fg: PALETTE.muted }] : []), { t: money(net ? s.costNoCache : s.cost, s.costUnknown), fg: PALETTE.money, bold: true }] } : null;
   let ctx = null;
@@ -564,7 +568,11 @@ export function detail(s, W, H, frame, view) {
   // 합계 = 메인 + 서브 = 입력 + 출력 + 캐시 읽기 + 캐시 쓰기 가 화면에서 그대로 맞아떨어지게 보인다.
   const t = s.tokens ?? {};
   section(tr('detail.tokens'));
-  kv(tr('detail.total'), fmtTokens(t.total));
+  // 프롬프트 캐시 적중률 (#334): 메인과 서브에이전트를 더한 토큰에서. 숫자만 보이고 높낮이는 따지지 않는다.
+  // 줄을 늘리면 낮은 화면에서 비용 줄이 밀려나므로 합계 줄 끝에 붙인다 (왼쪽 칸은 100칸 화면에서도 36칸이라 들어간다).
+  const rate = hitText(cacheHitRate(t));
+  if (rate) L.push([INDENT, { t: pad(tr('detail.total'), 9), fg: PALETTE.muted }, { t: fmtTokens(t.total), fg: PALETTE.text }, { t: ` · ${tr('detail.cacheHit', { r: rate })}`, fg: PALETTE.info }]);
+  else kv(tr('detail.total'), fmtTokens(t.total));
   if (t.subCount) more([{ t: tr('detail.mainSub', { m: fmtTokens(t.main), n: t.subCount, s: fmtTokens(t.sub) }), fg: PALETTE.info }]);
   more([{ t: tr('detail.inOut', { i: fmtTokens(t.input), o: fmtTokens(t.output) }), fg: PALETTE.info }]);
   more([{ t: tr('detail.cache', { r: fmtTokens(t.cacheRead), w: fmtTokens(t.cacheWrite) }), fg: PALETTE.info }]);

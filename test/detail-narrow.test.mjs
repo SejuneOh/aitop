@@ -49,7 +49,7 @@ test('좁은 화면 요약 줄에 토큰·비용·컨텍스트가 있다', () =>
     assert.match(first, /도구 실행 · Bash · .*aitop/, `W=${W}`);
     assert.match(second, /571k .*\$0\.17 · ctx 5%/, `W=${W}`);
   }
-  assert.match(draw(80, 16)[2], /571k \+서브2 \(입력 90\.3k·출력 18\.4k·캐시 463k\) · \$0\.17 · ctx 5%/);
+  assert.match(draw(80, 16)[2], /571k \+서브2 \(입력 90\.3k·출력 18\.4k·캐시 463k·적중 80%\) · \$0\.17 · ctx 5%/);
   assert.match(draw(90, 16)[2], /ctx 5% · pid 218093/);
   assert.match(draw(80, 16, { tab: 'now', costMode: 'net' })[2], /캐시제외 \$0\.09/);
 });
@@ -113,6 +113,6 @@ test('색이 없어도 좁은 화면 요약이 읽힌다', () => {
     process.stdout.write(render(view, 80, 30).join('\\n'));`;
   const out = px(execFileSync(process.execPath, ['--input-type=module', '-e', script], { env: { ...process.env, NO_COLOR: '1' }, encoding: 'utf8' }));
   assert.doesNotMatch(out, /\x1b\[/);
-  assert.match(out, /^┃   571k \+서브2 \(입력 90\.3k·출력 18\.4k·캐시 463k\) · \$0\.17 · ctx 5%/m);
+  assert.match(out, /^┃   571k \+서브2 \(입력 90\.3k·출력 18\.4k·캐시 463k·적중 80%\) · \$0\.17 · ctx 5%/m);
   assert.match(out, /^┃ ▌▸ src\/ui\/draw\.mjs/m);
 });

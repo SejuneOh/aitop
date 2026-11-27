@@ -13,6 +13,7 @@ import { fmtElapsed, fmtTokens, mask, maskStrict, oneLine, pad, stripControl, tr
 import { money } from './line.mjs';
 import { glyphs } from './ui/glyphs.mjs';
 import { isNoisePrompt, sessionName, toolDetail } from './sources/common.mjs';
+import { plainName, rolloutNames } from './zstd.mjs';
 
 // 노드 수 상한 (묶고 접은 뒤). 넘으면 오래된 지시부터 뺀다.
 export const MAX_NODES = 300;
@@ -392,11 +393,12 @@ export async function findTrace(query, { claudeRoots, codexRoots, agyRoot } = {}
   // agy 기록 폴더: CLI 폴더와 앱 폴더 (#303). agyRoot 는 폴더 하나 또는 목록.
   const agyDirs = agyRoot == null ? (await import('./sources/antigravity.mjs')).agyRoots().map((r) => r.dir) : [agyRoot].flat();
   // 1) 파일 경로
-  if (/\.(jsonl|db)$/i.test(q) && existsSync(q)) {
+  if (/\.(jsonl|db|jsonl\.zst)$/i.test(q) && existsSync(q)) {
     const p = resolve(q);
     const name = basename(p);
     if (/\.db$/i.test(name)) return { tool: 'agy', path: p, id: name.slice(0, -3), name: null };
-    if (/^rollout-/.test(name)) return { tool: 'codex', path: p, id: name.slice(0, -6), name: null };
+    // Codex 압축 기록(.jsonl.zst)도 같은 id (zstd.mjs).
+    if (/^rollout-/.test(name)) return { tool: 'codex', path: p, id: plainName(name).slice(0, -6), name: null };
     return { tool: 'claude', path: p, id: name.slice(0, -6), name: claudeNames(p).name };
   }
   const low = q.toLowerCase();
@@ -419,14 +421,14 @@ export async function findTrace(query, { claudeRoots, codexRoots, agyRoot } = {}
     if (!prev || c.mtime > prev.mtime) byId.set(c.id, c);
   }
   found.push(...byId.values());
-  // Codex: sessions/YYYY/MM/DD/rollout-...-<uuid>.jsonl
+  // Codex: sessions/YYYY/MM/DD/rollout-...-<uuid>.jsonl (7일 넘게 쉰 기록은 .jsonl.zst, 둘 다 있으면 .jsonl)
   const digits = (p) => list(p).filter((n) => /^\d+$/.test(n)).map((n) => join(p, n));
   for (const root of codexRoots) {
     for (const y of digits(root))
       for (const m of digits(y))
         for (const d of digits(m))
-          for (const f of list(d)) {
-            const u = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i.exec(f)?.[1];
+          for (const f of rolloutNames(list(d))) {
+            const u = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl(?:\.zst)?$/i.exec(f)?.[1];
             if (u && u.toLowerCase().startsWith(low)) found.push({ tool: 'codex', id: u, path: join(d, f), mtime: mtimeOf(join(d, f)) });
           }
   }
