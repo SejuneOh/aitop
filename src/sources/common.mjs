@@ -66,14 +66,15 @@ export function recentDays(days, n = STORE_DAYS, now = Date.now()) {
 
 // 하루 합계(day)에 모델별 몫 { tokens, cost, u } 를 더한다. 모델 이름을 모르면 'unknown' 으로 센다.
 // unknown: 가격표에 없는 모델이라 비용을 0 으로 셌을 때. 그 모델 몫에 unknown 을 남겨 리포트가 ? 를 붙인다.
-// vec: 사용량 벡터(pricing.mjs VEC). fast 면 f 에 따로 더한다 (Claude fast 모드는 단가가 다르다).
-export function addModel(day, model, tokens, cost, unknown = false, vec = null, fast = false) {
+// vec: 사용량 벡터(pricing.mjs VEC). fast 면 f 에, long 이면 l 에 따로 더한다 (Claude fast 모드와 긴 프롬프트 요청은 단가가 다르다).
+// long 이 fast 보다 먼저다: 긴 프롬프트 단가가 있는 모델(Haiku 5.5)은 fast 가 없다.
+export function addModel(day, model, tokens, cost, unknown = false, vec = null, fast = false, long = false) {
   const m = ((day.models ??= {})[String(model || 'unknown')] ??= { tokens: 0, cost: 0 });
   m.tokens += tokens;
   m.cost += cost;
   if (unknown) m.unknown = true;
   if (vec) {
-    const to = fast ? (m.f ??= [0, 0, 0, 0, 0]) : (m.u ??= [0, 0, 0, 0, 0]);
+    const to = long ? (m.l ??= [0, 0, 0, 0, 0]) : fast ? (m.f ??= [0, 0, 0, 0, 0]) : (m.u ??= [0, 0, 0, 0, 0]);
     for (let i = 0; i < to.length; i++) to[i] += vec[i] ?? 0;
   }
 }
