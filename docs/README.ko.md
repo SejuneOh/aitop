@@ -74,6 +74,7 @@ AI 코딩 에이전트를 위한 `top`. 내 PC 의 Claude Code · Codex CLI · A
 - 비용은 API 정가로 환산한 추정값이며 실제 청구액이 아니다.
 - 외부 라이브러리 없음 (Node 22 이상).
 - Antigravity CLI 의 세부 정보는 Node 22.15 이상에서만 읽는다. Node 내장 `node:sqlite` 로 기록을 immutable(파일을 하나도 만들거나 고치지 않는 열기)로 열 수 있어서다.
+- Codex 가 7일 넘게 쉰 기록을 압축해 둔 `rollout-*.jsonl.zst` 도 Node 22.15 이상에서 읽는다 (Node 내장 zstd). 그보다 낮은 Node 에서는 건너뛰고 `--doctor` 에 읽지 못한 수를 보인다.
 
 ## 화면
 
@@ -1174,7 +1175,7 @@ end)
 | 도구 | 실행 중 판단 | 진행 내용·토큰 |
 |---|---|---|
 | Claude Code | `~/.claude/sessions/<pid>.json` + pid 가 살아 있는지 | `~/.claude/projects/*/<sessionId>.jsonl`, `…/subagents/agent-*.jsonl` |
-| Codex CLI | `codex` 프로세스와 작업 폴더 (Linux `/proc`, macOS `ps`·`lsof`). Windows 는 PowerShell CIM 의 프로세스 시작 시각 | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` |
+| Codex CLI | `codex` 프로세스와 작업 폴더 (Linux `/proc`, macOS `ps`·`lsof`). Windows 는 PowerShell CIM 의 프로세스 시작 시각 | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` (압축본 `.jsonl.zst` 포함) |
 | Antigravity CLI (`agy`) | `agy` 프로세스가 열어 둔 `presence/<id>.lock` (Linux `/proc/<pid>/fd`). macOS 는 작업 폴더로 짝짓는다 | `~/.gemini/antigravity-cli/conversation_summaries.db`(제목·상태·서브에이전트), `conversations/<id>.db` 의 `gen_metadata`(모델·토큰)·`steps`(지시·답변·도구 호출) |
 | Antigravity 데스크톱 앱 | 대화 기록·목록의 마지막 수정이 2분 안 | `~/.gemini/antigravity` (WSL 은 Windows 홈도) 의 같은 두 파일 |
 | Claude Desktop Cowork | 세션 메타의 마지막 활동·기록 수정이 2분 안, 응답 대기는 `audit.jsonl` 의 권한 요청 | 앱 폴더 `local-agent-mode-sessions/**/.claude/projects/**/*.jsonl` |

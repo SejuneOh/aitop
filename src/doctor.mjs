@@ -14,6 +14,7 @@ import { tildeIn } from './paths.mjs';
 import { busProblem, findNotifier, isWsl } from './notify.mjs';
 import { getLang, t as tr } from './i18n.mjs';
 import { candidateDirs, claudeDirs, codexHomes } from './sources/dirs.mjs';
+import { inflateZst, isRolloutName, isZst, plainName, zstdAvailable } from './zstd.mjs';
 
 const UNIT = { s: '초', m: '분', h: '시간', d: '일' };
 const ago = (ms) => fmtAgo(ms).replace(/[smhd]$/, (u) => UNIT[u]);
@@ -54,6 +55,20 @@ function newest(files) {
 
 // 파일 첫 줄이 JSON 으로 읽히면 true, 아니면 false. 비어 있거나 첫 줄이 64KB 를 넘으면 판정하지 않는다(null).
 function firstLineIsJson(path) {
+  // Codex 압축 기록(.jsonl.zst)은 풀어서 본다. zstd 가 없거나 상한을 넘으면 판정하지 않는다.
+  if (isZst(path)) {
+    const got = inflateZst(path);
+    if (!got.data) return got.skip === 'error' ? false : null;
+    const text = got.data.subarray(0, 65536).toString('utf8');
+    const end = text.indexOf('\n');
+    if (!got.data.length || (end < 0 && got.data.length > 65536)) return null;
+    try {
+      JSON.parse(end < 0 ? text : text.slice(0, end));
+      return true;
+    } catch {
+      return false;
+    }
+  }
   let fd;
   try {
     fd = openSync(path, 'r');
@@ -125,11 +140,16 @@ function gatherDirs(roots, list) {
   const found = dirs.some((d) => d.found);
   const files = [...byKey.values()];
   const last = found ? newest(files) : null;
-  return { found, path: dirs[0]?.path ?? '', dirs, records: files.length, lastAt: last?.mtime ?? null, readable: last ? firstLineIsJson(last.path) : null };
+  return { found, path: dirs[0]?.path ?? '', dirs, files, records: files.length, lastAt: last?.mtime ?? null, readable: last ? firstLineIsJson(last.path) : null };
 }
 
 const claudeFiles = (dir) => walk(dir, 1, (n) => n.endsWith('.jsonl')).map((p) => ({ key: p.slice(dir.length), path: p }));
-const codexFiles = (dir) => walk(dir, 3, (n) => n.startsWith('rollout-') && n.endsWith('.jsonl')).map((p) => ({ key: basename(p), path: p }));
+// Codex 는 압축 기록(rollout-*.jsonl.zst, zstd.mjs)도 기록으로 센다. 같은 이름의 .jsonl 이 있으면 .jsonl 하나만.
+const codexFiles = (dir) => {
+  const paths = walk(dir, 3, isRolloutName);
+  const set = new Set(paths);
+  return paths.filter((p) => !(isZst(p) && set.has(plainName(p)))).map((p) => ({ key: plainName(basename(p)), path: p }));
+};
 
 // 읽지 않는 폴더 중 기록이 있는 것 (dirs.mjs candidateDirs). 기록 수만 센다.
 function candidatesOf(paths, sub, list) {
@@ -149,12 +169,14 @@ function claude(cand) {
   return { tool: 'claude', state: 'ok', path: g.path, dirs: g.dirs, candidates, records: g.records, lastAt: g.lastAt, running, readable: g.readable, hint: null };
 }
 
+// zstd 가 없는 Node(22.15 미만)에서는 압축 기록을 읽지 못하므로 그 수(zstUnread)를 남기고 안내한다.
 function codex(cand) {
   const g = gatherDirs(codexHomes().map((h) => join(h, 'sessions')), codexFiles);
   const running = canListProcesses() ? findProcesses(isCodex).length : null;
   const candidates = candidatesOf(cand, 'sessions', codexFiles);
   if (!g.found) return { tool: 'codex', state: 'missing', path: g.path, dirs: g.dirs, candidates, records: 0, lastAt: null, running, readable: null, hint: null };
-  return { tool: 'codex', state: 'ok', path: g.path, dirs: g.dirs, candidates, records: g.records, lastAt: g.lastAt, running, readable: g.readable, hint: null };
+  const zstUnread = zstdAvailable() ? 0 : g.files.filter(isZst).length;
+  return { tool: 'codex', state: 'ok', path: g.path, dirs: g.dirs, candidates, records: g.records, lastAt: g.lastAt, running, readable: g.readable, ...(zstUnread ? { zstUnread } : {}), hint: null };
 }
 
 // Gemini 는 세션 기록 형식을 아직 모른다. 프로세스만 세고, 기록 폴더가 있으면 형식 확인용 키 이름을 남긴다.
@@ -244,6 +266,7 @@ export function hintOf(r, lang = 'ko') {
   if (r.tool === 'cowork') return r.readable === false ? tr('doctor.hint.coworkUnread', null, o) : null;
   if (r.state === 'missing') return r.tool === 'agy' ? tr('doctor.hint.agyMissing', null, o) : tr('doctor.hint.missing', { tool: r.tool }, o);
   if (r.tool === 'agy' && r.state === 'limited') return tr('doctor.hint.agyNode', { node: process.versions.node }, o);
+  if (r.tool === 'codex' && r.zstUnread) return tr('doctor.hint.codexZst', { n: r.zstUnread, node: process.versions.node }, o);
   return null;
 }
 

@@ -15,8 +15,8 @@ export function shellQuote(s) {
   return `'${v.replace(/'/g, `'\\''`)}'`;
 }
 
-// Codex 기록 파일 이름(rollout-2025-...-<uuid>.jsonl)에서 세션 UUID 를 꺼낸다. `codex resume <UUID>` 가 받는 값이다.
-const UUID = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\.jsonl)?$/i;
+// Codex 기록 파일 이름(rollout-2025-...-<uuid>.jsonl, 압축본은 .jsonl.zst)에서 세션 UUID 를 꺼낸다. `codex resume <UUID>` 가 받는 값이다.
+const UUID = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\.jsonl(?:\.zst)?)?$/i;
 export const codexId = (id) => UUID.exec(String(id ?? ''))?.[1] ?? null;
 // Claude 세션 id 는 UUID 다. 그 밖의 값(예: --dangerously-skip-permissions)은 옵션으로 읽힐 수 있어 받지 않는다.
 const isUuid = (id) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);

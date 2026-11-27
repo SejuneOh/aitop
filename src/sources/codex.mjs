@@ -1,5 +1,6 @@
 // Codex CLI: 실행 중인 codex 프로세스의 작업 폴더와 ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl 을 짝지어 읽는다.
 // Codex 홈이 여럿이면(dirs.mjs) 모두 보고, 같은 rollout 파일 이름은 하나로 센다.
+// 7일 넘게 쉰 rollout 은 Codex 가 .jsonl.zst 로 압축해 둔다 (zstd.mjs). 끝난 기록으로 읽고, 실행 중 짝짓기에는 쓰지 않는다.
 import { readdirSync, statSync, existsSync, realpathSync, openSync, readSync, closeSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { JsonlTail } from '../tail.mjs';
@@ -12,6 +13,7 @@ import { parsePatch, extractPatch, patchSucceeded } from './patch.mjs';
 import { debug, debugIo } from '../log.mjs';
 import { lastName } from '../paths.mjs';
 import { codexHomes, codexSessionRoots, dedupeBy, homeOf } from './dirs.mjs';
+import { isZst, plainName, rolloutNames } from '../zstd.mjs';
 
 // 지시 탭에 쓰는 지시 목록은 최근 것만 남긴다.
 const MAX_TURNS = 50;
@@ -62,7 +64,8 @@ function recentFiles() {
     const paths = [];
     for (const dir of dayDirs()) {
       try {
-        for (const n of readdirSync(dir)) if (n.endsWith('.jsonl')) paths.push(join(dir, n));
+        // 같은 이름의 .jsonl 과 .jsonl.zst 가 함께 있으면 .jsonl 만 (rolloutNames).
+        for (const n of rolloutNames(readdirSync(dir))) paths.push(join(dir, n));
       } catch (e) {
         debugIo('codex', 'day folder read failed', e, dir);
       }
@@ -77,7 +80,7 @@ function recentFiles() {
     } catch {
       continue;
     }
-    if (Date.now() - m < RECENT_MS) out.push({ key: basename(p), path: p, mtime: m });
+    if (Date.now() - m < RECENT_MS) out.push({ key: plainName(basename(p)), path: p, mtime: m });
   }
   // 같은 rollout 이 두 홈에 있으면 더 최근 쪽 하나만.
   return dedupeBy(out).sort((a, b) => b.mtime - a.mtime);
@@ -157,6 +160,7 @@ function latestFor(dirs, cwd, since, taken) {
     }
     for (const n of names) {
       const p = join(dir, n);
+      // 압축 기록(.jsonl.zst)은 7일 넘게 쉰 끝난 기록이라 실행 중인 프로세스에 붙이지 않는다. 이어 쓰면 Codex 가 .jsonl 로 풀어 놓는다.
       if (!n.endsWith('.jsonl')) continue;
       listed.add(p);
       if (taken.has(p)) continue;
@@ -405,7 +409,8 @@ export function collectCodex({ showEnded, budget, filesOf = openFiles, startOf =
   const procs = blind ? [] : procsOf();
   if (!procs.length && !showEnded && !blind) return [];
 
-  const fresh = (f) => Date.now() - f.mtime <= NO_PROC_LIVE_MS;
+  // 압축 기록은 끝난 기록이라 실행 중으로 보지 않는다 (zstd.mjs).
+  const fresh = (f) => !isZst(f.path) && Date.now() - f.mtime <= NO_PROC_LIVE_MS;
   const files = blind && !showEnded ? recentFiles().filter(fresh) : recentFiles();
   const read = (path) => {
     let st = states.get(path);
@@ -445,7 +450,7 @@ export function collectCodex({ showEnded, budget, filesOf = openFiles, startOf =
     else slots.set(p.cwd, [...(slots.get(p.cwd) ?? []), p.pid]);
   }
   for (const f of files) {
-    if (liveByPath.has(f.path)) continue;
+    if (liveByPath.has(f.path) || isZst(f.path)) continue;
     const free = slots.get(states.get(f.path).cwd);
     const i = free?.findIndex((pid) => {
       const since = startOf(pid);
@@ -455,7 +460,7 @@ export function collectCodex({ showEnded, budget, filesOf = openFiles, startOf =
   }
   // 작업 폴더를 모르는 프로세스(Windows)는 폴더와 상관없이 시작 시각으로만 짝짓는다 (pairByStart).
   if (anyCwd.length) {
-    const free = files.filter((f) => !liveByPath.has(f.path));
+    const free = files.filter((f) => !liveByPath.has(f.path) && !isZst(f.path));
     for (const [path, pid] of pairByStart(anyCwd, free, (p) => states.get(p)?.startedAt, startOf)) liveByPath.set(path, pid);
   }
 
