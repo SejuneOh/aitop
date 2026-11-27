@@ -1287,9 +1287,9 @@ end)
 | 도구 | 하는 일 | 보는 에이전트 | 설치·준비 |
 |---|---|---|---|
 | [ccusage](https://github.com/ryoppippi/ccusage) (★19.6k) | 로컬 기록으로 비용 리포트 | Claude Code 외 | npm. v20.1.0(2026-11-23)부터 하루 1회 텔레메트리가 기본으로 켜짐 |
-| [abtop](https://github.com/graykode/abtop) (★3.9k) | Rust 실시간 대시보드 | Claude Code · Codex CLI | 한도 표시는 훅 설치 |
-| agent-deck | tmux 세션 관리, 원격·웹 UI | Claude Code · Codex · Gemini · Antigravity | 세션을 직접 띄우고 관리 |
-| claude-code-trace | 기록 조회·호출 트리 | Claude Code, Antigravity·Codex 는 플러그인 | 별도 앱 |
+| [abtop](https://github.com/graykode/abtop) (★3.9k) | Rust 실시간 대시보드 | Claude Code · Codex CLI · OpenCode | 한도 표시는 훅 설치 |
+| [agent-deck](https://github.com/asheshgoplani/agent-deck) | tmux 세션 관리, 원격·웹 UI | Claude Code · Codex · Gemini · Antigravity | 세션을 직접 띄우고 관리 |
+| [claude-code-trace](https://github.com/delexw/claude-code-trace) | 기록 조회·호출 트리 | Claude Code, Antigravity·Codex 는 플러그인 | 별도 앱 |
 | 본체 내장 화면 | `claude agents`, `codex agents`, Antigravity `/usage` | 각자 자기 도구만 | 없음 |
 | aitop | 로컬 기록 실시간 모니터와 비용 리포트 | Claude Code · Codex · Antigravity · Gemini CLI(프로세스) · Cowork | 없음 (훅·텔레메트리 없음) |
 

@@ -690,9 +690,9 @@ The UI follows your locale: English by default, Korean when the locale starts wi
 | Tool | What it is | Agents | Setup |
 |---|---|---|---|
 | [ccusage](https://github.com/ryoppippi/ccusage) (★19.6k) | Cost reports from local logs | Claude Code and others | npm. Since v20.1.0 (2026-11-23) sends telemetry once a day by default |
-| [abtop](https://github.com/graykode/abtop) (★3.9k) | Rust live dashboard | Claude Code, Codex CLI | Rate limits need a hook it installs |
-| agent-deck | tmux session manager, remote and web UI | Claude Code, Codex, Gemini, Antigravity | Starts and manages the sessions itself |
-| claude-code-trace | History viewer with a call tree | Claude Code, plus Antigravity and Codex plugins | Separate app |
+| [abtop](https://github.com/graykode/abtop) (★3.9k) | Rust live dashboard | Claude Code, Codex CLI, OpenCode | Rate limits need a hook it installs |
+| [agent-deck](https://github.com/asheshgoplani/agent-deck) | tmux session manager, remote and web UI | Claude Code, Codex, Gemini, Antigravity | Starts and manages the sessions itself |
+| [claude-code-trace](https://github.com/delexw/claude-code-trace) | History viewer with a call tree | Claude Code, plus Antigravity and Codex plugins | Separate app |
 | Built-in screens | `claude agents`, `codex agents`, Antigravity `/usage` | Their own tool only | None |
 | aitop | Live monitor of local logs, with cost reports | Claude Code, Codex, Antigravity, Gemini CLI (process), Cowork | None: no hooks, no telemetry |
 
