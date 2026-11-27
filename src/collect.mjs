@@ -5,6 +5,7 @@ import { collectAgy } from './sources/antigravity.mjs';
 import { collectCowork } from './sources/cowork.mjs';
 import { collectLedger } from './sources/claude-ledger.mjs';
 import { createBudget } from './tail.mjs';
+import { loadLimits } from './limits.mjs';
 
 const RANK = { waiting: 0, busy: 1, shell: 2, live: 3, idle: 4, ended: 5 };
 
@@ -45,6 +46,8 @@ export function collect({ budgetBytes = Infinity, budgetMs = Infinity, ...opts }
     errors.push(`usage: ${err.message}`);
   }
   sessions.sort(bySession);
+  // --statusline 이 저장한 Claude 한도 (#332). 작은 파일 하나라 갱신마다 읽는다. 만료 검사는 보이는 쪽(freshLimits)이 한다.
+  const limits = loadLimits();
   // sessionsMore: 세션 기록(장부 빼고)만 덜 읽었는지. 시작할 때의 준비 완료는 이 값으로 정한다 (7일 장부는 헤더 진행 줄로만 보인다).
-  return { sessions, usage, errors, at: Date.now(), more: Object.values(budgets).some((b) => b.exhausted), sessionsMore: Object.entries(budgets).some(([name, b]) => name !== 'usage' && b.exhausted) };
+  return { sessions, usage, limits, errors, at: Date.now(), more: Object.values(budgets).some((b) => b.exhausted), sessionsMore: Object.entries(budgets).some(([name, b]) => name !== 'usage' && b.exhausted) };
 }

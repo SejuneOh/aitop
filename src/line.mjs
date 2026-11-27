@@ -5,6 +5,7 @@
 // 옵션 오류 문구만 i18n 으로 지금 언어를 따른다.
 import { t } from './i18n.mjs';
 import { fmtAgo, stripControl, truncate, width } from './text.mjs';
+import { freshLimits, loadLimits, pctLevel, pctText } from './limits.mjs';
 
 export const MODES = ['plain', 'tmux'];
 export const DEFAULT_WIDTH = 40;
@@ -26,6 +27,17 @@ const CUT = '~';
 // 멈춤(오류로 멈춘 세션)은 화면의 경고색과 같은 빨강, 색약용은 주홍. 색이 없어도 'stop' 글자로 갈린다.
 // 쉬는 중(aitop idle)은 작업 중보다 더 흐린 회색.
 const COLOURS = { normal: { waiting: 'colour214', stopped: 'colour203', money: 'colour154', running: 'colour250', idle: 'colour242' }, colorBlind: { waiting: 'colour226', stopped: 'colour209', money: 'colour75', running: 'colour250', idle: 'colour242' } };
+// Claude 한도 칸의 색: 80% 이상은 대기와 같은 주의색, 95% 이상은 멈춤과 같은 경고색, 그 아래는 작업 중과 같은 회색.
+const limitFg = (c, pct) => ({ warn: c.stopped, caution: c.waiting, ok: c.running })[pctLevel(pct)];
+
+// Claude 한도 칸 (#332): 5h23% 7d41%, 폭이 모자라면 5h23% (5시간 값이 없으면 7d41% 만). 색은 둘 중 높은 값으로 정한다.
+function limitPart(limits, c) {
+  const five = limits?.fiveHour ? `5h${pctText(limits.fiveHour.pct)}` : null;
+  const week = limits?.sevenDay ? `7d${pctText(limits.sevenDay.pct)}` : null;
+  if (!five && !week) return null;
+  const texts = five && week ? [`${five} ${week}`, five] : [five ?? week];
+  return { texts, fg: limitFg(c, Math.max(limits.fiveHour?.pct ?? 0, limits.sevenDay?.pct ?? 0)) };
+}
 
 // --line, --line=plain|tmux, --line-width <N>, --line-width=<N> 를 꺼낸다. line 은 켜지 않았으면 null.
 export function lineOption(argv) {
@@ -88,10 +100,11 @@ function waitTexts(waiting, longest, now) {
 
 // 값: today(오늘 비용, API 정가 환산), budgetDay(하루 예산, 없으면 null), waiting(응답 대기 수),
 // longest(가장 오래 기다린 세션 { name, since }, 모르면 null), stopped(오류로 멈춘 세션 수, 시간 안에 다 세지 못했으면 null), running(작업 중 수, 요약이 없거나 오래됐으면 null), perHour(최근 1시간 지출).
+// limits(freshLimits 결과, 없으면 null)가 있으면 맨 끝에 Claude 한도 칸을 붙인다 (폭이 모자라면 가장 먼저 줄이고 뺀다).
 // 0 인 항목은 뺀다. 오늘 비용이 0 이어도 예산이 있으면 $0.00/$50 으로 보인다.
 // width 를 넘으면 뒤 항목부터 줄인다: 시간당 지출, 작업 중, 멈춤 수, 대기 세션 이름, 대기 수, 오늘 비용 차례.
 // mode 가 tmux 이고 noColor 가 아니면 항목마다 tmux 서식을 씌운다. tmux 모드에서는 이름 속 # 을 ## 로 바꿔 서식으로 읽히지 않게 한다.
-export function formatLine({ today = 0, budgetDay = null, waiting = 0, longest = null, stopped = 0, running = null, perHour = 0 } = {}, { mode = 'plain', noColor = false, width: max = DEFAULT_WIDTH, colorBlind = false, now = Date.now() } = {}) {
+export function formatLine({ today = 0, budgetDay = null, waiting = 0, longest = null, stopped = 0, running = null, perHour = 0, limits = null } = {}, { mode = 'plain', noColor = false, width: max = DEFAULT_WIDTH, colorBlind = false, now = Date.now() } = {}) {
   const c = COLOURS[colorBlind ? 'colorBlind' : 'normal'];
   // texts: 긴 글부터. 폭이 모자라면 다음 글로 줄이고, 마지막 글도 넘으면 항목을 뺀다.
   const parts = [];
@@ -103,6 +116,9 @@ export function formatLine({ today = 0, budgetDay = null, waiting = 0, longest =
   if (!zero(perHour)) parts.push({ texts: [`${rate(perHour)}/h`], fg: c.money });
   // 보일 항목이 하나도 없으면 빈 줄 대신 IDLE 을 낸다 (고장과 구분되게). 폭이 모자라면 짧은 글, 그래도 모자라면 - (#292).
   if (!parts.length) parts.push({ texts: [IDLE, 'idle', '-'], fg: c.idle });
+  // 한도 칸은 IDLE 판단 뒤에 붙인다 (한도만 있으면 aitop idle 5h23% 처럼 보인다).
+  const lim = limitPart(limits, c);
+  if (lim) parts.push(lim);
   while (parts.length && width(parts.map((p) => p.texts[0]).join(' ')) > max) {
     if (parts.at(-1).texts.length > 1) parts.at(-1).texts.shift();
     else parts.pop();
@@ -144,5 +160,5 @@ export async function collectLine({ capMs = CAP_MS, now = Date.now() } = {}) {
   // 기록 끝 읽기도 장부와 같은 시간 상한 안에 둔다. 장부가 상한을 거의 다 쓴 경우에도 세어 볼 수 있게 최소 STOP_MIN_MS 는 준다.
   // 그래도 다 세지 못하면 stopped 는 null 이고 줄에서 멈춤 칸만 빠진다.
   const { waiting, stopped } = claudeLineCounts({ deadline: Math.max(budget.deadline, Date.now() + STOP_MIN_MS) });
-  return { today: usage.today.cost, ...pickCounts(readSummary({ now }), waiting), stopped, perHour: usage.lastHour.cost };
+  return { today: usage.today.cost, ...pickCounts(readSummary({ now }), waiting), stopped, perHour: usage.lastHour.cost, limits: freshLimits(loadLimits(), now) };
 }

@@ -66,6 +66,11 @@ const HELP_KO = `{logo} aitop - 터미널에서 Claude Code · Codex · Antigrav
                    --line=tmux 는 tmux 색 서식(#[fg=...])을 넣는다. --line-width <N> 폭 상한(기본 40, 넘으면 뒤 항목부터 빼고 대기 세션 이름은 대기 수보다 먼저 뺀다)
                    캐시만 읽는다. 캐시가 없어 1.5초 안에 못 읽으면 ... 을 낸다. 작업 중 수와 Antigravity 의 대기 수는
                    1분 안에 aitop 화면·--once·--json 이 남긴 요약이 있을 때만 보인다
+                   Claude 한도(--statusline)가 저장돼 있으면 끝에 5h23% 7d41% 를 붙인다
+  aitop --statusline [-- <명령> [인자...]]
+                   Claude Code 상태줄(settings.json 의 statusLine.command)에 넣는다. 입력 JSON 에서 5시간·7일 한도(%·초기화 시각)만
+                   캐시 폴더의 claude-limits.json 에 저장하고, 화면 헤더·--json·--line 이 보인다 (Pro·Max·Ultra 만 값이 온다)
+                   -- 뒤 명령이 있으면 같은 입력을 넘겨 그 출력을 그대로 낸다 (2초 제한). 인자 하나에 공백이 있으면 셸로 실행한다
   aitop --json     세션 목록과 사용량 합계를 JSON 으로 한 번 출력한다 (--all 과 함께 쓸 수 있다)
                    세션마다 resumeCmd 에 그 세션을 이어 여는 명령을 넣는다 (예: cd /repo && claude --resume <id>, 없으면 null)
   aitop --remote dev,me@vm2,wsl:Ubuntu-22.04  SSH 원격과 WSL 배포판의 세션을 함께 본다. 각 원격에서 aitop --json --no-remote 를
@@ -131,6 +136,12 @@ const HELP_EN = `{logo} aitop - watch Claude Code, Codex, Antigravity and Gemini
                    --line=tmux adds tmux colors (#[fg=...]). --line-width <N> sets the max width (default 40, drops items from the end, the waiting name before its count)
                    Reads only the cache. With no cache it prints ... after 1.5 seconds. The running count and waiting Antigravity sessions
                    show only when the live screen, --once or --json left a summary in the last minute
+                   With Claude limits saved by --statusline, appends 5h23% 7d41% at the end
+  aitop --statusline [-- <command> [args...]]
+                   for the Claude Code status line (statusLine.command in settings.json). Saves only the 5-hour and 7-day limits
+                   (percent and reset time) from its JSON input to claude-limits.json in the cache folder, shown in the header, --json and --line
+                   (values come only on Pro, Max and Ultra). With a command after --, passes it the same input and prints its output (2s limit).
+                   A single argument with spaces runs through the shell
   aitop --json     print the session list and usage totals as JSON once (works with --all)
                    Each session has resumeCmd, the command that reopens it (e.g. cd /repo && claude --resume <id>, null if none)
   aitop --remote dev,me@vm2,wsl:Ubuntu-22.04  also show sessions on SSH hosts and WSL distros. Runs aitop --json --no-remote on each one
@@ -415,6 +426,10 @@ export const STRINGS = {
     'doctor.debugOff': '꺼짐',
     'doctor.debugTail': ' · --debug 로 켬',
     'doctor.remotes': '{mark} 원격   {list} (점검에서는 접속하지 않는다)',
+    'doctor.limitsOn': '✓ Claude 한도  상태줄 연결됨 · 마지막 갱신 {ago} 전{tail}',
+    'doctor.limitsOff': '○ Claude 한도  상태줄 연결 안 됨',
+    'doctor.limitsHint': 'Claude Code settings.json 의 statusLine.command 에 aitop --statusline 을 넣으면 5시간·7일 한도가 보인다 (Pro·Max·Ultra, README)',
+    'doctor.limitsNow': ' · 5시간 {five} · 7일 {week}',
 
     // 상태 문구 (phaseText 가 phase.msg ?? phase.kind 로 고른다). --json 의 phase 는 늘 이 한국어 표로 만든다.
     'phase.ended': '종료',
@@ -649,6 +664,7 @@ export const STRINGS = {
     'hopt.colorBlind': '적록 색약용 색 (대기·돈·경고를 노랑·파랑 계열로)',
     'hopt.debug': '디버그 로그를 남긴다',
     'hopt.line': '오늘 비용·대기·작업 중 수·시간당 지출 한 줄 (tmux 상태줄용)',
+    'hopt.statusline': 'Claude Code 상태줄에 넣어 5시간·7일 한도를 저장',
     'hopt.printConfig': '설정 값과 출처, 설정 파일 위치',
     'hopt.ambiguous': '·→─● 를 2칸으로 그리는 터미널용 (1칸 기호로)',
     'set.budget': '예산 {v}',
@@ -656,6 +672,9 @@ export const STRINGS = {
     'set.notify': '알림 {v}',
     'set.onWaiting': '대기 명령 있음',
     'set.debug': '디버그 {v}',
+    'set.limits': 'Claude 한도 {v}',
+    'set.limitsOn': '상태줄 연결됨 ({ago} 전 갱신)',
+    'set.limitsOff': '상태줄 연결 안 됨',
     'set.on': '켜짐',
     'set.off': '꺼짐',
 
@@ -965,6 +984,10 @@ export const STRINGS = {
     'doctor.debugOff': 'off',
     'doctor.debugTail': ' · turn on with --debug',
     'doctor.remotes': '{mark} remote   {list} (not contacted by the check)',
+    'doctor.limitsOn': '✓ Claude limits  status line connected · last update {ago} ago{tail}',
+    'doctor.limitsOff': '○ Claude limits  status line not connected',
+    'doctor.limitsHint': 'put aitop --statusline in statusLine.command of Claude Code settings.json to see 5-hour and 7-day limits (Pro, Max, Ultra; see README)',
+    'doctor.limitsNow': ' · 5h {five} · 7d {week}',
 
     'phase.ended': 'Ended',
     'phase.done': 'Done',
@@ -1189,6 +1212,7 @@ export const STRINGS = {
     'hopt.colorBlind': 'Red-green color blind palette',
     'hopt.debug': 'Write a debug log',
     'hopt.line': 'One line for the tmux status bar',
+    'hopt.statusline': 'In the Claude Code status line, saves 5-hour and 7-day limits',
     'hopt.printConfig': 'Settings, sources, config path',
     'hopt.ambiguous': 'For 2 column ·→─● terminals',
     'set.budget': 'budget {v}',
@@ -1196,6 +1220,9 @@ export const STRINGS = {
     'set.notify': 'notify {v}',
     'set.onWaiting': 'on-waiting set',
     'set.debug': 'debug {v}',
+    'set.limits': 'Claude limits {v}',
+    'set.limitsOn': 'status line connected (updated {ago} ago)',
+    'set.limitsOff': 'status line not connected',
     'set.on': 'on',
     'set.off': 'off',
 

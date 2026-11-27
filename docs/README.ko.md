@@ -648,6 +648,7 @@ set -g status-interval 15
 - 오류로 멈춘 Claude Code 세션 수 (`stop 1`, 기록 끝에서 바로 센다).
 - 작업 중 세션 수 (`run 3`).
 - 최근 1시간 지출 (`$3.1/h`).
+- [`--statusline`](#claude-사용-한도) 이 저장한 Claude 한도가 있으면 끝에 `5h23% 7d41%`.
 - 보일 항목이 하나도 없으면 빈 줄 대신 `aitop idle` 을 낸다 (고장과 구분된다). `--line-width` 가 아주 좁으면 `idle`, 그보다 좁으면 `-`.
 
 **옵션**
@@ -706,6 +707,38 @@ set -g status-interval 15
 - 60초보다 오래된 요약은 쓰지 않고 `run` 과 Antigravity 대기 수·이름을 뺀다 (틀린 수를 보이지 않게).
 
 </details>
+
+## Claude 사용 한도
+
+Claude 의 5시간·7일 사용 한도를 얼마나 썼는지 네트워크 없이 본다.
+
+Claude Code 는 이 값을 상태줄 명령의 입력으로만 주고 기록 파일에는 남기지 않는다. 그래서 사용자가 직접 `~/.claude/settings.json` 의 상태줄에 `aitop --statusline` 을 넣는다.
+
+```json
+{ "statusLine": { "type": "command", "command": "aitop --statusline" } }
+```
+
+그러면 `5h 24% (2h10m) | 7d 41%` 같은 짧은 줄이 보인다. 쓰던 상태줄이 있으면 그 명령을 `--` 뒤에 둔다.
+
+```json
+{ "statusLine": { "type": "command", "command": "aitop --statusline -- npx -y ccstatusline" } }
+```
+
+- aitop 은 같은 입력을 그 명령에 넘기고, 그 출력과 종료 코드를 그대로 낸다 (2초 제한).
+- `--` 뒤 낱말들은 셸 없이 인자 배열로 실행한다. 공백이 든 인자 하나(`aitop --statusline -- "my-status --short"`)는 셸(`/bin/sh`, Windows 는 `cmd.exe`)로 실행한다. Windows 에서 바로 실행할 수 없는 명령(`npx.cmd` 같은)은 `cmd.exe` 로 한 번 더 해 본다.
+
+**보이는 곳**
+
+- 헤더의 `claude` 옆: `5h 23% · 7d 41%`. 80% 이상은 주의색, 95% 이상은 경고색. 화면이 좁으면 먼저 접힌다.
+- `--json` 의 `limits.claude` (아래), `--line` 끝의 `5h23% 7d41%`.
+- `--doctor` 와 `?` 도움말: 상태줄 연결 여부와 마지막 갱신 시각.
+
+**저장하는 값**
+
+- `rate_limits.five_hour`·`seven_day`·`spend_limit` 의 사용 % 와 초기화 시각만. 모델·폴더·세션 id·비용은 저장하지 않는다.
+- 파일은 aitop 캐시 폴더의 `claude-limits.json` (`summary.json` 옆, 권한 0600). 값이 바뀔 때마다 통째로 바꾸고, 어디에도 보내지 않는다.
+- 초기화 시각이 지난 창은 숨기고, 7일 동안 새로 저장되지 않으면 모두 숨긴다.
+- 값은 claude.ai Pro·Max·Ultra 요금제(또는 지출 한도를 둔 Claude apps 게이트웨이)에서만, 세션의 첫 응답 뒤에만 온다. 그 전에는 파일을 그대로 둔다.
 
 ## 기록 폴더 여러 개
 
@@ -911,6 +944,7 @@ Claude Desktop 의 에이전트 모드(Cowork) 세션도 표에 보인다. TOOL 
 - `stopReason`: `stopped` 일 때 이유를 준다 (`{ "kind": "auth" }` 로그인 필요, `network` 연결 끊김, `api` 그 밖의 API 오류). 아니면 `null`.
 - `--doctor --json` 에는 `version` 과 같은 점검 결과 `tools` 가 들어 있다.
 - 최상위 `schema` 는 JSON 모양 버전(지금 `1`)이다. 있던 필드의 뜻이나 모양이 바뀔 때만 올린다.
+- `limits.claude`: [`--statusline`](#claude-사용-한도) 이 저장한 Claude 한도. `{ fiveHour: { usedPercent, resetsAt }, sevenDay, spend?, at }` (시각은 ISO), 없으면 `null`. `--doctor --json` 에는 `limits: { connected, at, file, fiveHour, sevenDay }`.
 - [`--remote`](#원격-호스트와-wsl-배포판) 를 켜면 세션마다 `host` (로컬은 `null`) 와 `remoteId` (그 원격에서의 id, `id` 는 `<host>:<id>`), 최상위 `remotes` 에 원격마다 `{ name, kind, ok, error, version, schema, at }` 이 들어간다 (끄면 `[]`). `usage` 는 로컬만.
 
 <details>
