@@ -167,7 +167,8 @@ function gather({ budget, now, days = DAYS }) {
   for (const [tool, o] of others) {
     pending += o.pending;
     size += o.size;
-    books.push(...o.days.map((d, i) => ({ tool, path: o.paths[i], days: d, ...(o.stale?.[i] ? { staleFrom: o.stale[i] } : {}) })));
+    // cwd: 장부가 읽으면서 기억한 작업 폴더 (Codex 압축 기록의 프로젝트를 찾을 때 쓴다, projects.mjs).
+    books.push(...o.days.map((d, i) => ({ tool, path: o.paths[i], days: d, ...(o.stale?.[i] ? { staleFrom: o.stale[i] } : {}), ...(o.cwds?.[i] ? { cwd: o.cwds[i] } : {}) })));
     slots.push(...o.slots);
   }
   return { books, slots, pending, size };

@@ -2,6 +2,7 @@
 // 화면 갱신과 키 입력이 멈추지 않게 한다. 원본은 읽기 전용으로만 연다.
 import { openSync, readSync, closeSync, statSync } from 'node:fs';
 import { debug, debugIo } from './log.mjs';
+import { isZst, inflateZst } from './zstd.mjs';
 
 const CHUNK = 1 << 20;
 const NL = 0x0a;
@@ -25,6 +26,13 @@ export class JsonlTail {
     this.restLength = 0;
     this.mtimeMs = 0;
     this.size = 0;
+    // Codex 압축 기록(.jsonl.zst, zstd.mjs): 통째로 풀어 한 번에 읽는다. offset 은 압축 파일 크기까지 읽었는지만 뜻한다.
+    this.zst = isZst(path);
+    // 압축 기록을 다 읽었을 때의 수정 시각 (같은 크기로 바뀐 것을 알아채려고). 캐시에서 이어 읽으면 모른다(null).
+    this.zstMtime = null;
+    // 압축 기록을 읽지 못한 까닭 ('nozstd' | 'toolarge' | 'error') 과 그때의 크기·수정 시각. 바뀌기 전에는 다시 풀지 않는다.
+    this.skipped = null;
+    this.skipSig = null;
   }
 
   // 완성된 줄까지 읽은 위치. 캐시에 저장해 두고 다음 실행에서 여기서부터 읽는다.
@@ -51,6 +59,7 @@ export class JsonlTail {
     }
     this.mtimeMs = st.mtimeMs;
     this.size = st.size;
+    if (this.zst) return this.readZst(onLine, budget, st);
     // 파일이 줄었으면(새로 쓰임) 처음부터 다시 읽는다. 누적값을 들고 있는 쪽은 onReset 에서 비워야 두 번 더하지 않는다.
     if (st.size < this.offset) {
       this.offset = 0;
@@ -113,5 +122,65 @@ export class JsonlTail {
       closeSync(fd);
     }
     return count;
+  }
+
+  // 압축 기록은 뒤에 붙지 않으므로 크기·수정 시각이 바뀌면 처음부터 다시 읽는다. 해제는 나눌 수 없어 통째로 한다.
+  // 한도가 있는 갱신(실시간 화면)에서는 한 budget 에 압축 기록 하나만 풀어 갱신이 오래 멈추지 않게 한다. 한도가 없으면 다 푼다.
+  readZst(onLine, budget, st) {
+    const sig = `${st.size}:${st.mtimeMs}`;
+    if (this.offset === st.size && (this.zstMtime === null || this.zstMtime === st.mtimeMs)) return 0;
+    if (this.skipSig === sig) {
+      // 읽지 못한 기록은 읽을 것이 없는 것으로 보인다 (진행률·남은 크기가 멈춰 있지 않게).
+      this.size = this.offset;
+      return 0;
+    }
+    if (this.offset > 0) {
+      this.offset = 0;
+      this.zstMtime = null;
+      this.onReset?.();
+    }
+    const limited = Number.isFinite(budget.left) || Number.isFinite(budget.deadline ?? Infinity);
+    if (outOf(budget) || (limited && budget.zst)) {
+      budget.exhausted = true;
+      return 0;
+    }
+    if (limited) budget.zst = true;
+    const got = inflateZst(this.path);
+    if (!got.data) {
+      this.skipped = got.skip;
+      this.skipSig = sig;
+      this.size = this.offset;
+      return 0;
+    }
+    this.skipped = null;
+    this.skipSig = null;
+    const data = got.data;
+    budget.left -= data.length;
+    budget.read = (budget.read ?? 0) + data.length;
+    let count = 0;
+    for (let s = 0; s < data.length; ) {
+      let e = data.indexOf(NL, s);
+      if (e < 0) e = data.length;
+      if (e > s) {
+        let x;
+        try {
+          x = JSON.parse(data.toString('utf8', s, e));
+        } catch (err) {
+          debug('jsonl', 'line parse failed', err, this.path);
+          x = null;
+        }
+        if (x) {
+          onLine(x, s, e - s);
+          count++;
+        }
+      }
+      s = e + 1;
+    }
+    this.offset = st.size;
+    this.rest = [];
+    this.restLength = 0;
+    this.zstMtime = st.mtimeMs;
+    // 줄이 하나도 없어도 다 읽었다는 것을 캐시에 남기도록 1 이상을 돌려준다.
+    return Math.max(count, 1);
   }
 }
