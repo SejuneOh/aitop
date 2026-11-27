@@ -241,6 +241,7 @@ Every session that used tokens in the period, highest cost first, for standups.
 - Start and end of activity within the period.
 - Time the agent waited for you (see below).
 - Tokens.
+- Cache: prompt cache hit rate, cache reads / (input + cache reads + cache writes), subagents included (`-` when unknown). The detail panel shows the same number next to the token total, and `--json` has `cacheHitRate` (0 to 1, `null` when unknown) per session in both `aitop --json` and the session report.
 - Cost (API list price). Unpriced models are left out, not guessed, and `--json` marks them with `unpriced`.
 - Files changed (`-` when unknown, always for agy).
 - Claude subagents are counted in their parent session.
