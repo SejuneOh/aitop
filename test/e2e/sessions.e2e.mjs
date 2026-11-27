@@ -41,11 +41,11 @@ test('--report sessions: 요약 카드와 세션 줄, 비용 큰 순, 지시 글
   assert.match(r.stdout, /Total \$[\d.]+ \(API list price\) · 3\.3M tokens · 2 sessions/);
   assert.match(r.stdout, /Cost share by tool: claude 100%/);
   assert.match(r.stdout, /Agents waited for you 2m52s \(estimate\)/);
-  assert.match(r.stdout, /^Tool +Model +Project +Session +Start +End +Waited +Tokens +Cost +Files$/m);
+  assert.match(r.stdout, /^Tool +Model +Project +Session +Start +End +Waited +Tokens +Cache +Cost +Files$/m);
   const rows = r.stdout.split('\n').filter((l) => l.startsWith('claude '));
   assert.equal(rows.length, 2);
-  assert.match(rows[0], /standup demo .* 2\.0M +\$[\d.]+ +1$/);
-  assert.match(rows[1], /-work-demo .* 1\.3M +\$[\d.]+ +0$/);
+  assert.match(rows[0], /standup demo .* 2\.0M +(\d+%|-) +\$[\d.]+ +1$/);
+  assert.match(rows[1], /-work-demo .* 1\.3M +(\d+%|-) +\$[\d.]+ +0$/);
   assert.doesNotMatch(r.stdout, /비밀스러운/);
   assert.match(run(['--report', 'sessions', '--show-prompts'], { XDG_CACHE_HOME: cache, ...EN }).stdout, /비밀스러운 첫 지시 \| 표 깨기/);
   const ko = run(['--report', 'sessions', '--since', 'today', '--plan', '200'], { XDG_CACHE_HOME: cache, AITOP_LANG: 'ko' }).stdout;
@@ -58,7 +58,7 @@ test('--report sessions --md: 붙여 넣을 Markdown, 칸 안의 | 는 이스케
   const md = run(['--report', 'sessions', '--md', '--show-prompts'], EN).stdout;
   const lines = md.split('\n');
   assert.match(lines[0], /^\*\*Sessions, /);
-  assert.ok(lines.includes('| Tool | Model | Project | Session | Start | End | Waited | Tokens | Cost | Files | First prompt |'));
+  assert.ok(lines.includes('| Tool | Model | Project | Session | Start | End | Waited | Tokens | Cache | Cost | Files | First prompt |'));
   assert.ok(lines.some((l) => l.includes('비밀스러운 첫 지시 \\| 표 깨기')));
   const cells = (l) => l.replace(/\\\|/g, '').split('|').length;
   assert.equal(new Set(lines.filter((l) => l.startsWith('|')).map(cells)).size, 1);

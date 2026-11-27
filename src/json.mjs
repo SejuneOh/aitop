@@ -2,7 +2,7 @@ import { projectBudget } from './budget.mjs';
 import { toolsJson } from './doctor.mjs';
 import { phaseText } from './i18n.mjs';
 import { resumeCmd } from './resume.mjs';
-import { memberStalled } from './sources/common.mjs';
+import { cacheHitRate, hitJson, memberStalled } from './sources/common.mjs';
 import { artifactLink } from './sources/artifacts.mjs';
 
 // aitop --json 출력. 다른 스크립트나 AI 가 읽기 쉬운 모양으로 세션 목록과 사용량 합계를 담는다.
@@ -80,6 +80,8 @@ export function toJson(data, version = null, opts = {}) {
       startedAt: iso(s.startedAt),
       updatedAt: iso(s.updatedAt),
       tokens: pickTokens(s.tokens),
+      // 프롬프트 캐시 적중률 (#334): 캐시 읽기 / (입력 + 캐시 읽기 + 캐시 쓰기), 메인과 서브에이전트 합. 0~1, 소수 셋째 자리. 토큰 내역을 모르면 null.
+      cacheHitRate: hitJson(cacheHitRate(s.tokens)),
       cost: money(s.cost),
       costNoCache: money(s.costNoCache),
       costUnknown: Boolean(s.costUnknown),
