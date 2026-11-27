@@ -240,8 +240,8 @@ AI 코딩 에이전트를 위한 `top`. 내 PC 의 Claude Code · Codex CLI · A
 
 **Claude**
 
-- 값은 Anthropic 공식 가격표(https://platform.claude.com/docs/en/about-claude/pricing, 2026-11-18 확인) 기준이다.
-- Haiku 5.5 의 10만 토큰 초과 요청 단가는 반영하지 않고 기본 단가로 계산한다.
+- 값은 Anthropic 공식 가격표(https://platform.claude.com/docs/en/about-claude/pricing, 2026-11-27 확인) 기준이다.
+- Haiku 5.5 는 프롬프트(입력 + 캐시 읽기 + 캐시 쓰기)가 10만 토큰을 넘는 요청을 그 요청 전체 긴 프롬프트 단가($0.50/$2.50)로 계산한다. 요청마다 따로 판정한다.
 - 모델 이름이 표와 똑같을 때만 가격을 매긴다.
 - 끝의 날짜(`-20250514`, Vertex 의 `@20250514`)와 `-latest`, Bedrock 의 앞 `anthropic.`·`global.anthropic.` 등과 끝 `-v1:0`, Claude Code 의 `[1m]` 은 떼고 본다.
 - 공식 별칭 `claude-opus-4-0`·`claude-sonnet-4-0` 은 `claude-opus-4`·`claude-sonnet-4` 로 본다.
@@ -261,9 +261,9 @@ AI 코딩 에이전트를 위한 `top`. 내 PC 의 Claude Code · Codex CLI · A
 
 **Antigravity CLI**
 
-- Google 공식 Gemini API 가격표(유료 등급 standard, https://aistudio.google.com/docs/pricing, 2026-11-18 확인)로 호출마다 그 호출 시각의 가격으로 환산한다.
-- gemini-4-argon 은 2026-12-01 부터, gemini-3.8-flash·gemini-3.6-flash 는 2027-01-01 부터 두 배 가격이다 (UTC 기준).
-- gemini-4-hydrogen, gemini-3.5-flash-lite, gemini-3.1-flash-lite 도 표에 있다.
+- Google 공식 Gemini API 가격표(유료 등급 standard, https://ai.google.dev/gemini-api/docs/pricing, 2026-11-27 확인)로 호출마다 그 호출 시각의 가격으로 환산한다.
+- gemini-4-argon·gemini-4-carbon 은 2026-12-01 부터, gemini-3.8-flash·gemini-3.6-flash 는 2027-01-01 부터 두 배 가격이다 (UTC 기준).
+- gemini-4-hydrogen, gemini-4-neon, gemini-3.5-flash-lite, gemini-3.1-flash-lite 도 표에 있다.
 - 모델 이름이 표와 똑같을 때만 가격을 매기고, 그 밖의 모델(gemini-3.5-flash, gemini-3-flash-preview 등)은 추측하지 않고 비용에서 뺀다.
 
 **공통**
